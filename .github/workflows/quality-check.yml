@@ -1,0 +1,106 @@
+---
+name: CI
+on:
+  pull_request:
+  workflow_call:
+
+# Each job builds the same `source` stage of .development/Dockerfile and runs
+# one check inside it. Layers are shared via GHA cache (cache-from + cache-to
+# on every job) so the first job to finish warms the cache; the others pull
+# layers in seconds. Total wall clock ≈ max(individual jobs), not sum.
+#
+# When a check needs a different image (e.g. headless browser for E2E) split
+# it into its own job with its own target.
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build CI container
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .development/Dockerfile
+          target: source
+          tags: legiscode-ci:latest
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run typecheck
+        run: docker run --rm legiscode-ci:latest pnpm exec tsc --noEmit
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build CI container
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .development/Dockerfile
+          target: source
+          tags: legiscode-ci:latest
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run lint
+        run: docker run --rm legiscode-ci:latest pnpm exec biome lint .
+
+  format-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build CI container
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .development/Dockerfile
+          target: source
+          tags: legiscode-ci:latest
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run format check
+        run: docker run --rm legiscode-ci:latest pnpm exec biome format .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build CI container
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .development/Dockerfile
+          target: source
+          tags: legiscode-ci:latest
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run tests
+        run: docker run --rm legiscode-ci:latest pnpm exec vitest run
