@@ -1,0 +1,33 @@
+[tools]
+node = "25"
+pnpm = "10.33.2"
+
+[tasks.typecheck]
+description = "TypeScript typecheck (no emit)"
+run = "pnpm exec tsc --noEmit"
+sources = ["src/**/*.ts", "test/**/*.ts", "tsconfig.json", "package.json"]
+
+[tasks.lint]
+description = "Lint with biome"
+run = "pnpm exec biome lint ."
+sources = ["src/**/*.ts", "test/**/*.ts", "biome.json"]
+
+[tasks.format]
+description = "Format with biome (write)"
+run = "pnpm exec biome format --write ."
+
+[tasks."format:check"]
+description = "Check formatting without writing"
+run = "pnpm exec biome format ."
+sources = ["src/**/*.ts", "test/**/*.ts", "biome.json"]
+
+[tasks.test]
+description = "Run vitest test suite"
+run = "pnpm exec vitest run"
+sources = ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+
+[tasks.build]
+description = "Compile src/ to dist/ via tsc (emits .js + .d.ts + sourcemaps)"
+run = "pnpm exec tsc --project tsconfig.build.json"
+sources = ["src/**/*.ts", "tsconfig.json", "tsconfig.build.json", "package.json"]
+outputs = ["dist/**/*"]

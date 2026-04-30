@@ -37,3 +37,16 @@ Temporary Items
 # End of https://www.toptal.com/developers/gitignore/api/macos
 
 .claude
+
+### Project ###
+node_modules/
+dist/
+coverage/
+
+# Generated corpus output (parser writes here; gitignored to keep clones small).
+# Provenance: corpus is *generated* from AmLegal HTML by `feat/corpus-parser`.
+# Committed corpus fixtures live in `test/fixtures/sf-muni-code/` (parser branch),
+# so reproducibility is preserved without bloating the repo.
+data/sf-muni-code/
+data/amlegal-snapshots/
+corpus.new/

@@ -1,0 +1,26 @@
+# Standard ignores — keep the build context small and reproducible.
+
+**/node_modules
+**/dist
+**/coverage
+
+**/.git
+**/.github
+**/.vscode
+**/.idea
+**/.DS_Store
+
+# Local-only files that shouldn't influence the image.
+# (mise.toml IS copied — it's the source of truth for Node + pnpm versions
+# inside the build container as well as locally.)
+Makefile
+README.md
+LICENSE
+docs/
+TODOS.md
+DESIGN.md
+CLAUDE.md
+.claude/
+
+# Don't bake the gstack metadata directory if anyone ever stages it.
+.gstack/

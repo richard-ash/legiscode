@@ -1,0 +1,32 @@
+---
+name: Package
+on:
+  workflow_call:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build dist
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .development/Dockerfile
+          target: dist
+          outputs: type=local,dest=./dist
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ github.sha }}
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
