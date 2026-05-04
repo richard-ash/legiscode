@@ -50,3 +50,7 @@ coverage/
 data/sf-muni-code/
 data/amlegal-snapshots/
 corpus.new/
+.gstack/
+
+# Local agent state (codex session IDs, etc.) — never committed.
+.context/
