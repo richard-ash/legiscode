@@ -62,3 +62,45 @@ Modules are versioned independently (`sf-municipal@2026.04`, `ca-vehicle@2025.12
 - **Owner:** `feat/build-pipeline`.
 
 ---
+
+## `amlegal-base` vs `sf-amlegal` parser split
+
+`feat/corpus-parser`'s parser-correctness PR added jurisdiction-agnostic logic (the editorial-chrome classifier works for any AmLegal HTML) and SF-specific logic (`Note\d+`/`-\d+` JD-anchor suffix stripping; SF Charter's appendix conventions; sf-planning's map-sheet headers). They live mixed in `src/parser/parse-html.ts` because the right split is speculative until parser #2 surfaces a different convention.
+
+- **What:** Extract jurisdiction-specific code paths from `src/parser/parse-html.ts` into `src/parser/sf-amlegal/`, leaving the generic `src/parser/amlegal-base/` as the shared substrate. The `parser_strategy` field in `JurisdictionManifest` already routes to the right parser; this just makes the routing real.
+- **Why:** Every SF-specific pattern added to `parse-html.ts` is one we'll have to extract later. Cost grows linearly. Resolve before parser #2 arrives.
+- **Pros:** Clean inheritance/composition for future jurisdiction parsers; the deep-module promise stays honored. Makes parser #2 a 1-week project instead of a 1-month archaeology dig.
+- **Cons:** Speculative until parser #2 has real requirements. Done too early, the seams are wrong; the right split is obvious in hindsight after seeing one alternative jurisdiction's HTML.
+- **Context:** Surfaced by `feat/corpus-parser` /plan-eng-review on `feat-corpus-parser` (2026-05-04). Deliberately deferred — extracting before a second jurisdiction is in hand picks the wrong seams.
+- **Depends on / Blocked by:** Real parser #2 candidate (LA Municipal? NYC?). Don't extract until at least one alternative jurisdiction's HTML is in hand.
+- **Owner:** `feat/jurisdiction-2` (whichever branch picks up the second jurisdiction).
+
+---
+
+## Wire `InterCodeLink` graph + `UnresolvedInterCodeLinkWarning` through `@/corpus`
+
+Code comments in `src/parser/parse-html.ts` and `src/parser/references.ts` reference an `InterCodeLink` graph and an `UnresolvedInterCodeLinkWarning` that aren't yet implemented through the pipeline. Cross-module citation resolution is the runtime feature this enables.
+
+- **What:** Implement the `InterCodeLink` aggregation in `@/corpus`'s pipeline (after parseExport, before validateCorpus); surface `UnresolvedInterCodeLinkWarning` entries to `BuildResult.citations.unresolvedCross[]`. Already-built scaffolding in `parse-html.ts:849-895` extracts `InterCodeLink` data; this just wires it through.
+- **Why:** Cross-module citation reporting is a published surface (`BuildResult.citations.unresolvedCross`) but the wiring through pipeline isn't built. Without it, the field exists but is always empty.
+- **Pros:** Closes the loop on the corpus-level cross-module reporting promise. Required before `feat/citation-resolution` can do anything useful with cross-module links.
+- **Cons:** None — the data extraction is already there, only wiring is missing.
+- **Context:** Surfaced by `feat/corpus-parser` /plan-eng-review (2026-05-04). Mentioned in code comments since round-12 of the original parser PR; punted out of the correctness PR to keep scope tight.
+- **Depends on / Blocked by:** Nothing — `validateCorpus` already lives in `@/parser` and is wired through `@/corpus`.
+- **Owner:** `feat/citation-resolution` or whichever branch ships first cross-module feature.
+
+---
+
+## Multi-producer `@/corpus` interface (queue-shaped)
+
+`feat/corpus-parser`'s parser-correctness PR adds `@/corpus.buildCorpus(opts) → BuildResult` with errors-as-data and JSON-serializable types. Today the only producer is the CLI. When a second producer materializes (cron, HTTP endpoint, in-process worker), the existing shapes are ready; this TODO is the explicit reminder not to redesign them when that day comes.
+
+- **What:** When a second producer needs to invoke `buildCorpus` programmatically, add the serialization layer (e.g., `BuildCorpusRequest` JSON schema, queue adapter, worker wrapper) WITHOUT changing the existing `buildCorpus(opts) → BuildResult` worker signature. The worker is reusable as-is; only the dispatch layer is producer-specific.
+- **Why:** Spending innovation tokens on a queue-shaped abstraction when one producer exists was correctly rejected during /plan-eng-review (2026-05-04). This TODO captures that the path is already clear when the need arrives.
+- **Pros:** Avoids re-litigating the architecture when a second producer arrives. The worker boundary is already correct.
+- **Cons:** Premature speculation if it never arrives — but the cost of the TODO itself is zero.
+- **Context:** Surfaced by `feat/corpus-parser` /plan-eng-review (2026-05-04). Plan's Open Decisions section explicitly defers the multi-producer abstraction with this TODO as the placeholder.
+- **Depends on / Blocked by:** A real second producer with real requirements (cron-refresh? HTTP API? Oban worker?). Don't speculate the schema until it exists.
+- **Owner:** `feat/build-pipeline` (cron is the most likely first second-producer).
+
+---
