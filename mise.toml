@@ -2,6 +2,9 @@
 node = "24"
 pnpm = "10.33.2"
 
+[tasks."corpus:build"]
+description = "Build a jurisdiction module from manifest input. Usage: mise run corpus:build -- --module sf-transportation --source manifests/sf-transportation/manifest.json --output build/modules/sf-transportation/"
+run = "pnpm exec tsx scripts/sync-corpus.ts"
 [tasks.typecheck]
 description = "TypeScript typecheck (no emit)"
 run = "pnpm exec tsc --noEmit"
