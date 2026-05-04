@@ -1,5 +1,5 @@
 [tools]
-node = "25"
+node = "24"
 pnpm = "10.33.2"
 
 [tasks.typecheck]

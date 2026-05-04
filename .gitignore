@@ -43,12 +43,18 @@ node_modules/
 dist/
 coverage/
 
-# Generated corpus output (parser writes here; gitignored to keep clones small).
-# Provenance: corpus is *generated* from AmLegal HTML by `feat/corpus-parser`.
-# Committed corpus fixtures live in `test/fixtures/sf-muni-code/` (parser branch),
-# so reproducibility is preserved without bloating the repo.
-data/sf-muni-code/
+# Module build output. `mise run corpus:build` writes here; never commit
+# generated modules — committed fixtures in test/fixtures/ are the
+# reproducibility surface. See feat/corpus-parser plan. Anchored to repo
+# root so `src/build/` (the @/build module) and `test/build/` (its tests)
+# are NOT excluded.
+/build/
+
+# Author-side dev cache for live AmLegal fetches (only used by scheduled
+# refresh job in feat/build-pipeline; tests are hermetic via committed
+# fixtures and never hit the network).
 data/amlegal-snapshots/
+
 corpus.new/
 .gstack/
 
