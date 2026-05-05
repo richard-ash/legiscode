@@ -50,6 +50,11 @@ coverage/
 # are NOT excluded.
 /build/
 
+# Electron build outputs. `electron-vite build` writes to /out/;
+# `electron-builder --dir` writes to /dist-electron/. Both are local-only.
+/out/
+/dist-electron/
+
 # Author-side dev cache for live AmLegal fetches (only used by scheduled
 # refresh job in feat/build-pipeline; tests are hermetic via committed
 # fixtures and never hit the network).
@@ -60,3 +65,9 @@ corpus.new/
 
 # Local agent state (codex session IDs, etc.) — never committed.
 .context/
+
+# Playwright artifacts — traces and reports are produced per-run; only the
+# config + test sources are committed.
+/test-results/
+/playwright-report/
+/.playwright/

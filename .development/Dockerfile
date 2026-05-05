@@ -38,22 +38,28 @@ COPY mise.toml ./
 RUN mise trust && mise install
 
 FROM base AS deps
+# Skip Electron's prebuilt binary download during `pnpm install`. CI only
+# typechecks/lints/tests/emits-lib — none of those need to launch Electron,
+# and the binary (~280MB unzipped) overflowed the GHA runner's disk budget
+# when stacked on top of the electronuserland/builder:wine base. The binary
+# is downloaded on demand by `mise run package` locally.
+ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
 COPY package.json pnpm-lock.yaml ./
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 
 FROM deps AS source
-COPY tsconfig.json tsconfig.build.json biome.json vitest.config.ts ./
+COPY tsconfig.json tsconfig.build.json tsconfig.electron.json biome.json vitest.config.ts ./
 COPY src/ ./src/
+COPY electron/ ./electron/
 COPY scripts/ ./scripts/
 COPY test/ ./test/
 
 FROM source AS build
 RUN pnpm exec tsc --project tsconfig.build.json
-# Phase 1+ — when feat/electron-shell adds Electron, append something like:
-#   COPY electron/ ./electron/
-#   COPY electron-builder.yml ./
-#   RUN pnpm exec electron-builder --linux --win
+# feat/build-pipeline appends `pnpm exec electron-builder --linux --win` here
+# once signing + notarize + cross-platform matrix are in place. Until then,
+# `mise run package` produces unsigned --dir builds locally only.
 
 # Final extract stage: only the artifacts we want to ship.
 FROM scratch AS dist

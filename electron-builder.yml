@@ -1,0 +1,18 @@
+# Stub config for `electron-builder --dir` (unsigned dir build, local verification only).
+# Sign + notarize + publish + cross-platform matrix is owned by feat/build-pipeline.
+appId: app.legiscode.desktop
+productName: LegisCode
+directories:
+  output: dist-electron
+  buildResources: build
+files:
+  - out/**
+  - package.json
+  - "!**/*.{ts,tsx,map}"
+# Bundled SF Municipal corpus is copied to <resourcesPath>/corpus, which is
+# what electron/corpus-loader.ts:resolveCorpusPath() falls back to in packaged
+# builds. Without this, packaged launches boot into BootOverlay variant=corpus.
+extraResources:
+  - from: build/modules-full
+    to: corpus
+asar: true

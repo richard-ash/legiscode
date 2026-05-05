@@ -9,5 +9,13 @@
     "sourceMap": true
   },
   "include": ["src/**/*"],
-  "exclude": ["test/**/*", "**/*.test.ts"]
+  "exclude": [
+    "test/**/*",
+    "**/*.test.ts",
+    "src/app/**",
+    "src/ui/**",
+    "src/styles/**",
+    "src/theme-bootstrap.ts",
+    "src/index.html"
+  ]
 }

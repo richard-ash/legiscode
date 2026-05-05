@@ -34,7 +34,11 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Run typecheck
-        run: docker run --rm legiscode-ci:latest pnpm exec tsc --noEmit
+        # Mirrors `mise run typecheck` — default tsconfig covers src + test
+        # (renderer/lib), tsconfig.electron.json covers electron/ (main +
+        # preload entrypoints not transitively reachable from src).
+        run: |
+          docker run --rm legiscode-ci:latest sh -c "pnpm exec tsc --noEmit && pnpm exec tsc -p tsconfig.electron.json --noEmit"
 
   lint:
     runs-on: ubuntu-latest
