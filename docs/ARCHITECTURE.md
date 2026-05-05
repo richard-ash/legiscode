@@ -30,34 +30,77 @@ Concretely:
 ## Module map
 
 ```
-                  ┌─────────────────────────────────────────────┐
-                  │  scripts/sync-corpus.ts                     │
-                  │  CLI entry point — argv, exit codes, errors │
-                  └────────────┬────────────────────┬───────────┘
-                               │                    │
-                               ▼                    ▼
-                  ┌────────────────────┐  ┌─────────────────────┐
-                  │  @/parser          │  │  @/storage          │
-                  │                    │  │                     │
-                  │  parseExport(...)  │  │  writeModule(...)   │
-                  │    → ParsedModule  │  │  AtomicWriteError   │
-                  │  ParseAbortError   │  │  ExitCodes          │
-                  │                    │  │                     │
-                  │  (deep internals,  │  │  (deep internals,   │
-                  │   private)         │  │   private)          │
-                  └─────────┬──────────┘  └──────────┬──────────┘
-                            │                        │
-                            └──────────┬─────────────┘
+                  ┌──────────────────────────────────────────────┐
+                  │  scripts/sync-corpus.ts (truly thin)         │
+                  │  argv → buildCorpus(opts) → exit(exitCode)   │
+                  │  Owns: argv parse, --only validation,        │
+                  │  source.path resolve + sandbox check,        │
+                  │  BuildError → human-readable output          │
+                  └────────────────────┬─────────────────────────┘
+                                       │ BuildCorpusOptions
                                        ▼
-                           ┌──────────────────────┐
-                           │  @/types             │
-                           │                      │
-                           │  Zod schemas, types, │
-                           │  validators (pure)   │
-                           └──────────────────────┘
+                  ┌──────────────────────────────────────────────┐
+                  │  @/corpus  (orchestrator, deep module)      │
+                  │                                              │
+                  │  buildCorpus(opts) → BuildResult             │
+                  │  BuildError (8 typed kinds)                  │
+                  │  errorsToExitCode                            │
+                  │  ExitCodes (re-exported from @/storage)      │
+                  │                                              │
+                  │  Internal pipeline (private):                │
+                  │    1. read manifest                          │
+                  │    2. read source bytes + sha256             │
+                  │    3. @/parser.parseExport                   │
+                  │    4. validateCorpus (Phase 4 — placeholder) │
+                  │    5. purge outputDir + writeModule × N      │
+                  │    6. write corpus-level corpus-meta.json    │
+                  │    7. errorsToExitCode → BuildResult         │
+                  │                                              │
+                  │  Errors are data, not exceptions.            │
+                  └────────┬─────────────────────────┬───────────┘
+                           │                         │
+                           ▼                         ▼
+              ┌────────────────────┐     ┌─────────────────────┐
+              │ @/parser           │     │ @/storage           │
+              │                    │     │                     │
+              │  parseExport(...)  │     │  writeModule(...)   │
+              │    → ParsedModule  │     │  AtomicWriteError   │
+              │  ParseAbortError   │     │  ExitCodes          │
+              │                    │     │  writeJson          │
+              │  (deep internals,  │     │  (deep internals,   │
+              │   private)         │     │   private)          │
+              └─────────┬──────────┘     └──────────┬──────────┘
+                        │                           │
+                        └─────────────┬─────────────┘
+                                      ▼
+                          ┌──────────────────────┐
+                          │  @/types             │
+                          │                      │
+                          │  Zod schemas, types, │
+                          │  validators (pure)   │
+                          └──────────────────────┘
 ```
 
 ## Modules
+
+### `@/corpus` (orchestrator, deep module)
+
+**Public surface:**
+
+| Symbol | Purpose |
+|---|---|
+| `buildCorpus(opts)` | Entry point. Reads + validates the manifest, parses the source export, runs corpus-level gates, atomically writes per-module bundles, writes a corpus-level `corpus-meta.json`, returns a typed `BuildResult`. Never throws to its caller — every failure mode is one variant of `BuildError`. |
+| `BuildResult` | Carries `exitCode`, `modulesBuilt`, gate reports (`coverage`, `citations`, `skips`), `errors`, plus provenance (`sourceSha256`, `snapshotAt`, `durationMs`). |
+| `BuildError` | Discriminated union of every failure mode. Eight kinds today: `manifest_invalid`, `source_unreadable`, `parse_aborted`, `skip_gate_exceeded`, `toc_coverage_failed`, `citation_resolution_failed`, `atomic_write_failed`, `corpus_meta_write_failed`. New kinds add a variant + a row to `errorsToExitCode`. |
+| `errorsToExitCode(errors)` | Single source of truth for `BuildError.kind` → `ExitCode`. Exhaustive switch — adding a kind without a mapping is a compile error. |
+| `ExitCodes` / `ExitCode` | Re-exported from `@/storage` (where `AtomicWriteError` owns the canonical enum) so callers don't have to reach across modules. |
+
+**Private internals:**
+- `pipeline.ts` — the 7-step orchestration; reads manifest, computes SHA-256, parses, purges + writes modules, writes corpus-meta
+- `errors.ts` — kind → ExitCode mapping
+- `types.ts` — `BuildCorpusOptions`, `BuildResult`, `BuildError`, `CorpusBuildMeta`
+
+**Why deep:** corpus-level gates (TOC coverage, citation resolution, future) need vantage of all modules at once. Without this layer the CLI's for-loop is the only place all modules co-exist, and grafting gates onto the CLI doubles down on the wrong layering. A future cron-driven or HTTP-driven build re-uses `buildCorpus` unchanged; only argv → `BuildCorpusOptions` translation differs.
 
 ### `@/parser` (deep module)
 
@@ -115,19 +158,19 @@ edits in both modules and a `schema_version` increment in `corpus-meta`.
 
 ### `scripts/sync-corpus.ts` (CLI)
 
-The CLI is intentionally thin:
+The CLI is genuinely thin:
 
 1. Parse argv.
-2. Read the jurisdiction manifest (validated).
-3. Resolve the source path.
-4. Call `parseExport(buffer, manifest)` from `@/parser`.
-5. For each module result: enforce skip-rate gate, then call `writeModule(...)`
-   from `@/storage`.
-6. Map errors to exit codes; exit.
+2. Preflight: read the manifest once, validate `--only` against `modules[]`,
+   resolve `manifest.source.path` against the repo root with `realpathSync` +
+   sandbox check (the security boundary lives here, not in `@/corpus`).
+3. Call `buildCorpus({ manifestPath, sourcePath, outputDir, ... })`.
+4. Format any `BuildResult.errors` for the terminal; return `result.exitCode`.
 
-No domain logic lives here. If you find yourself adding a `for (... of result)`
-loop inside the CLI that reaches into entries, the boundary has slipped — push
-the loop into the appropriate module.
+No domain logic lives here. The CLI's responsibilities top out at "validate
+argv, resolve paths, format errors." Any `for (... of result)` loop that
+reaches into entries means the boundary has slipped — push the loop into
+`@/corpus` or downstream.
 
 ## Boundary enforcement
 
@@ -152,6 +195,39 @@ We have not picked one yet. Re-evaluate when a violation slips through.
 ## Notes
 
 Append-only log of architectural observations. Newest at the top.
+
+### 2026-05-04 — `@/corpus` orchestrator extraction (Phase 0 of parser correctness)
+
+Before this change the CLI accreted orchestration: argv parse + manifest read +
+source read + per-module loop + dual error → exit-code mapping. Phase 4's
+upcoming corpus-level gates (TOC coverage, citation resolution) had no
+clean home — they need vantage of all modules at once, and the CLI's for-loop
+was the only place all modules co-exist.
+
+Extracted `@/corpus` as the orchestrator deep module. Public surface is one
+function (`buildCorpus`) returning one type (`BuildResult`) carrying one
+discriminated-union error type (`BuildError`, eight kinds). Errors are data;
+the orchestrator never throws to its caller. `errorsToExitCode` is the single
+source of truth for kind → ExitCode and is exhaustively switched, so a new
+error kind is a TypeScript compile error until it has a mapping.
+
+CLI shrunk to argv → preflight (manifest read for `--only` + `source.path`
+resolution + sandbox check) → `buildCorpus(opts)` → format errors → exit.
+Output directory is purged at the start of every build (D6 from the plan):
+`outputDir` is ephemeral build state, not authoritative storage. A failed
+mid-build leaves a partial corpus on disk — that's the accepted tradeoff per
+the plan. Per-module atomic-write semantics are preserved within the
+freshly-cleared `outputDir`.
+
+A new corpus-level `corpus-meta.json` lives at `<outputDir>/corpus-meta.json`,
+sibling to the per-module sentinels. It records `valid`, `source_sha256`,
+`snapshot_at`, `duration_ms`, `modules_built`, gate reports, and the typed
+error list.
+
+Phase 4's `validateCorpus` step is reserved as pipeline step 4 (between
+parse and write) but unimplemented today — `coverage` and `citations` are
+empty placeholders. Phase 4 fills them in without changing the public
+contract.
 
 ### 2026-05-03 — Parser encapsulation refactor (PR #2)
 

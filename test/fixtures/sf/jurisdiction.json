@@ -1,0 +1,42 @@
+{
+  "jurisdiction": "City and County of San Francisco",
+  "source": {
+    "format": "amlegal-html",
+    "path": "test/fixtures/sf/source.html"
+  },
+  "parser_strategy": "sf-amlegal",
+  "modules": [
+    {
+      "id": "sf-charter",
+      "name": "San Francisco Charter",
+      "code_title": "Charter",
+      "jd_anchor": "Charter",
+      "module_version": "2026.05.02",
+      "min_section_count": 2,
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*",
+        "§§\\s*\\d+(?:\\.\\d+)*\\s*-\\s*\\d+(?:\\.\\d+)*"
+      ],
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall mean"
+      ]
+    },
+    {
+      "id": "sf-transportation",
+      "name": "San Francisco Transportation Code",
+      "code_title": "Transportation Code",
+      "jd_anchor": "Transportation",
+      "module_version": "2026.05.01",
+      "min_section_count": 5,
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*",
+        "§§\\s*\\d+(?:\\.\\d+)*\\s*-\\s*\\d+(?:\\.\\d+)*"
+      ],
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall mean"
+      ]
+    }
+  ]
+}

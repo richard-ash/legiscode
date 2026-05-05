@@ -1,0 +1,262 @@
+{
+  "jurisdiction": "City and County of San Francisco",
+  "source": {
+    "format": "amlegal-html",
+    "path": "build/downloads/sf.html"
+  },
+  "parser_strategy": "sf-amlegal",
+  "modules": [
+    {
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*"
+      ],
+      "code_title": "Administrative Code",
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means"
+      ],
+      "id": "sf-administrative",
+      "jd_anchor": "Administrative",
+      "min_section_count": 100,
+      "module_version": "2026.05.02",
+      "name": "San Francisco Administrative Code"
+    },
+    {
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*"
+      ],
+      "code_title": "Building Code",
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means"
+      ],
+      "id": "sf-building",
+      "jd_anchor": "Building",
+      "min_section_count": 50,
+      "module_version": "2026.05.02",
+      "name": "San Francisco Building Code"
+    },
+    {
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*"
+      ],
+      "code_title": "Business and Tax Regulations Code",
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means"
+      ],
+      "id": "sf-business",
+      "jd_anchor": "Business",
+      "min_section_count": 50,
+      "module_version": "2026.05.02",
+      "name": "San Francisco Business and Tax Regulations Code"
+    },
+    {
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*"
+      ],
+      "code_title": "Campaign and Governmental Conduct Code",
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means"
+      ],
+      "id": "sf-campaign",
+      "jd_anchor": "Campaign",
+      "min_section_count": 30,
+      "module_version": "2026.05.02",
+      "name": "San Francisco Campaign and Governmental Conduct Code"
+    },
+    {
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*"
+      ],
+      "code_title": "Charter",
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means"
+      ],
+      "id": "sf-charter",
+      "jd_anchor": "Charter",
+      "min_section_count": 100,
+      "module_version": "2026.05.02",
+      "name": "San Francisco Charter"
+    },
+    {
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*"
+      ],
+      "code_title": "Municipal Elections Code",
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means"
+      ],
+      "id": "sf-elections",
+      "jd_anchor": "Elections",
+      "min_section_count": 20,
+      "module_version": "2026.05.02",
+      "name": "San Francisco Municipal Elections Code"
+    },
+    {
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*"
+      ],
+      "code_title": "Environment Code",
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means"
+      ],
+      "id": "sf-environment",
+      "jd_anchor": "Environment",
+      "min_section_count": 20,
+      "module_version": "2026.05.02",
+      "name": "San Francisco Environment Code"
+    },
+    {
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*"
+      ],
+      "code_title": "Fire Code",
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means"
+      ],
+      "id": "sf-fire",
+      "jd_anchor": "Fire",
+      "min_section_count": 50,
+      "module_version": "2026.05.02",
+      "name": "San Francisco Fire Code"
+    },
+    {
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*"
+      ],
+      "code_title": "Health Code",
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means"
+      ],
+      "id": "sf-health",
+      "jd_anchor": "Health",
+      "min_section_count": 50,
+      "module_version": "2026.05.02",
+      "name": "San Francisco Health Code"
+    },
+    {
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*"
+      ],
+      "code_title": "Housing Code",
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means"
+      ],
+      "id": "sf-housing",
+      "jd_anchor": "Housing",
+      "min_section_count": 20,
+      "module_version": "2026.05.02",
+      "name": "San Francisco Housing Code"
+    },
+    {
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*"
+      ],
+      "code_title": "Park Code",
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means"
+      ],
+      "id": "sf-park",
+      "jd_anchor": "Park",
+      "min_section_count": 20,
+      "module_version": "2026.05.02",
+      "name": "San Francisco Park Code"
+    },
+    {
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*"
+      ],
+      "code_title": "Planning Code",
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means"
+      ],
+      "id": "sf-planning",
+      "jd_anchor": "Planning",
+      "min_section_count": 100,
+      "module_version": "2026.05.02",
+      "name": "San Francisco Planning Code"
+    },
+    {
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*"
+      ],
+      "code_title": "Plumbing Code",
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means"
+      ],
+      "id": "sf-plumbing",
+      "jd_anchor": "Plumbing",
+      "min_section_count": 20,
+      "module_version": "2026.05.02",
+      "name": "San Francisco Plumbing Code"
+    },
+    {
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*"
+      ],
+      "code_title": "Police Code",
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means"
+      ],
+      "id": "sf-police",
+      "jd_anchor": "Police",
+      "min_section_count": 100,
+      "module_version": "2026.05.02",
+      "name": "San Francisco Police Code"
+    },
+    {
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*"
+      ],
+      "code_title": "Port Code",
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means"
+      ],
+      "id": "sf-port",
+      "jd_anchor": "Port",
+      "min_section_count": 5,
+      "module_version": "2026.05.02",
+      "name": "San Francisco Port Code"
+    },
+    {
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*"
+      ],
+      "code_title": "Public Works Code",
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means"
+      ],
+      "id": "sf-publicworks",
+      "jd_anchor": "PublicWorks",
+      "min_section_count": 50,
+      "module_version": "2026.05.02",
+      "name": "San Francisco Public Works Code"
+    },
+    {
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*"
+      ],
+      "code_title": "Subdivision Code",
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means"
+      ],
+      "id": "sf-subdivision",
+      "jd_anchor": "Subdivision",
+      "min_section_count": 20,
+      "module_version": "2026.05.02",
+      "name": "San Francisco Subdivision Code"
+    },
+    {
+      "citation_patterns": [
+        "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*"
+      ],
+      "code_title": "Transportation Code",
+      "defined_term_patterns": [
+        "\"([^\"]+)\"\\s+means"
+      ],
+      "id": "sf-transportation",
+      "jd_anchor": "Transportation",
+      "min_section_count": 50,
+      "module_version": "2026.05.02",
+      "name": "San Francisco Transportation Code"
+    }
+  ]
+}

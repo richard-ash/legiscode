@@ -45,6 +45,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
 FROM deps AS source
 COPY tsconfig.json tsconfig.build.json biome.json vitest.config.ts ./
 COPY src/ ./src/
+COPY scripts/ ./scripts/
 COPY test/ ./test/
 
 FROM source AS build

@@ -1,6 +1,20 @@
 [tools]
-node = "25"
+node = "24"
 pnpm = "10.33.2"
+
+[tasks."corpus:build"]
+description = "Build a jurisdiction module from manifest input. Usage: mise run corpus:build -- --module sf-transportation --source manifests/sf-transportation/manifest.json --output build/modules/sf-transportation/"
+run = "pnpm exec tsx scripts/sync-corpus.ts"
+
+[tasks."validate:full"]
+description = "Run buildCorpus against the committed SF manifest + production HTML snapshot. Operator-driven, NOT in CI. Requires build/downloads/sf.html (see docs/CORPUS-VALIDATION.md). Pass criteria: exit 0, skip rate 0%, TOC coverage 100%, intra-citation 100%."
+run = """
+rm -rf build/modules-full
+pnpm exec tsx scripts/sync-corpus.ts \
+  --source manifests/sf/jurisdiction.json \
+  --output build/modules-full \
+  --snapshot-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+"""
 
 [tasks.typecheck]
 description = "TypeScript typecheck (no emit)"

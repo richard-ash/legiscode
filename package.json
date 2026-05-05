@@ -4,9 +4,14 @@
   "description": "Legislative IDE for reading, analyzing, and understanding municipal code.",
   "private": true,
   "type": "module",
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "zod": "^4.4.1"
+  },
   "devDependencies": {
     "@biomejs/biome": "2.4.13",
-    "@types/node": "^25.0.0",
+    "@types/node": "^24.12.2",
+    "tsx": "^4.21.0",
     "typescript": "6.0.3",
     "vitest": "^4.1.5"
   },

@@ -11,8 +11,10 @@
       "**",
       "!**/node_modules",
       "!**/dist",
+      "!**/build",
       "!**/data",
-      "!**/corpus.new",
+      "!**/manifests",
+      "!**/test/fixtures",
       "!**/pnpm-lock.yaml"
     ]
   },
@@ -34,17 +36,5 @@
       "trailingCommas": "all",
       "semicolons": "always"
     }
-  },
-  "overrides": [
-    {
-      "includes": ["**/src/types/**"],
-      "linter": {
-        "rules": {
-          "suspicious": {
-            "noEmptyInterface": "off"
-          }
-        }
-      }
-    }
-  ]
+  }
 }
