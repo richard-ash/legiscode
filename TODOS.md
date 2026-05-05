@@ -6,17 +6,65 @@ Add items aggressively; remove them when shipped or when superseded by a real pl
 
 ---
 
-## Electron ESM-in-main-process compatibility
+## Re-enable Phase-1-hidden chrome elements when their backing systems ship
 
-Phase 0 commits to ESM globally (`"type": "module"`, `moduleResolution: "bundler"`). Electron 28+ supports ESM in the main process; older versions need a CJS boundary or a workaround.
+`feat/electron-shell` ships the chrome from the Claude Design handoff but **hides six elements** the mockup shows because their backing systems don't exist in Phase 1. Each has a designated owning branch. Without this tracking item, a future dev re-fetching the handoff and copying `chrome.jsx` verbatim could reintroduce dead UI before its system ships.
 
-- **What:** Verify the pinned Electron version supports ESM in `electron/main.ts`. If not, document a per-file CJS exception or upgrade Electron.
-- **Why:** D10 made ESM the global default. The most likely Phase 1 stumble.
-- **Pros:** Avoids half-day debug session at the start of `feat/electron-shell`.
-- **Cons:** None.
-- **Context:** /plan-eng-review D10 (2026-04-29). Electron version itself is decided in `feat/electron-shell`.
-- **Depends on / Blocked by:** Electron version pin (decided in `feat/electron-shell`).
-- **Owner:** `feat/electron-shell` (Phase 1).
+- **What:** Re-enable each of these chrome elements when its owning branch ships:
+  - `lc-sync` indicator (titlebar) → `feat/module-manager` (v1.1+) — turns on the day cross-machine sync ships
+  - Bell button (titlebar) → owning branch TBD (notifications system; not on roadmap yet)
+  - Share button (titlebar) → owning branch TBD (share-section-URL feature; not on roadmap yet)
+  - "+ Ask" tab affordance (tab bar) → `feat/ai-agent` (Phase 5) — adds chat tab kind + the affordance
+  - Activity-bar bottom Pin/Account icon → owning branch TBD (account / saved-views system)
+  - Activity-bar bottom Settings icon → either remove permanently (titlebar Settings is canonical) or repurpose for workspace-scoped settings — decide when a downstream branch wants the slot
+- **Why:** Phase 1 follows the "don't render UI for capability that doesn't exist" rule (A15/A16/A20/A21). Each hidden element has a documented re-enable trigger; this TODO is the cross-branch coordination point so they don't get forgotten or accidentally reintroduced.
+- **Pros:** Single tracking point for 6 deferred items; future devs know which branch owns each re-enable; prevents dead UI from drifting back into Phase 1 via mockup-fidelity arguments.
+- **Cons:** Redundant with the plan archive's A15/A16/A20/A21 rows — but TODOS.md is where future devs actually look.
+- **Context:** Surfaced by `feat/electron-shell` /plan-design-review on `feat-electron-shell` (2026-05-05). The mockup at `https://api.anthropic.com/v1/design/h/cwT4ElTPhtoFd9vZt3e7cw` shows all six elements; Phase 1 deliberately leaves them unrendered.
+- **Depends on / Blocked by:** Each element's owning branch (listed above).
+- **Owner:** Distributed across owning branches — this TODO is the index, not a single-branch task.
+
+---
+
+## Cross-platform titlebar CI matrix
+
+`feat/electron-shell` ships `titleBarStyle: 'hiddenInset'` (macOS) + `titleBarOverlay` (Windows 11+) for a custom-painted titlebar. Cross-platform rendering needs CI assurance that doesn't replicate the matrix on every PR.
+
+- **What:** macOS + Windows runners in `feat/build-pipeline`'s matrix run a single titlebar smoke (`@playwright/test` `_electron`) asserting the bar renders with brand mark + workspace chip + sync indicator on each OS.
+- **Why:** Custom titlebar is design-load-bearing per `chrome.jsx` from the Claude Design handoff. Cross-platform regressions are easy to ship without matrix CI.
+- **Pros:** Catches "works on my Mac" failures before users see them.
+- **Cons:** Adds ~2-3 minutes to matrix CI runs. Trades CI time for confidence.
+- **Context:** Surfaced by `feat/electron-shell` /plan-eng-review on `feat-electron-shell` (2026-05-04). Test would otherwise live on `feat/electron-shell` itself but the matrix runners only exist after `feat/build-pipeline` ships.
+- **Depends on / Blocked by:** `feat/build-pipeline` matrix CI workflow.
+- **Owner:** `feat/build-pipeline`.
+
+---
+
+## Windows 10 custom-titlebar fallback polish
+
+Windows 10 has no `titleBarOverlay` API (introduced in Windows 11). v1.0 falls back to a native frame with the renderer-painted titlebar absent. Functional but visually inconsistent vs macOS / Windows 11+.
+
+- **What:** Add a Windows 10 detection branch + a custom-frame implementation (e.g. `frame: false` + draggable region in CSS + manual Minimize/Maximize/Close button cluster) so Windows 10 users see the same titlebar visuals as Windows 11+.
+- **Why:** Brand consistency. Windows 10 still has meaningful market share in legal/government tier.
+- **Pros:** Visual parity across all supported platforms.
+- **Cons:** Custom-frame on Windows is a known pain point — drag regions, double-click-to-maximize, snapping behavior all need manual implementation. Easy to ship subtle bugs.
+- **Context:** Surfaced by `feat/electron-shell` /plan-eng-review (2026-05-04). v1.0 ships native frame fallback on Win10; revisit once we see real telemetry on Win10 user share.
+- **Depends on / Blocked by:** v1.0 release in user hands.
+- **Owner:** `feat/release-prep` (v1.1 polish window).
+
+---
+
+## CSP `connect-src` extension for Anthropic API
+
+`feat/electron-shell` Phase-1 prod CSP is `default-src 'self'; connect-src 'self'`. When `feat/ai-agent` ships, the renderer needs to call the Anthropic API (or via main-process proxy — choose during ai-agent design).
+
+- **What:** When `feat/ai-agent` lands, extend prod CSP `connect-src` to include `https://api.anthropic.com` (or omit if the call happens in main process and the renderer never sees the domain). Decide based on ai-agent's IPC vs direct-call architecture.
+- **Why:** Without this update, the four-hard-rules citation-verification flow's network calls get CSP-blocked in prod. Failure mode would only show up in packaged builds, not dev.
+- **Pros:** Prevents a notorious failure mode (works in dev, breaks in prod).
+- **Cons:** None — small addition.
+- **Context:** Surfaced by `feat/electron-shell` /plan-eng-review (2026-05-04). The architecture decision (renderer-direct vs main-proxy) is `feat/ai-agent`'s call; this TODO just makes sure CSP gets updated whichever way.
+- **Depends on / Blocked by:** `feat/ai-agent` design pass.
+- **Owner:** `feat/ai-agent`.
 
 ---
 
