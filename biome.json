@@ -11,10 +11,15 @@
       "**",
       "!**/node_modules",
       "!**/dist",
+      "!**/dist-electron",
+      "!**/out",
       "!**/build",
       "!**/data",
       "!**/manifests",
       "!**/test/fixtures",
+      "!**/test-results",
+      "!**/playwright-report",
+      "!**/.playwright",
       "!**/pnpm-lock.yaml"
     ]
   },
@@ -30,6 +35,43 @@
       "recommended": true
     }
   },
+  "overrides": [
+    {
+      "includes": ["src/app/**/*.ts", "src/app/**/*.tsx", "src/ui/**/*.ts", "src/ui/**/*.tsx"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "fs": "Renderer code may not import Node fs; use the IPC bridge.",
+                  "node:fs": "Renderer code may not import Node fs; use the IPC bridge.",
+                  "fs/promises": "Renderer code may not import Node fs; use the IPC bridge.",
+                  "node:fs/promises": "Renderer code may not import Node fs; use the IPC bridge.",
+                  "path": "Renderer code may not import Node path; use the IPC bridge.",
+                  "node:path": "Renderer code may not import Node path; use the IPC bridge.",
+                  "child_process": "Renderer code may not spawn processes; use the IPC bridge.",
+                  "node:child_process": "Renderer code may not spawn processes; use the IPC bridge.",
+                  "electron": "Renderer code must not import electron directly; use window.api via the IPC bridge.",
+                  "os": "Renderer code may not import Node os; use the IPC bridge.",
+                  "node:os": "Renderer code may not import Node os; use the IPC bridge.",
+                  "crypto": "Renderer code may not import Node crypto; use SubtleCrypto or the IPC bridge.",
+                  "node:crypto": "Renderer code may not import Node crypto; use SubtleCrypto or the IPC bridge.",
+                  "http": "Renderer code may not open arbitrary HTTP sockets; use fetch via the IPC bridge.",
+                  "node:http": "Renderer code may not open arbitrary HTTP sockets; use fetch via the IPC bridge.",
+                  "https": "Renderer code may not open arbitrary HTTPS sockets; use fetch via the IPC bridge.",
+                  "node:https": "Renderer code may not open arbitrary HTTPS sockets; use fetch via the IPC bridge.",
+                  "net": "Renderer code may not open raw sockets; use the IPC bridge.",
+                  "node:net": "Renderer code may not open raw sockets; use the IPC bridge."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "javascript": {
     "formatter": {
       "quoteStyle": "double",

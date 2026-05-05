@@ -27,6 +27,91 @@ Concretely:
 - Tests may reach inside a module when they are fundamentally testing internal
   behavior. New tests should prefer the public API where reasonable.
 
+## Runtime topology
+
+`legiscode` ships as an Electron desktop app. The runtime splits into three
+isolated processes plus a shared types layer; every renderer-to-disk hop
+crosses the typed IPC bridge.
+
+```
+                ┌─────────────────────────────────────────────────────────┐
+                │  Renderer process  (Chromium, sandboxed, no Node)      │
+                │  src/app/ + src/ui/ + src/styles/                      │
+                │                                                         │
+                │   App.tsx → api() → window.api.<ns>.<method>()         │
+                │                                                         │
+                │   contextIsolation: true, sandbox: true, nodeIntegration: false │
+                └────────────────────────────┬────────────────────────────┘
+                                             │ contextBridge
+                                             ▼
+                ┌─────────────────────────────────────────────────────────┐
+                │  Preload script  (electron/preload.ts → preload-bridge.ts) │
+                │  Allowlists exposed methods only; never leaks ipcRenderer │
+                │                                                         │
+                │   buildApi() iterates CHANNELS, exposeInMainWorld("api", …) │
+                └────────────────────────────┬────────────────────────────┘
+                                             │ ipcRenderer.invoke
+                                             ▼
+                ┌─────────────────────────────────────────────────────────┐
+                │  Main process  (electron/main.ts, full Node)           │
+                │                                                         │
+                │   ipc/contract.ts ── single source: ChannelMap, Api,    │
+                │                       CHANNELS, IpcBridgeError, types  │
+                │   ipc/main-handlers.ts ── registerHandlers({…})         │
+                │   corpus-loader.ts ── reads built bundle into RAM       │
+                │   CSP guard, BrowserWindow lifecycle, window state     │
+                └────────────────────────────┬────────────────────────────┘
+                                             │ fs/promises read
+                                             ▼
+                ┌─────────────────────────────────────────────────────────┐
+                │  Bundled corpus (read-only at runtime)                 │
+                │  process.resourcesPath/corpus/ in prod                  │
+                │  build/modules-full/ in dev                            │
+                │  Layout owned by @/storage's writeModule()             │
+                └─────────────────────────────────────────────────────────┘
+```
+
+**IPC contract** (`electron/ipc/contract.ts`): the single source of truth.
+Owns the `ChannelMap` registry, the `Api` type the renderer sees, the
+`CHANNELS` runtime allowlist (cross-checked against `ChannelMap` at compile
+time), and `IpcBridgeError`. No process-specific imports — both main and
+preload depend on it without dragging in each other's runtime. Adding a
+channel is a two-place edit in this file (`ChannelMap` + `CHANNELS`) plus
+one entry in main.ts's `Handlers` literal; the renderer's `Api` interface is
+hand-maintained so call sites surface a TS error if the wire grows a
+channel that the renderer hasn't been taught about.
+
+**Process binding modules**: `ipc/main-handlers.ts` (imports `ipcMain` only)
+exposes `registerHandlers(handlers)` + `assertAllChannelsRegistered()`.
+`ipc/preload-bridge.ts` (imports `ipcRenderer` + `contextBridge` only)
+exposes `exposeApi()`, which builds the namespaced api object at runtime by
+splitting each channel name on `:`. Neither file imports the other's
+Electron primitives — the layering catches mistakes that would otherwise
+surface as silent preload failures.
+
+**Channel-name convention**: `<namespace>:<verb>`, lowercase, hyphenated for
+multi-word namespaces. Phase 1 surface: `corpus:list`, `corpus:read`,
+`app:ping`. Renderer code imports types only via `import type` from
+`contract.ts`; never the runtime allowlist.
+
+**Error model**: plumbing errors (unknown channel, renderer disconnect,
+handler throw) reject the renderer-side promise. Domain failures (corpus
+not loaded, section not found) resolve with `{ ok: false, error }` — the
+errors-as-data pattern matches what `@/corpus` already does for build
+errors.
+
+**Boot sequence**: main starts the corpus load before `BrowserWindow` is
+constructed; window stays `show:false` until both `webContents.did-finish-load`
+and the corpus promise resolve (P4 / A18). On corpus failure, `corpus:list`
+returns the typed error and the renderer paints `BootOverlay variant="corpus"`
+instead of the populated workspace.
+
+**Renderer's Node-import boundary**: `src/app/**` and `src/ui/**` are linted
+with Biome's `noRestrictedImports` rule blocking `fs`, `path`, `electron`,
+`os`, `crypto`, `http`, `https`, `net`, `child_process` (and their `node:`
+prefixed forms). The runtime sandbox is the actual security gate; lint is
+defense-in-depth (A1).
+
 ## Module map
 
 ```
@@ -195,6 +280,48 @@ We have not picked one yet. Re-evaluate when a violation slips through.
 ## Notes
 
 Append-only log of architectural observations. Newest at the top.
+
+### 2026-05-05 — IPC layer collapsed to a single contract
+
+Before this change the IPC layer was spread across five files:
+`electron/ipc/channels.ts` (payloads + allowlist), `electron/ipc/api-types.ts`
+(re-exported `Api` shape), `electron/ipc/bridge.ts` (registerHandler +
+safeInvoke + IpcBridgeError, importing both `ipcMain` and `ipcRenderer` in
+the same runtime module), `electron/preload.ts` (hand-wired namespace
+literal), and `src/app/ipc-client.ts` (renderer-side namespaced re-wrapper).
+Adding a channel was a five-place change with two of those files duplicating
+the `Api` shape; `bridge.ts` blurred the main/preload process boundary by
+importing both runtime sides at once.
+
+Collapsed to one deep contract module + two thin process bindings.
+`electron/ipc/contract.ts` owns `ChannelMap`, the runtime `CHANNELS`
+allowlist (cross-checked against `ChannelMap` keys at compile time), the
+hand-written `Api` interface, and `IpcBridgeError`.
+`electron/ipc/main-handlers.ts` imports `ipcMain` only and exposes
+`registerHandlers({...})` taking an exhaustive `Handlers` literal —
+forgetting a channel is a TS error. `electron/ipc/preload-bridge.ts` imports
+`ipcRenderer` + `contextBridge` only and builds the `window.api` object at
+runtime by iterating `CHANNELS`, so adding a channel never edits this file.
+The renderer-side `ipc-client.ts` was deleted in favor of a 5-line `api()`
+accessor that throws if `window.api` is unwired; call sites use
+`window.api.<ns>.<method>()` directly.
+
+Adding a channel after this change: extend `ChannelMap` + `CHANNELS` in
+`contract.ts`, add the namespaced method to `Api` in the same file, add the
+handler entry to the `Handlers` literal in main.ts. Renderer call sites
+enforce the `Api` shape; main.ts handler exhaustiveness is type-checked.
+The boot-time `assertAllChannelsRegistered()` tripwire is kept as
+defense-in-depth — if a future refactor splits handler registration across
+multiple call sites, missing handlers surface at boot rather than as a
+renderer-side timeout.
+
+This was caught by `/codex review` against the electron-shell branch: P2
+findings on IPC fanout (3-of-4) and bridge.ts process-mixing (4-of-4)
+both addressed by the same restructure. The corpus-singleton-jurisdiction
+finding (P2 #1 — codex's "biggest structural risk") was deferred to
+`feat/module-manager` per a staff-eng review of the proposed wire-shape
+change: designing the multi-jurisdiction shape requires a real second
+jurisdiction on disk to verify against, which v1.0 doesn't have.
 
 ### 2026-05-04 — `@/corpus` orchestrator extraction (Phase 0 of parser correctness)
 

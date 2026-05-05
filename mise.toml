@@ -17,14 +17,36 @@ pnpm exec tsx scripts/sync-corpus.ts \
 """
 
 [tasks.typecheck]
-description = "TypeScript typecheck (no emit)"
-run = "pnpm exec tsc --noEmit"
-sources = ["src/**/*.ts", "test/**/*.ts", "tsconfig.json", "package.json"]
+description = "TypeScript typecheck (no emit) — renderer/lib via tsconfig.json + main/preload via tsconfig.electron.json"
+run = """
+pnpm exec tsc --noEmit
+pnpm exec tsc -p tsconfig.electron.json --noEmit
+"""
+sources = ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "electron/**/*.ts", "tsconfig.json", "tsconfig.electron.json", "package.json"]
+
+[tasks.dev]
+description = "Run the Electron app in dev with HMR (electron-vite)"
+run = "pnpm exec electron-vite dev"
+
+[tasks."build:app"]
+description = "Build main + preload + renderer bundles into out/"
+run = "pnpm exec electron-vite build"
+sources = ["src/**/*", "electron/**/*", "electron.vite.config.ts", "package.json"]
+outputs = ["out/**/*"]
+
+[tasks.package]
+description = "Local-only unsigned dir build via electron-builder. Signing + notarization belong to feat/build-pipeline."
+run = """
+pnpm exec electron-vite build
+pnpm exec electron-builder --dir
+"""
+sources = ["src/**/*", "electron/**/*", "electron.vite.config.ts", "electron-builder.yml", "package.json"]
+outputs = ["dist-electron/**/*"]
 
 [tasks.lint]
 description = "Lint with biome"
 run = "pnpm exec biome lint ."
-sources = ["src/**/*.ts", "test/**/*.ts", "biome.json"]
+sources = ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx", "electron/**/*.ts", "biome.json"]
 
 [tasks.format]
 description = "Format with biome (write)"
@@ -33,12 +55,20 @@ run = "pnpm exec biome format --write ."
 [tasks."format:check"]
 description = "Check formatting without writing"
 run = "pnpm exec biome format ."
-sources = ["src/**/*.ts", "test/**/*.ts", "biome.json"]
+sources = ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx", "electron/**/*.ts", "biome.json"]
 
 [tasks.test]
 description = "Run vitest test suite"
 run = "pnpm exec vitest run"
-sources = ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+sources = ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx", "electron/**/*.ts", "vitest.config.ts"]
+
+[tasks."test:e2e"]
+description = "Run Playwright Electron E2E (smoke + posture). Builds out/ first because Playwright launches the built artifact, not the dev server."
+run = """
+pnpm exec electron-vite build
+pnpm exec playwright test
+"""
+sources = ["src/**/*", "electron/**/*", "test/e2e/**/*", "playwright.config.ts", "electron.vite.config.ts", "package.json"]
 
 [tasks.build]
 description = "Compile src/ to dist/ via tsc (emits .js + .d.ts + sourcemaps)"
