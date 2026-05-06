@@ -32,7 +32,16 @@ export function canonicalStringify(value: unknown): string {
 
 // Open the containing directory and fsync it. Exposed for atomic-write.ts
 // (renames + unlinks need parent-dir fsync to flush the dirent).
+//
+// Windows: the Win32 API does not expose directory fsync — opening a
+// directory handle and calling FlushFileBuffers fails with EPERM (fsync
+// of -4048 in Node terms). NTFS journals directory metadata changes
+// (link/rename/unlink) at the filesystem level, providing equivalent
+// crash-consistency guarantees for the operations atomic-write.ts
+// depends on. write-file-atomic, fs-extra, and Postgres-on-Windows
+// take the same approach. POSIX path is unchanged.
 export async function fsyncDir(path: string): Promise<void> {
+  if (process.platform === "win32") return;
   const dir = await open(path, "r");
   try {
     await dir.sync();

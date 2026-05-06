@@ -1,10 +1,16 @@
-# Stub config for `electron-builder --dir` (unsigned dir build, local verification only).
-# Sign + notarize + publish + cross-platform matrix is owned by feat/build-pipeline.
+# electron-builder config. PR-side scope: target/arch only — no signing,
+# notarization, or publishing. Sign + notarize + publish blocks are owned by
+# feat/release-pipeline (blocked on Apple Developer cert + Azure Trusted
+# Signing creds).
+#
+# `directories.buildResources: build-resources/` is deliberate (D18). The
+# default `build/` collides with the gitignored corpus output dir at
+# `build/modules-full/`; renaming keeps `/build/` purely generated.
 appId: app.legiscode.desktop
 productName: LegisCode
 directories:
   output: dist-electron
-  buildResources: build
+  buildResources: build-resources
 files:
   - out/**
   - package.json
@@ -16,3 +22,17 @@ extraResources:
   - from: build/modules-full
     to: corpus
 asar: true
+
+mac:
+  # Universal binary (Intel + Apple Silicon Lipo'd) so a single .dmg installs
+  # everywhere. Targets locked now even though signing is deferred — keeps
+  # `electron-builder --dir` runs in feat/release-pipeline matrix-faithful.
+  # arch lives inside the target object per electron-builder's MacConfiguration
+  # schema; setting `mac.arch` at the platform level is not a valid property
+  # and electron-builder rejects it at config-load time.
+  target:
+    - target: dmg
+      arch: universal
+
+win:
+  target: nsis

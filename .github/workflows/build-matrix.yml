@@ -1,0 +1,37 @@
+---
+name: Build matrix
+on:
+  pull_request:
+  workflow_call:
+
+# Cross-platform PR verify. Runs on macOS-14 and Windows-2022 native runners
+# (the existing quality-check.yml covers Linux Docker typecheck/lint/test in
+# parallel; this matrix covers the platforms where the Electron app actually
+# ships). Reusable via workflow_call so feat/release-pipeline's release.yml
+# can chain the same verify before signing.
+#
+# Scope is deliberately narrow: build the app and run the Electron E2E specs
+# against the unpackaged out/ directory. Full electron-builder packaging,
+# code signing, and notarization are deferred to feat/release-pipeline.
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup and build
+        uses: ./.github/actions/setup-and-build
+
+      - name: Run Playwright Electron E2E
+        # Calls Playwright directly because the composite action already ran
+        # `mise run build:app`. The mise `test:e2e` task chains a redundant
+        # electron-vite build that would double the slowest matrix leg.
+        shell: bash
+        run: pnpm exec playwright test
