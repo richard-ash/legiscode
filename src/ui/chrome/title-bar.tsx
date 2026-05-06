@@ -38,7 +38,7 @@ export function TitleBar({ workspaceLabel, fileLabel, onOpenPalette }: TitleBarP
           aria-label="Open section finder (⌘P)"
         >
           <span className="lc-dot" aria-hidden />
-          <span>{workspaceLabel}</span>
+          <span data-testid="workspace-label">{workspaceLabel}</span>
           <span style={{ opacity: 0.5, margin: "0 2px" }}>/</span>
           <span style={{ color: "var(--overlay1)" }}>{fileLabel}</span>
           <span className="lc-chip-kbd">⌘P</span>

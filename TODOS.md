@@ -26,17 +26,17 @@ Add items aggressively; remove them when shipped or when superseded by a real pl
 
 ---
 
-## Cross-platform titlebar CI matrix
+## Production release pipeline
 
-`feat/electron-shell` ships `titleBarStyle: 'hiddenInset'` (macOS) + `titleBarOverlay` (Windows 11+) for a custom-painted titlebar. Cross-platform rendering needs CI assurance that doesn't replicate the matrix on every PR.
+Production sign + notarize + publish lives on a separate branch — `feat/build-pipeline` ships PR-side CI only. The release branch is blocked on credentials (Apple Developer cert + Azure Trusted Signing) that aren't yet in hand.
 
-- **What:** macOS + Windows runners in `feat/build-pipeline`'s matrix run a single titlebar smoke (`@playwright/test` `_electron`) asserting the bar renders with brand mark + workspace chip + sync indicator on each OS.
-- **Why:** Custom titlebar is design-load-bearing per `chrome.jsx` from the Claude Design handoff. Cross-platform regressions are easy to ship without matrix CI.
-- **Pros:** Catches "works on my Mac" failures before users see them.
-- **Cons:** Adds ~2-3 minutes to matrix CI runs. Trades CI time for confidence.
-- **Context:** Surfaced by `feat/electron-shell` /plan-eng-review on `feat-electron-shell` (2026-05-04). Test would otherwise live on `feat/electron-shell` itself but the matrix runners only exist after `feat/build-pipeline` ships.
-- **Depends on / Blocked by:** `feat/build-pipeline` matrix CI workflow.
-- **Owner:** `feat/build-pipeline`.
+- **What:** Implement `feat/release-pipeline` per the design at `~/.gstack/projects/richard-ash-legiscode/richardash-feat-release-pipeline-design-20260505-180700.md`. Adds: `release.yml` (tag-triggered), macOS `mac.notarize: true` + entitlements.plist, Windows `win.azureSignOptions` (Azure Trusted Signing), `electron-builder --publish always` with auto-provisioned `GITHUB_TOKEN`, validate-before-publish ordering (sign → notarize → staple → `xcrun stapler validate` → `spctl --assess` → publish), `verify-secrets` pre-flight job, `packaged-csp.spec.ts` (closes the explicit deferral in `posture.spec.ts`), `RELEASING.md`.
+- **Why:** v1.0 is a paid product; users won't double-click an unsigned `.dmg`/`.exe`. Notarization gates macOS Gatekeeper; Authenticode signing gates Windows SmartScreen. Both need a real release pipeline that validates signatures locally before pushing artifacts public.
+- **Pros:** Decouples release from build; composite `setup-and-build` action is reused; `build-matrix.yml` is `workflow_call`-reusable so release.yml chains the same verify before signing. Estimated v1 fixed cost ~$230-260/yr (Apple Dev $99 + Azure Trusted Signing ~$120 + domain).
+- **Cons:** Blocked on creds. ATS application latency unknown; could be days.
+- **Context:** Originally scoped into `feat/build-pipeline`; rescoped out 2026-05-05 during /plan-eng-review when the user said "defer production till after MVP — won't have Apple/Microsoft creds yet." Codex's 16 review findings are absorbed into the release-pipeline design (validate-before-publish, OIDC over client_secret, `id-token: write` permissions, tag/version verify, `mac.target: [dmg, zip]` for the auto-updater feed).
+- **Depends on / Blocked by:** Apple Developer enrollment ($99/yr); Azure Trusted Signing enrollment (~$120/yr) + AAD OIDC federation; `feat/build-pipeline` (this branch) shipped first so the composite action exists.
+- **Owner:** `feat/release-pipeline` (#17 in master plans-overview).
 
 ---
 

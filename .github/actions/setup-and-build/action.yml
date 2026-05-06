@@ -1,0 +1,54 @@
+---
+name: Setup and build
+description: >-
+  Install the toolchain via mise (Node + pnpm pinned in mise.toml), install
+  dependencies, build a hermetic corpus from the committed SF fixture, and
+  build the Electron app into out/. Used by build-matrix.yml today and by
+  feat/release-pipeline's release.yml later (single source of truth for cross-
+  platform CI prep — keeps PR verify and release builds bit-identical up to the
+  out/ directory).
+
+runs:
+  using: composite
+  # NOTE: the calling workflow must run actions/checkout BEFORE referencing
+  # this action. Local composite actions are loaded from the workspace by
+  # their relative `./` path, so checkout cannot live inside this file —
+  # GitHub fails to find action.yml at the moment the step is processed.
+  steps:
+    - name: Install toolchain
+      uses: jdx/mise-action@v2
+
+    - name: Resolve pnpm store path
+      id: pnpm-store
+      shell: bash
+      run: echo "path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache pnpm store
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.pnpm-store.outputs.path }}
+        key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: |
+          pnpm-${{ runner.os }}-
+
+    - name: Cache Electron download
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/.cache/electron
+        key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: |
+          electron-${{ runner.os }}-
+
+    - name: Install dependencies
+      shell: bash
+      env:
+        ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
+      run: pnpm install --frozen-lockfile
+
+    - name: Build hermetic corpus from SF fixture
+      shell: bash
+      run: mise run corpus:build -- --source test/fixtures/sf/jurisdiction.json --output build/modules-full
+
+    - name: Build Electron app
+      shell: bash
+      run: mise run build:app

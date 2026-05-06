@@ -9,7 +9,11 @@ jobs:
   ci:
     uses: ./.github/workflows/quality-check.yml
 
+  build-matrix:
+    uses: ./.github/workflows/build-matrix.yml
+
   package:
     uses: ./.github/workflows/_package.yml
     needs:
       - ci
+      - build-matrix
