@@ -1,0 +1,23 @@
+# Paths shadowed inside the container with empty placeholders so the agent
+# sees the file/directory exists but cannot read its contents. The host is
+# unaffected. Patterns are matched with `find` inside /workspace.
+#
+# Supported syntax:
+#   .env              Exact filename in the project root
+#   .env.*            Glob pattern in the project root
+#   path/to/file      Path relative to the project root
+#   **/.env           Recursive match (any depth)
+
+# Secrets — even if the repo doesn't currently commit a .env, prevent any
+# host-mounted variant from being read.
+.env
+.env.*
+
+# Local Claude permissions / overrides (may contain personal allowlists).
+.claude/settings.local.json
+
+# Codex session IDs — the agent shouldn't see prior interactive sessions.
+.context
+
+# Note: .gstack/ is intentionally NOT shadowed. Agents persist their own
+# working state there; making it read-only would break that loop.

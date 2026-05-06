@@ -30,7 +30,7 @@ Update one package at a time:
 ```sh
 mise exec -- pnpm up <package>@<version>        # bump one package
 make ci                                         # verify nothing broke
-make docker-quality                             # also verify in CI container
+make ci-quality                             # also verify in CI container
 ```
 
 Read the changelog for each major-version bump before running `make ci`.
@@ -55,7 +55,7 @@ Then:
 mise install                                    # mise picks up the new pin
 make clean && make install                      # rebuild node_modules under new Node
 make ci                                         # verify
-make docker-quality                             # verify the Docker path picks it up too
+make ci-quality                             # verify the Docker path picks it up too
 ```
 
 The Dockerfile reads `mise.toml` and installs the same Node version inside
@@ -145,8 +145,8 @@ To bump:
 docker pull electronuserland/builder:wine
 docker inspect --format='{{index .RepoDigests 0}}' electronuserland/builder:wine
 # copy the digest into the Dockerfile
-make docker-quality                             # verify
-make docker-dist                                # verify
+make ci-quality                             # verify
+make ci-dist                                # verify
 ```
 
 Update the FROM line in [`.development/Dockerfile`](../.development/Dockerfile)

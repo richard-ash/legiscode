@@ -1,0 +1,49 @@
+# Domains the sandbox is permitted to reach. Everything else is rejected by
+# Squid (HTTP Host header) or terminated at TLS peek (HTTPS SNI). Lines
+# beginning with `.` match the bare domain plus all subdomains; lines without
+# a leading `.` match the exact domain only.
+#
+# Keep this list tight. Each addition expands what an in-container agent can
+# exfiltrate to. The init-firewall.sh verification step depends on
+# google.com / .github.com / .claude.ai being present — replace those checks
+# if you remove them.
+
+# --- Firewall verification anchors ---
+google.com
+.github.com
+.claude.ai
+
+# --- GitHub (clone, releases, raw assets, gh CLI) ---
+.githubusercontent.com
+.githubassets.com
+.github.io
+codeload.github.com
+
+# --- Anthropic (Claude Code) ---
+.anthropic.com
+.claude.com
+storage.googleapis.com
+.sentry.io
+.statsig.com
+
+# --- npm + pnpm (dependency install) ---
+.npmjs.org
+.npmjs.com
+registry.npmjs.org
+.pnpm.io
+
+# --- Electron postinstall (downloads platform binary) ---
+.electronjs.org
+.electron-builder.org
+
+# --- Playwright browser binaries (only when running playwright install) ---
+.playwright.dev
+playwright.azureedge.net
+cdn.playwright.dev
+
+# --- Node.js (occasional fallback for nvm-style scripts) ---
+nodejs.org
+
+# --- VS Code remote / dev container support ---
+.visualstudio.com
+.vscode.blob.core.windows.net
