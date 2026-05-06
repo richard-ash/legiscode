@@ -1,5 +1,39 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { KNOWN_SCHEMA_VERSION } from "@/types";
+
+const REPO_ROOT = resolve(__dirname, "..");
+
+function walk(root: string, exts: readonly string[]): string[] {
+  const out: string[] = [];
+  const stack: string[] = [root];
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    if (!cur) continue;
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = readdirSync(cur, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      const name = e.name;
+      const p = join(cur, name);
+      if (e.isDirectory()) {
+        if (name === "node_modules" || name === "dist" || name === "out") continue;
+        stack.push(p);
+      } else if (e.isFile() && exts.some((ext) => name.endsWith(ext))) {
+        out.push(p);
+      }
+    }
+  }
+  return out;
+}
+
+function read(file: string): string {
+  return readFileSync(file, "utf8");
+}
 
 describe("baseline", () => {
   it("vitest runs", () => {
@@ -8,5 +42,135 @@ describe("baseline", () => {
 
   it("the @/* path alias resolves to src in vitest", () => {
     expect(KNOWN_SCHEMA_VERSION).toBe(1);
+  });
+});
+
+// ─── Renderer-foundation invariants ─────────────────────────────────────────
+//
+// Grep-style assertions that encode invariants biome's `noRestrictedImports`
+// rule cannot express (it operates on import paths, not method calls or
+// object literals). Each assertion has an explicit allow-list of files
+// that may legitimately violate the pattern; any new violator surfaces
+// here as a CI failure.
+
+describe("baseline grep gates", () => {
+  it("no fs.watch / fsWatch calls in src/ or electron/", () => {
+    const sourceFiles = [
+      ...walk(join(REPO_ROOT, "src"), [".ts", ".tsx"]),
+      ...walk(join(REPO_ROOT, "electron"), [".ts", ".tsx"]),
+    ];
+    const offenders: string[] = [];
+    // Match: `.watch(` on a fs / node:fs identifier or via destructured import.
+    // Restricted-import already bans the import itself; this catches method
+    // calls + destructured aliases that biome's import-name rule misses.
+    const pattern = /\b(?:fs|fsPromises|fsp|fs_promises)\s*\.\s*watch\s*\(/;
+    for (const file of sourceFiles) {
+      const text = read(file);
+      if (pattern.test(text)) offenders.push(relative(REPO_ROOT, file));
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("no direct localStorage access in src/ outside the documented carve-outs", () => {
+    const allowList = new Set(
+      [
+        // The single owner of localStorage reads/writes (Layer 1).
+        "src/persistence/storage.ts",
+        // FOUC-avoidance carve-out — runs synchronously before the
+        // renderer bundle has parsed @/persistence. See its header.
+        "src/theme-bootstrap.ts",
+      ].map((p) => resolve(REPO_ROOT, p)),
+    );
+    const sourceFiles = walk(join(REPO_ROOT, "src"), [".ts", ".tsx"]);
+    const offenders: string[] = [];
+    const pattern = /\blocalStorage\s*\./;
+    for (const file of sourceFiles) {
+      if (allowList.has(file)) continue;
+      const text = read(file);
+      if (pattern.test(text)) offenders.push(relative(REPO_ROOT, file));
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("no ad-hoc `{ moduleId, sectionId }` literals outside boundary helpers", () => {
+    const allowList = new Set(
+      [
+        // The wire-shape primitive types live here as the boundary; renderer
+        // code calls corpusRefFromWire() instead of constructing the object
+        // form.
+        "src/corpus/wire.ts",
+        // contract.ts re-exports the wire types from src/corpus/wire and
+        // declares the channel registry; back-compat surface during the
+        // wire-module split.
+        "electron/ipc/contract.ts",
+        // The boundary helpers themselves bridge wire ↔ CorpusRef.
+        "src/corpus/refs.ts",
+        // The loader builds responses in the wire shape on its way out.
+        "electron/corpus-loader.ts",
+        // The legacy migration schema in persistence reads the
+        // `{ moduleId, sectionId }` shape because that's literally what
+        // legacy state was. The migration deletes the legacy key after
+        // converting to `{ module, section }`.
+        "src/persistence/storage.ts",
+        // Command palette keeps `PaletteItem` in the wire shape
+        // internally for ergonomics, then wraps via `corpusRefFromWire`
+        // at the `onSelect` boundary. Internal shape stays wire-named;
+        // the boundary emits CorpusRef.
+        "src/ui/chrome/command-palette.tsx",
+      ].map((p) => resolve(REPO_ROOT, p)),
+    );
+    const sourceFiles = [
+      ...walk(join(REPO_ROOT, "src"), [".ts", ".tsx"]),
+      ...walk(join(REPO_ROOT, "electron"), [".ts", ".tsx"]),
+    ];
+    const offenders: string[] = [];
+    // Match an object literal that has BOTH `moduleId:` and `sectionId:`
+    // close together (the section-reference shape). Single-field uses
+    // (e.g. PerModuleValidation.moduleId in the parser) are not flagged.
+    // The `[^{}]*` prevents matches across nested braces and across
+    // unrelated objects on the same file.
+    const pattern = /\{[^{}]*\bmoduleId\s*:[^{}]*\bsectionId\s*:[^{}]*\}/s;
+    for (const file of sourceFiles) {
+      if (allowList.has(file)) continue;
+      const text = read(file);
+      if (pattern.test(text)) offenders.push(relative(REPO_ROOT, file));
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("active-section.ts is gone (replaced by workbench/open-items.ts + persistence)", () => {
+    const path = join(REPO_ROOT, "src/app/active-section.ts");
+    expect(() => statSync(path)).toThrow();
+  });
+
+  it("structure-tree.tsx is gone (replaced by file-tree/file-tree.tsx)", () => {
+    const path = join(REPO_ROOT, "src/ui/left-panel/structure-tree.tsx");
+    expect(() => statSync(path)).toThrow();
+  });
+
+  it("electron/ipc/contract.ts does NOT import from @/corpus/refs (preload sandbox guard)", () => {
+    // contract.ts is part of the preload-script dependency graph. Importing
+    // anything from @/corpus/refs drags zod into the preload bundle, which
+    // sandboxed preloads cannot `require()` at runtime — `window.api` then
+    // fails to expose silently and the renderer paints the BootOverlay
+    // "IPC bridge unavailable" diagnostic on every launch. Wire types live
+    // in `@/corpus/wire` precisely because that module is value-free and
+    // safe to pull through the preload graph.
+    const text = read(join(REPO_ROOT, "electron/ipc/contract.ts"));
+    expect(text).not.toMatch(/from\s+["']@\/corpus\/refs["']/);
+  });
+
+  it("src/corpus/wire.ts has only `import type` statements (preload sandbox guard)", () => {
+    // wire.ts is the safe primitive that `electron/ipc/contract.ts` and the
+    // pure-domain layers (corpus-nav, ui) both depend on. It MUST stay
+    // value-import-free so it carries zero runtime weight through the
+    // preload bundle. A naked `import {...}` here would re-introduce the
+    // exact failure mode the contract.ts gate above prevents.
+    const text = read(join(REPO_ROOT, "src/corpus/wire.ts"));
+    const importLines = text
+      .split("\n")
+      .filter((line) => /^\s*import\b/.test(line) && !/^\s*\/\//.test(line));
+    const offenders = importLines.filter((line) => !/^\s*import\s+type\b/.test(line));
+    expect(offenders).toEqual([]);
   });
 });

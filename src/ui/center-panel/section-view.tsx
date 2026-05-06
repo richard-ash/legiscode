@@ -6,7 +6,7 @@
 // (Phase 2) and will replace this component wholesale; nothing about the
 // current shape is structural for downstream branches.
 
-import type { CorpusSectionView } from "../../../electron/ipc/contract";
+import type { CorpusSectionView } from "@/corpus/wire";
 
 export interface SectionViewProps {
   view: CorpusSectionView | null;

@@ -1,11 +1,15 @@
 // Single source of truth for the typed IPC bridge between the Electron main
-// process and the renderer. Every IPC concern lives here:
-//   • Domain payload shapes (CorpusTreeNode, CorpusSectionView, ...)
+// process and the renderer. Three concerns live here:
 //   • The channel registry (`ChannelMap`) — adding a channel is an entry here
 //   • The runtime allowlist (`CHANNELS`) — cross-checked against `ChannelMap`
 //     at compile time so the two cannot drift
 //   • The renderer-facing `Api` shape — hand-written, namespaced for ergonomics
 //   • The `IpcBridgeError` class — wraps plumbing failures
+//
+// Domain payload shapes (CorpusTreeNode, CorpusSectionView, ...) are owned
+// by `@/corpus/wire` and re-exported here for back-compat with existing
+// electron-side imports. Pure-domain modules import them from `@/corpus/wire`
+// directly so they don't depend on electron/ at all.
 //
 // Adding a channel is a two-place edit in this file (one entry in `ChannelMap`,
 // one in `CHANNELS`) plus one entry in main.ts's handler literal. The renderer's
@@ -25,102 +29,36 @@
 //     renderer-side promise as `IpcBridgeError`. These are bugs.
 //   • Domain failures (section not found, corpus not loaded) resolve with a
 //     discriminated `{ ok: false, error: ... }` Result — never thrown.
+//
+// Preload sandbox guard: this file is part of the preload-script
+// dependency graph. Any `import` (not `import type`) of a value that pulls
+// zod or other heavy runtime deps will silently break `window.api` exposure
+// in sandboxed preloads. The baseline grep gate in test/baseline.test.ts
+// pins this against importing `@/corpus/refs` (which carries zod). Wire
+// types live in `@/corpus/wire` precisely because that module is value-free
+// (`import type` only) and safe to pull through the preload graph.
 
-import type { SectionFile } from "@/types";
+// ─── Domain shapes (re-exported from @/corpus/wire) ──────────────────────────
 
-// ─── Domain shapes ──────────────────────────────────────────────────────────
+export type {
+  AppPingResult,
+  CorpusError,
+  CorpusErrorKind,
+  CorpusListResult,
+  CorpusModuleSummary,
+  CorpusReadRequest,
+  CorpusReadResult,
+  CorpusSectionView,
+  CorpusTreeNode,
+  Result,
+} from "@/corpus/wire";
 
-/**
- * Tree node returned by `corpus:list`. Mirrors the shape `chrome.jsx`'s
- * `Tree` component consumes — Phase 1 structure-tree.tsx renders this
- * verbatim. `feat/file-tree` (Phase 2) extends with pending-amendment dots
- * and search wiring; the wire shape stays compatible.
- *
- * Tree levels in Phase 1:
- *   level 0 — module ("code" kind: e.g. "Port Code")
- *   level 1 — intra-module hierarchy ("chapter" kind: Article/Chapter/Division
- *             markers parsed out of `section.hierarchy[]`)
- *   leaf    — section ("section" kind)
- */
-export interface CorpusTreeNode {
-  /** Stable id, unique across the entire jurisdiction. */
-  id: string;
-  /** Display code or section number, e.g. "1.01" or "§ 1.01.010". */
-  code: string;
-  /** Display name, e.g. "Article 1 — General Provisions". */
-  name: string;
-  /** Discriminator drives the icon (folder vs section) in structure-tree. */
-  kind: "code" | "chapter" | "section";
-  /**
-   * Section pointer — only set on `kind: "section"` leaves. Carries enough
-   * for the renderer to issue a `corpus:read` without re-deriving the
-   * (moduleId, sectionId) split from the tree id.
-   */
-  ref?: { moduleId: string; sectionId: string };
-  /** Children — only present for non-section nodes. */
-  kids?: CorpusTreeNode[];
-}
-
-/**
- * Jurisdiction-wide summary returned by `corpus:list`. The bundled corpus
- * is structured as one or more modules under a jurisdiction root (e.g.
- * `sf-port`, `sf-fire`, ... under `San Francisco`). Phase 1 surfaces all of
- * them under a single tree; the rendered status-bar version is the latest
- * `module_version` across modules.
- */
-export interface CorpusModuleSummary {
-  jurisdiction: string;
-  /** Display label for the corpus root, e.g. "SF Municipal Code". */
-  rootLabel: string;
-  /** YYYY.MM.DD — latest `module_version` across loaded modules. */
-  jurisdictionVersion: string;
-  /** Number of code modules loaded (e.g., 18). Drives the indexed-count slot. */
-  codeCount: number;
-  /** Total section count across all modules, for downstream telemetry. */
-  sectionCount: number;
-  /** Default section to open on first launch — first module, first section. */
-  defaultRef: { moduleId: string; sectionId: string };
-  /** Top-level structure tree, eagerly loaded in Phase 1. */
-  tree: CorpusTreeNode[];
-}
-
-export interface CorpusReadRequest {
-  moduleId: string;
-  sectionId: string;
-}
-
-/**
- * Section payload returned by `corpus:read`. Carries enough context for the
- * Phase 1 stub center panel (header + body) and the breadcrumb stub
- * (title → chapter → section path) without a second round-trip.
- */
-export interface CorpusSectionView {
-  moduleId: string;
-  section: SectionFile;
-  /** Display path from corpus root to this section's parent (for breadcrumb). */
-  parents: ReadonlyArray<{ code: string; name: string }>;
-  /** Adjacent section refs for prev/next navigation, scoped to the module. */
-  prev: { moduleId: string; sectionId: string } | null;
-  next: { moduleId: string; sectionId: string } | null;
-}
-
-export type CorpusErrorKind = "not_loaded" | "not_found" | "corrupt";
-
-export interface CorpusError {
-  kind: CorpusErrorKind;
-  /** Human-readable detail, safe to surface in BootOverlay or toast. */
-  detail: string;
-}
-
-export type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
-
-export type CorpusListResult = Result<CorpusModuleSummary, CorpusError>;
-export type CorpusReadResult = Result<CorpusSectionView, CorpusError>;
-
-export interface AppPingResult {
-  /** Monotonic ms timestamp from the main process. Drives the C13 canary. */
-  pong: number;
-}
+import type {
+  AppPingResult,
+  CorpusListResult,
+  CorpusReadRequest,
+  CorpusReadResult,
+} from "@/corpus/wire";
 
 // ─── Channel registry ───────────────────────────────────────────────────────
 

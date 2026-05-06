@@ -2,7 +2,7 @@
 // (renderer process gone) and corpus-load-failure (corpus IPC error). Same
 // surface, different copy + actions. No marketing tone.
 
-import type { CorpusError } from "../../../electron/ipc/contract";
+import type { CorpusError } from "@/corpus/wire";
 
 export type BootOverlayVariant = "crash" | "corpus";
 

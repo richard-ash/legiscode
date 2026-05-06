@@ -12,6 +12,7 @@
 // the canonical enum. @/corpus uses the same type so callers don't have
 // to reach into @/storage just to map `BuildResult.exitCode`.
 
+export { type ExitCode, ExitCodes } from "@/storage";
 export { buildCorpus } from "./build-corpus";
 export { errorsToExitCode } from "./errors";
 export type {
@@ -24,4 +25,13 @@ export type {
   TocCoverageReport,
   UnresolvedCitation,
 } from "./types";
-export { type ExitCode, ExitCodes } from "@/storage";
+
+// `CorpusRef` and its helpers (`parse`, `serialize`, `equals`, `hash`,
+// `corpusRefFromWire`, `corpusRefToWire`) live at `@/corpus/refs` and are
+// imported directly by every consumer (persistence, corpus-nav, workbench,
+// UI, the IPC boundary). This is a deliberate carve-out from the
+// deep-module barrel discipline: re-exporting four bare verb names
+// through this barrel would force per-call-site aliasing. The grep gates
+// in `test/baseline.test.ts` pin `refs.ts` as the one sanctioned home for
+// the brand+zod machinery, and `@/corpus/wire` as the zod-free home for
+// the shape declarations.

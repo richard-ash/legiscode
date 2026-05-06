@@ -3,15 +3,16 @@
 // a single class on <html> (P1) so the next paint hits the correct token
 // set without an inline-style rewrite.
 //
-// Persistence is localStorage; feat/sqlite-state migrates to SQLite later.
-// The synchronous read in src/index.html applies the class before React
-// mounts, so this module only needs to publish the toggle and emit
-// subscribers; it never has to fight an FOUC.
+// Persistence is delegated to `@/persistence` (Layer 1 — feat/file-tree).
+// The synchronous FOUC-avoidance read in `src/theme-bootstrap.ts` is the
+// one documented carve-out that still touches localStorage directly; see
+// that file's header for why.
 
-const STORAGE_KEY = "legiscode.theme";
+import { type Theme, writeTheme } from "@/persistence";
+
 const LIGHT_CLASS = "lc-light";
 
-export type Theme = "dark" | "light";
+export type { Theme };
 
 type Listener = (theme: Theme) => void;
 const listeners = new Set<Listener>();
@@ -26,11 +27,7 @@ export function setTheme(theme: Theme): void {
   } else {
     document.documentElement.classList.remove(LIGHT_CLASS);
   }
-  try {
-    localStorage.setItem(STORAGE_KEY, theme);
-  } catch {
-    // Quota / private-mode failure: theme stays in-memory only this session.
-  }
+  writeTheme(theme);
   for (const fn of listeners) fn(theme);
 }
 
