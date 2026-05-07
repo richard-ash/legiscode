@@ -102,6 +102,13 @@ function buildParsedModule(
       defined_terms: extractDefinedTerms(ps.text, module),
       editorial_status: ps.editorial_status,
       ...(ps.redirect_to ? { redirect_to: ps.redirect_to } : {}),
+      // body[] is replaced by the parser walker in a follow-up commit;
+      // we seed a single text segment so the schema's roundtrip
+      // invariant (bodyToText(body) === text) passes at this stage —
+      // the candidate validator runs the same superRefine the disk
+      // boundary does, and an empty body would fail it for any
+      // section with non-empty text.
+      body: ps.text.length > 0 ? [{ type: "text", text: ps.text }] : [],
     };
     const validated = SectionFileSchema.safeParse(candidate);
     if (!validated.success) {

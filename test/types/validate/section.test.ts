@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { SectionFileSchema } from "@/types";
+import { SectionFileSchema, bodyToText } from "@/types";
 
+// validSection's `text` is empty so body defaults to [] and the
+// roundtrip invariant (bodyToText(body) === text) passes vacuously.
+// Tests that exercise non-empty body[] override both fields together.
 const validSection = {
   id: "10.04.020",
   title: "Definitions",
-  text: "...",
+  text: "",
   citations: [],
   defined_terms: [],
   hierarchy: ["title-10", "ch-10.04"],
@@ -101,5 +104,304 @@ describe("SectionFileSchema", () => {
       redirect_to: "INVALID",
     });
     expect(result.success).toBe(false);
+  });
+
+  it("defaults body to [] when omitted (CT7 — old --corpus-path JSON compat)", () => {
+    expect(SectionFileSchema.parse(validSection).body).toEqual([]);
+  });
+});
+
+// BodySegment discriminated union — one focused test per variant. Each
+// asserts the happy-path shape parses, and one shape-level rejection per
+// variant catches the most common authoring mistake. Happy-path fixtures
+// set both `text` and `body` so the roundtrip invariant in superRefine
+// is satisfied (bodyToText(body) === text). Rejection fixtures fail at
+// the segment schema before superRefine runs, so text doesn't matter.
+describe("BodySegment via SectionFileSchema.body", () => {
+  const withBody = (body: unknown) => ({ ...validSection, body });
+
+  it("accepts a text segment", () => {
+    expect(
+      SectionFileSchema.safeParse({
+        ...validSection,
+        text: "hello",
+        body: [{ type: "text", text: "hello" }],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts a citation segment when citation_index is in range", () => {
+    const result = SectionFileSchema.safeParse({
+      ...validSection,
+      text: "§ 1.01",
+      citations: [{ display_text: "§ 1.01", target: { kind: "internal", section_id: "1.01" } }],
+      body: [{ type: "citation", raw: "§ 1.01", citation_index: 0 }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a citation segment with a negative citation_index", () => {
+    const result = SectionFileSchema.safeParse(
+      withBody([{ type: "citation", raw: "x", citation_index: -1 }]),
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts a defined_term segment", () => {
+    expect(
+      SectionFileSchema.safeParse({
+        ...validSection,
+        text: "Person",
+        body: [{ type: "defined_term", term: "Person" }],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts a subsection_label segment", () => {
+    expect(
+      SectionFileSchema.safeParse({
+        ...validSection,
+        text: "(a)",
+        body: [{ type: "subsection_label", label: "(a)" }],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts a paragraph_break segment", () => {
+    expect(
+      SectionFileSchema.safeParse({
+        ...validSection,
+        text: "\n",
+        body: [{ type: "paragraph_break" }],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts a format segment with recursive children", () => {
+    const body = [
+      {
+        type: "format",
+        style: "bold",
+        children: [
+          {
+            type: "format",
+            style: "italic",
+            children: [{ type: "text", text: "foo" }],
+          },
+        ],
+      },
+    ];
+    expect(SectionFileSchema.safeParse({ ...validSection, text: "foo", body }).success).toBe(true);
+  });
+
+  it("rejects a format segment with empty children (walker / normalizer drop empty spans)", () => {
+    expect(
+      SectionFileSchema.safeParse(withBody([{ type: "format", style: "bold", children: [] }]))
+        .success,
+    ).toBe(false);
+  });
+
+  it("rejects a format segment with an unknown style", () => {
+    const result = SectionFileSchema.safeParse(
+      withBody([{ type: "format", style: "underline", children: [{ type: "text", text: "x" }] }]),
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a body segment with an unknown variant type (CT8 hard case)", () => {
+    expect(SectionFileSchema.safeParse(withBody([{ type: "marquee" }])).success).toBe(false);
+  });
+});
+
+// superRefine — citation_index must be in range. This is the cross-field
+// invariant the per-segment schema can't reach; CT9 added it because a
+// drifting index would crash the renderer at resolve time. Fixtures set
+// `text` to bodyToText(body) so the roundtrip check passes and these
+// tests isolate the citation_index path.
+describe("SectionFileSchema citation_index superRefine", () => {
+  const withCitation = (text: string, citations: unknown[], body: unknown[]) => ({
+    ...validSection,
+    text,
+    citations,
+    body,
+  });
+
+  it("rejects a citation segment whose index >= citations.length", () => {
+    const result = SectionFileSchema.safeParse(
+      withCitation(
+        "§ 1.01",
+        [{ display_text: "§ 1.01", target: { kind: "internal", section_id: "1.01" } }],
+        [{ type: "citation", raw: "§ 1.01", citation_index: 5 }],
+      ),
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path.includes("citation_index"));
+      expect(issue).toBeDefined();
+    }
+  });
+
+  it("rejects a citation segment whose index >= citations.length when nested inside a format span", () => {
+    const result = SectionFileSchema.safeParse(
+      withCitation(
+        "§ 1.01",
+        [{ display_text: "§ 1.01", target: { kind: "internal", section_id: "1.01" } }],
+        [
+          {
+            type: "format",
+            style: "bold",
+            children: [{ type: "citation", raw: "§ 1.01", citation_index: 7 }],
+          },
+        ],
+      ),
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts citation_index === citations.length - 1 (boundary case)", () => {
+    const result = SectionFileSchema.safeParse(
+      withCitation(
+        "§ 1.01",
+        [{ display_text: "§ 1.01", target: { kind: "internal", section_id: "1.01" } }],
+        [{ type: "citation", raw: "§ 1.01", citation_index: 0 }],
+      ),
+    );
+    expect(result.success).toBe(true);
+  });
+});
+
+// Roundtrip invariant: bodyToText(body) must equal text. The renderer
+// iterates body[]; search and export read text. Drift between the two
+// representations is the corruption mode body[] was added to prevent,
+// so the schema fails closed at parse time.
+describe("SectionFileSchema body[]/text roundtrip superRefine", () => {
+  it("rejects a non-empty text with empty body[]", () => {
+    const result = SectionFileSchema.safeParse({
+      ...validSection,
+      text: "Section content the renderer would never see.",
+      body: [],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path.includes("body"));
+      expect(issue).toBeDefined();
+      expect(issue?.message).toContain("roundtrip");
+    }
+  });
+
+  it("rejects body[] whose flattened text disagrees with text byte-for-byte", () => {
+    const result = SectionFileSchema.safeParse({
+      ...validSection,
+      text: "hello",
+      body: [{ type: "text", text: "world" }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects when paragraph_break is missing from body[] but present as \\n in text", () => {
+    const result = SectionFileSchema.safeParse({
+      ...validSection,
+      text: "first\nsecond",
+      body: [
+        { type: "text", text: "first" },
+        { type: "text", text: "second" },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts body[] that re-flattens through nested format spans", () => {
+    const result = SectionFileSchema.safeParse({
+      ...validSection,
+      text: "see foo bar",
+      body: [
+        { type: "text", text: "see " },
+        {
+          type: "format",
+          style: "bold",
+          children: [
+            { type: "text", text: "foo " },
+            { type: "format", style: "italic", children: [{ type: "text", text: "bar" }] },
+          ],
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts an empty section (text='' and body=[]) — vacuous roundtrip", () => {
+    expect(SectionFileSchema.safeParse(validSection).success).toBe(true);
+  });
+});
+
+// Citation raw must match the indexed citations[] entry's display_text.
+// Bounds-only is too loose: a hand-edit drift could put raw="§ 1.01"
+// against a citation whose display_text is "§ 2.02", silently sending
+// the click to the wrong target.
+describe("SectionFileSchema citation raw/display_text consistency superRefine", () => {
+  it("rejects when raw !== citations[citation_index].display_text", () => {
+    const result = SectionFileSchema.safeParse({
+      ...validSection,
+      text: "§ 1.01",
+      citations: [{ display_text: "§ 2.02", target: { kind: "internal", section_id: "2.02" } }],
+      body: [{ type: "citation", raw: "§ 1.01", citation_index: 0 }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find(
+        (i) => i.path.includes("raw") && i.message.includes("display_text"),
+      );
+      expect(issue).toBeDefined();
+    }
+  });
+
+  it("rejects raw mismatch when nested inside a format span", () => {
+    const result = SectionFileSchema.safeParse({
+      ...validSection,
+      text: "§ 1.01",
+      citations: [{ display_text: "§ 2.02", target: { kind: "internal", section_id: "2.02" } }],
+      body: [
+        {
+          type: "format",
+          style: "bold",
+          children: [{ type: "citation", raw: "§ 1.01", citation_index: 0 }],
+        },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts raw === citations[citation_index].display_text", () => {
+    const result = SectionFileSchema.safeParse({
+      ...validSection,
+      text: "§ 1.01",
+      citations: [{ display_text: "§ 1.01", target: { kind: "internal", section_id: "1.01" } }],
+      body: [{ type: "citation", raw: "§ 1.01", citation_index: 0 }],
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+// bodyToText is exported so test code uses the same definition the
+// schema runs. A drift between the two would let the trust-boundary
+// check disagree with the corpus-wide test invariant.
+describe("bodyToText helper", () => {
+  it("re-flattens text/citation/defined_term/subsection_label/paragraph_break/format", () => {
+    expect(
+      bodyToText([
+        { type: "text", text: "see " },
+        { type: "citation", raw: "§ 1.01", citation_index: 0 },
+        { type: "text", text: " ('" },
+        { type: "defined_term", term: "Person" },
+        { type: "text", text: "')" },
+        { type: "paragraph_break" },
+        { type: "subsection_label", label: "(a)" },
+        { type: "format", style: "bold", children: [{ type: "text", text: " bold" }] },
+      ]),
+    ).toBe("see § 1.01 ('Person')\n(a) bold");
+  });
+
+  it("returns '' for empty body[]", () => {
+    expect(bodyToText([])).toBe("");
   });
 });

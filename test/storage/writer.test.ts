@@ -42,6 +42,7 @@ function makeSection(id: string): SectionFile {
     defined_terms: [],
     hierarchy: [],
     editorial_status: "active",
+    body: [],
   };
 }
 
