@@ -1,11 +1,16 @@
 // Three-panel IDE layout backed by `react-resizable-panels` v4 (Group +
-// Panel + Separator). Layouts persist via `useDefaultLayout` against
-// localStorage; `feat/sqlite-state` migrates the store later. Defaults
-// match DESIGN.md: 240px left, 320px right, fluid center. Keyboard toggles
-// ⌘B (left) and ⌘⌥B (right) collapse panels via the imperative API.
+// Panel + Separator). Layouts persist via `useDefaultLayout` against the
+// raw `Storage` backend exposed by `@/persistence` (Layer 1 —
+// feat/file-tree). The library owns its own opaque key namespace; routing
+// it through `getStorageBackend()` keeps the centralization invariant
+// while letting the library manage its keys without a custom adapter.
+// Defaults match DESIGN.md: 240px left, 320px right, fluid center.
+// Keyboard toggles ⌘B (left) and ⌘⌥B (right) collapse panels via the
+// imperative API.
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from "react-resizable-panels";
+import { getStorageBackend } from "@/persistence";
 
 const LAYOUT_ID = "legiscode-three-panel";
 const PANEL_IDS = ["left", "center", "right"];
@@ -21,7 +26,7 @@ export function ThreePanel({ left, center, right }: ThreePanelProps) {
   const rightRef = usePanelRef();
   const [storage, setStorage] = useState<Storage | undefined>(undefined);
   useEffect(() => {
-    if (typeof window !== "undefined") setStorage(window.localStorage);
+    setStorage(getStorageBackend());
   }, []);
 
   const layout = useDefaultLayout({

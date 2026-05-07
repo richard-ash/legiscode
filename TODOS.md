@@ -6,6 +6,25 @@ Add items aggressively; remove them when shipped or when superseded by a real pl
 
 ---
 
+## File-tree review deferrals (feat/file-tree round-1 review)
+
+Adversarial /review on `feat-file-tree` (2026-05-06) surfaced findings beyond
+F1 (boundary ref validation, fixed in this PR) and F12 (typeahead onBlur
+reset, fixed in this PR). These were intentionally deferred:
+
+- **F2 — Stale `legiscode.activeSection` legacy key never deleted when valid `legiscode.openItems` exists.** `src/persistence/storage.ts:135` returns the parsed new value immediately, leaving the legacy key behind. If a future schema bump corrupts `openItems`, the fall-through migration silently rolls user state back to whatever was at first migration. Fix: remove legacy key on the line that returns the valid new value (~3 lines). Owner: next persistence-touching branch.
+- **F3 — `corpus.read` returning `{ ok: false }` silently leaves stale section visible.** `src/ui/App.tsx:117` only sets section on `r.ok=true`. Today the loader doesn't produce mid-session domain errors, but the contract permits them. Fix: route ok:false to either `setCorpusError` or `setSection(null)`. Owner: `feat/corpus-loader-errors` (creates when needed) or fold into `feat/sqlite-state`.
+- **F7 — Out-of-range persisted `activeIndex` blanks the center forever.** `src/persistence/storage.ts:46` schema accepts any int; `fromPersisted` maps out-of-range to null; `App.tsx:71` only seeds `defaultRef` when `items.length===0`. Persisted `{items:[A,B,C], activeIndex:999}` cold-starts with 3 tabs but no active section. Fix: when activeIndex remaps to null but `items.length>0`, promote `items[0]` to active. Owner: same as F3.
+- **F-perf — Three O(n) `findIndex` scans per keypress at 12k SF Municipal rows.** `src/corpus-nav/keyboard-actions.ts:107`, `src/ui/left-panel/file-tree/use-roving-focus.ts:70`, `src/ui/left-panel/file-tree/file-tree.tsx:93`. ~36k id comparisons per arrow press. Currently under the perf budget (in-tree assertion <50ms uncached). Fix: promote `Map<rowId, index>` from `useCorpusTree`, thread through `KeyboardState` and `useRovingFocus`. Owner: `feat/file-tree-polish` (#18 in master plans-overview) — bundles with F-sticky and F-pendingFocus since all three touch the same hooks.
+- **F-palette — `⌘B` collapses the panel underneath an open command palette.** Three `window` keydown handlers (App.tsx:131, three-panel.tsx:46, file-tree onKeyDown) compete with no focus-trap coordination. Fix: palette dialog stops keydown propagation, OR three-panel checks `document.activeElement` is inside `[role=dialog]`. Owner: `feat/command-palette` (which already has the palette-perf work scoped).
+- **F-empty-css — `.lc-tree-empty` and `.lc-tree-empty-caption` referenced in `file-tree.tsx:169` but not styled in globals.css.** Branch shouldn't fire in Phase 1 per DESIGN.md but is reachable defensively (e.g. once filtering ships). Fix: add 8 lines of CSS or drop the class hooks. Owner: `feat/search-filter` (when the filter ships and an empty result-set is real).
+- **F-pendingFocus — `pendingFocusRowRef` not cleared when target row disappears (collapse race).** `src/ui/left-panel/file-tree/use-roving-focus.ts`: keyboard nav into a virtualized-out row stashes id; if user collapses the parent containing it, stash sits forever; later remount steals focus. ~3 lines: clear pendingFocus inside the row-disappeared effect at lines 53-57. Owner: same as F-perf.
+- **F-sticky — No sticky ancestor headers under virtualization.** VSCode pins the current open directory at the top of the explorer pane so deep scrolling doesn't lose the parent context. Our file tree at 12k rows can scroll the user 1000+ sections deep into ARTICLE IV before the article header scrolls off. Surfaced 2026-05-06 by direct comparison against VSCode's explorer. Fix outline: read `virtualizer.scrollOffset`, find the topmost virtualized row, walk its ancestor chain, render those ancestors as fixed-position rows above the scroll viewport. Edge cases: (a) sticky-header transition seam when the real ancestor row scrolls into view, (b) ARIA — sticky copies must not double-count as `treeitem`s (`role="presentation"` with the real `treeitem` keeping focus + tabindex), (c) clicking a sticky header behaves like clicking the real ancestor (toggle expansion + focus). Estimated 100-200 LOC + Playwright coverage. Owner: same as F-perf — natural bundle since it reads the same `useRovingFocus` + `useTreeVirtualizer` internals.
+
+**Owner:** Distributed across owning branches as listed above. This entry is the index so future devs (or future-me) don't lose them.
+
+---
+
 ## Re-enable Phase-1-hidden chrome elements when their backing systems ship
 
 `feat/electron-shell` ships the chrome from the Claude Design handoff but **hides six elements** the mockup shows because their backing systems don't exist in Phase 1. Each has a designated owning branch. Without this tracking item, a future dev re-fetching the handoff and copying `chrome.jsx` verbatim could reintroduce dead UI before its system ships.
@@ -152,3 +171,74 @@ Code comments in `src/parser/parse-html.ts` and `src/parser/references.ts` refer
 - **Owner:** `feat/build-pipeline` (cron is the most likely first second-producer).
 
 ---
+
+## Typeahead normalization session with Derek
+
+`feat/file-tree` ships keyboard typeahead with default normalization rules: case-insensitive prefix match on the displayed label string, no special handling for section symbols (`§`) or numeric prefixes. Real legal-research workflows likely have opinions on this that we can't predict from outside the use case.
+
+- **What:** After `feat/file-tree` ships and Derek dogfoods it for ~2 weeks, schedule a 30-min session to validate or evolve the typeahead normalization rules. Concrete questions: should typing `1` jump to `§ 1.01` or `Title 1` or `Chapter 1.04`? Should `§` be stripped before matching? Case-folding edge cases (`ARTICLE 1` vs `Article 1` from typing `a`)? Numeric vs alpha behavior?
+- **Why:** Default normalization is a guess. Each rule we get wrong wastes Derek's keystrokes; each rule we get right makes him faster. The cost of being wrong is small (one-file edit in `src/corpus-nav/filter-predicate.ts` or `src/ui/left-panel/file-tree/use-typeahead.ts`) but the cost of never asking is permanent suboptimality.
+- **Pros:** Validates a real product assumption with the actual user; cheap to act on.
+- **Cons:** Requires Derek-time; outcomes may be inconsistent with screen-reader expectations (need to test both paths).
+- **Context:** Surfaced by `feat/file-tree` /plan-eng-review (2026-05-05) D8. The Layer 3 predicate primitive makes any normalization change a one-file edit, so deferring rule decisions is cheap.
+- **Depends on / Blocked by:** `feat/file-tree` shipped; Derek dogfood session scheduled.
+- **Owner:** `feat/file-tree` polish PR or a `feat/derek-feedback-loop` branch.
+
+---
+
+## CorpusRef extension fields (version, anchor, revision)
+
+`feat/file-tree` ships `src/corpus/refs.ts` with the minimal canonical type: `{ module: ModuleId, section: SectionId }` (opaque-tagged). Three extension fields are documented but not implemented: `version` (citation pinning), `anchor` (sub-section addressing for annotations), `revision` (point-in-time view for revision compare). Each field lands when its first real consumer exists.
+
+- **What:** Extend `CorpusRef` (in `src/corpus/refs.ts`) with the named field when each consumer branch lands:
+  - `version: ModuleVersion` → owned by `feat/citation-resolution`. Pins a citation to the cited section's version-at-time-of-citation so renumbering doesn't silently change meaning.
+  - `anchor: string` → owned by `feat/annotations`. Addresses a position within a section (subdivision letter, paragraph number) so an annotation survives section-text edits that don't touch its anchor.
+  - `revision: ModuleVersion | "latest"` → owned by `feat/revision-compare`. Resolves the section as it existed at the named version.
+- **Why:** Pre-designing all three fields without their consumers risks getting the shape wrong (interfaces designed before the second impl is real). Pre-stubbing the slot in `refs.ts` makes the extension obvious to the next dev and keeps the canonical type centralized.
+- **Pros:** Each consumer branch makes a one-file edit to `refs.ts`; foundation evolves with real requirements.
+- **Cons:** Requires discipline — when the consumer branch lands, the dev must remember to extend `refs.ts` rather than working around it with an ad-hoc wrapper type.
+- **Context:** Surfaced by `feat/file-tree` /plan-eng-review (2026-05-05) D10 + D12. Layer 0's mitigation against premature abstraction is "ship minimal, extend on demand" — this TODO captures the extension-on-demand intent.
+- **Depends on / Blocked by:** Each consumer branch lands separately.
+- **Owner:** Distributed across `feat/citation-resolution`, `feat/annotations`, `feat/revision-compare`. This TODO is the cross-branch index.
+
+---
+
+## Command palette virtualization + debounce
+
+`feat/electron-shell` shipped a placeholder section-finder palette (`src/ui/chrome/command-palette.tsx`) at Phase 1. At SF Municipal scale (11,659 sections), the per-keystroke filter is a synchronous full-list scan + lowercase + DOM-render-every-match — ~hundreds of ms of jank per keystroke. The filter is correct; the rendering shape is the problem.
+
+- **What:** In `feat/command-palette` (branch #10), replace the current implementation with: (a) `useDeferredValue` or a 50-100ms debounce on the input string; (b) a precomputed lowercase index built once when `corpus.tree` arrives (avoid per-keystroke `${num} ${name} ${path}.toLowerCase()` allocations); (c) `@tanstack/react-virtual` over the matched-items list (the same dep `feat/file-tree` already pulled in for the tree); (d) a result cap (e.g. top 200 matches) so worst-case typing of single common letters doesn't paint thousands of buttons.
+- **Why:** The palette is the second half of the perf cliff surfaced 2026-05-06 alongside the file-tree click latency. The tree fix shipped in `feat/file-tree`; the palette fix logically belongs in `feat/command-palette` (which is already in the decomp plan to layer the `commandRegistry` primitive on top of the placeholder). Folding both into one PR was rejected during scoping — palette virt is self-contained polish on a UI component, not a load-bearing-contract change.
+- **Pros:** Single coherent rewrite at the time the branch is owned by the palette work; matches VS Code's debounced-+-virtualized Quick Open model; the v1.0 wedge release at week 3 doesn't gate on this (the palette isn't in the wedge surface).
+- **Cons:** Until `feat/command-palette` lands, ⌘P remains laggy. Acceptable because the wedge browse loop is tree-driven, not palette-driven.
+- **Context:** Surfaced 2026-05-06 alongside the file-tree click-latency report. Tree virt landed in `feat/file-tree` as a wedge-blocker; palette virt was deferred to its owning Phase 3 branch via the 2026-05-06 split decision (see this commit + plans-overview "Updated 2026-05-06" note).
+- **Depends on / Blocked by:** `feat/command-palette` (#10) starting.
+- **Owner:** `feat/command-palette` (#10).
+
+---
+
+## Default file-tree expansion at scale
+
+`feat/file-tree`'s `defaultExpansion(tree, maxDepth=1)` auto-expands codes (depth 0) and chapters (depth 1) on first launch, which reveals every section leaf at depth 2. At SF Municipal scale that's ~12,000 visible rows on cold start. Virtualization (also shipped in `feat/file-tree`) makes this performant, but the UX of "everything spilled open" may not be what users want — VS Code's mental model is "top-level visible, click to expand."
+
+- **What:** Decide whether the v1.0 default should be `maxDepth=0` (only modules visible, sections hidden under their chapters until expanded) or stay at `maxDepth=1` (current behavior; sections all visible). Either way, the per-user choice could be persisted via `feat/sqlite-state` later.
+- **Why:** Surfaced as a side-effect of investigating the click-latency report — the catastrophic visible-row count is a defaults choice, not a tree-shape constraint. Virtualization makes it OK; UX research would say which is right.
+- **Pros (maxDepth=0):** Tighter cognitive load on cold start; matches VS Code/Finder/Explorer mental model; encourages users to navigate by code → chapter → section. **Cons:** Two extra clicks to reach any leaf section first time.
+- **Pros (maxDepth=1, current):** Section browsing without disclosure-triangle hunting; closer to "everything is searchable from the keyboard." **Cons:** Visually overwhelming on cold start; default state has no narrative.
+- **Context:** Surfaced 2026-05-06 during file-tree perf investigation. Not a perf concern after virtualization — pure UX call. Derek's dogfood feedback is the right signal.
+- **Depends on / Blocked by:** Derek dogfood session (overlaps with the typeahead-normalization session already on TODOS.md).
+- **Owner:** `feat/file-tree` polish PR or `feat/derek-feedback-loop`.
+
+---
+
+## Plan-archive cleanup: structure-tree.tsx promises about feat/file-tree
+
+The current `src/ui/left-panel/structure-tree.tsx` comment block (lines 6-8) says it'll be "replaced wholesale by feat/file-tree (Phase 2)" and that feat/file-tree adds "search-box wiring, pending dots, ordinances-mode panel, and chapter-roll-up indicators." The current `feat/file-tree` design (post-/plan-eng-review) explicitly defers ALL of those: search → `feat/ripgrep-search`, pending dots → `feat/ordinance-ingestion`, ordinances panel → `feat/ordinance-ingestion`, chapter-roll-up → not in any current plan. When this branch deletes structure-tree.tsx, those stale promises vanish — but if anyone fetched the design archive, they're misled.
+
+- **What:** When `feat/file-tree` lands and deletes `structure-tree.tsx`, also update the plan archive (`~/.gstack/projects/richard-ash-legiscode/richardash-feat-file-tree-design-*.md` is the live one; check for any older copies in the archive directory) to reflect what `feat/file-tree` actually shipped vs what the original `structure-tree.tsx` placeholder anticipated. Specifically: confirm the search/dots/panel work is correctly attributed to the owning branches (`feat/ripgrep-search`, `feat/ordinance-ingestion`).
+- **Why:** Plans rot when they don't get updated post-ship. A future dev fetching the archived plan would get a misleading picture of what shipped in `feat/file-tree`. Cheap insurance against future archeological confusion.
+- **Pros:** Five-minute cleanup; plan archive stays accurate.
+- **Cons:** None — pure housekeeping.
+- **Context:** Surfaced by `feat/file-tree` /plan-eng-review (2026-05-05) D13.
+- **Depends on / Blocked by:** `feat/file-tree` shipped (the deletion happens here).
+- **Owner:** This branch (small cleanup commit at the end) OR `feat/docs-rebuild` (next docs housekeeping pass).

@@ -6,16 +6,31 @@
 // Triggers: ⌘P globally (wired in App.tsx), workspace-chip click, ⌘K hint.
 // Layout: scrim + centered modal at top 18% of viewport, 640px wide.
 // Catppuccin tokens via .lc-palette-* classes.
+//
+// PERF DEBT (2026-05-06): the filter at `items` runs synchronously over
+// the full flattened section list on every keystroke (~11,659 items at SF
+// Municipal scale) and renders every match as a real DOM `<button>`. At
+// scale this is ~100s of ms per keystroke. The fix — debounce + result
+// cap + virtualized list + precomputed lowercase index — is intentionally
+// deferred to `feat/command-palette` (branch #10, Phase 3). See TODOS.md
+// "Command palette virtualization + debounce".
 
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { CorpusModuleSummary, CorpusTreeNode } from "../../../electron/ipc/contract";
+import { type CorpusRef, corpusRefFromWire } from "@/corpus/refs";
+import type { CorpusModuleSummary, CorpusTreeNode } from "@/corpus/wire";
 import { Icons } from "@/ui/icons";
 
 export interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
   corpus: CorpusModuleSummary;
-  onSelect: (ref: { moduleId: string; sectionId: string }) => void;
+  /**
+   * Receives the branded `CorpusRef` form. The palette keeps the wire
+   * shape (`moduleId`/`sectionId`) on its internal `PaletteItem` for
+   * ergonomics — selection wraps the wire ref into `CorpusRef` at the
+   * boundary so call sites operate on the canonical type.
+   */
+  onSelect: (ref: CorpusRef) => void;
 }
 
 interface PaletteItem {
@@ -69,7 +84,10 @@ export function CommandPalette({ open, onClose, corpus, onSelect }: CommandPalet
       e.preventDefault();
       const picked = items[sel];
       if (picked) {
-        onSelect({ moduleId: picked.moduleId, sectionId: picked.sectionId });
+        // PaletteItem already exposes the wire-shape fields the helper
+        // expects — pass through directly so the grep gate sees no
+        // ad-hoc `{ moduleId, sectionId }` literal at this boundary.
+        onSelect(corpusRefFromWire(picked));
       }
       onClose();
     }
@@ -111,7 +129,7 @@ export function CommandPalette({ open, onClose, corpus, onSelect }: CommandPalet
                 onMouseEnter={() => setSel(i)}
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  onSelect({ moduleId: s.moduleId, sectionId: s.sectionId });
+                  onSelect(corpusRefFromWire(s));
                   onClose();
                 }}
               >

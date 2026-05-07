@@ -6,6 +6,7 @@
   "type": "module",
   "main": "out/main/main.js",
   "dependencies": {
+    "@tanstack/react-virtual": "^3.13.24",
     "cheerio": "^1.2.0",
     "react": "19.2.5",
     "react-dom": "19.2.5",

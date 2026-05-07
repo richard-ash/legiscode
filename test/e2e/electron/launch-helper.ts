@@ -9,15 +9,29 @@ import { resolve } from "node:path";
 const projectRoot = resolve(import.meta.dirname, "..", "..", "..");
 const mainEntry = resolve(projectRoot, "out", "main", "main.js");
 
-export async function launchApp(): Promise<{
+export interface LaunchOptions {
+  /**
+   * Override Electron's user-data directory (where localStorage etc. is
+   * persisted). Tests that mutate persistent state pass a per-test
+   * temp dir so they don't leak into the developer's real app data.
+   */
+  userDataDir?: string;
+}
+
+export async function launchApp(opts: LaunchOptions = {}): Promise<{
   app: ElectronApplication;
   window: Page;
   consoleErrors: string[];
 }> {
   const consoleErrors: string[] = [];
 
+  const args = [mainEntry];
+  if (opts.userDataDir !== undefined) {
+    args.push(`--user-data-dir=${opts.userDataDir}`);
+  }
+
   const app = await electron.launch({
-    args: [mainEntry],
+    args,
     // ELECTRON_RENDERER_URL is intentionally NOT set — that drives main.ts to
     // load out/renderer/index.html via file://, exercising the same path that
     // a packaged build will use.

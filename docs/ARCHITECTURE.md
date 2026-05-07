@@ -277,9 +277,121 @@ Future-strengthening options on the table:
 
 We have not picked one yet. Re-evaluate when a violation slips through.
 
+## Renderer layering (feat/file-tree D10)
+
+The renderer is organized as five composable layers, bottom-up. Each
+layer has a single responsibility and a narrow public surface; every
+Phase 3-10 feature lands as either a new module within an existing
+layer (additive) or as a new symbol behind an existing barrel (extension).
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│ LAYER 5  UI bindings — thin React, mostly stateless                │
+│   src/ui/left-panel/file-tree/                                     │
+│     file-tree.tsx, tree-node.tsx, use-corpus-tree.ts,              │
+│     use-typeahead.ts, use-roving-focus.ts,                         │
+│     use-tree-virtualizer.ts                                        │
+│   src/ui/App.tsx (orchestration)                                   │
+├────────────────────────────────────────────────────────────────────┤
+│ LAYER 4  Workbench — what is the user "looking at"                 │
+│   src/workbench/  open-items.ts (kind: "section" today;            │
+│                   "chat" by Phase 5)                               │
+├────────────────────────────────────────────────────────────────────┤
+│ LAYER 3  Navigation — tree model + filters + keyboard, pure        │
+│   src/corpus-nav/  tree-model.ts, visible-rows.ts,                 │
+│                    filter-predicate.ts, keyboard-actions.ts        │
+├────────────────────────────────────────────────────────────────────┤
+│ LAYER 2  Corpus loading (Electron main process)                    │
+│   electron/corpus-loader.ts (IPC handler for corpus:list / read)   │
+├────────────────────────────────────────────────────────────────────┤
+│ LAYER 1  Persistence — single module, swappable                    │
+│   src/persistence/  storage.ts (zod-validated, ONLY localStorage   │
+│                     call site in src/ outside theme-bootstrap.ts)  │
+├────────────────────────────────────────────────────────────────────┤
+│ LAYER 0  Reference system — atom of the entire stack               │
+│   src/corpus/refs.ts                                               │
+│     CorpusRef (opaque-tagged), parse, serialize, equals, hash      │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+**Layer 0 — `src/corpus/refs.ts`.** `CorpusRef` is the canonical type
+for "this section in this module" — opaque-tagged so an arbitrary
+`{ moduleId, sectionId }` object can never be assigned without going
+through `parse()`. Every consumer above Layer 2 carries `CorpusRef`,
+not the wire shape. The wire shape (`{ moduleId, sectionId }`) is
+preserved in `electron/ipc/contract.ts` for back-compat; the
+`corpusRefFromWire` / `corpusRefToWire` helpers cross the boundary.
+Extension fields (`version`, `anchor`, `revision`) are deferred until
+their consumers land — see TODOS.md "CorpusRef extension fields".
+
+**Layer 1 — `src/persistence/storage.ts`.** The single owner of
+`localStorage` reads + writes from the renderer. Schemas are zod-
+validated; corrupt or future-version data returns `null` + logs.
+The legacy `legiscode.activeSection` → `legiscode.openItems` migration
+lives here as a one-shot read-old / write-new / delete-old (D7).
+A documented FOUC carve-out (`src/theme-bootstrap.ts`) is the only
+other file in `src/` allowed to touch localStorage; the grep gate in
+`test/baseline.test.ts` enforces this.
+
+**Layer 2 — `electron/corpus-loader.ts`.** Unchanged in structure
+from Phase 1 — eagerly loads the bundled corpus into RAM at boot,
+serves `corpus:list` / `corpus:read`. The wire types use the legacy
+`{ moduleId, sectionId }` shape; renderer code wraps via
+`corpusRefFromRequest` (in contract.ts) at the boundary.
+
+**Layer 3 — `src/corpus-nav/`.** Pure (event, state) → state functions
+separated from React: `tree-model.ts` (immutable expansion state),
+`visible-rows.ts` (memoized flat-row derivation per D11),
+`filter-predicate.ts` (composable predicates including the
+`prefixMatch` primitive used by typeahead), and `keyboard-actions.ts`
+(WAI-ARIA tree spec MUST set + Cmd/Ctrl+Enter "open without switch").
+No jsdom dependency in tests — pure-Node units cover ~80% of behavior.
+
+**Layer 4 — `src/workbench/open-items.ts`.** Carries the
+`kind: "section" | "chat"` discriminator from day one; `feat/ai-agent`
+(Phase 5) adds chat tabs as an additive case rather than a state
+rewrite. Functions are pure: `openItem`, `openItemWithoutSwitching`,
+`closeItem`, `setActiveIndex`, `validateAgainstCorpus` (drops vanished
+refs on cold-start), plus persistence interop (`fromPersisted` /
+`toPersisted`).
+
+**Layer 5 — `src/ui/left-panel/file-tree/`.** Container + single-row
+component + four adapter hooks (`use-corpus-tree` for expansion +
+visible-row derivation, `use-typeahead` for the prefix buffer,
+`use-roving-focus` for the WAI-ARIA roving-tabindex pattern, and
+`use-tree-virtualizer` for the `@tanstack/react-virtual` wiring with a
+JSDOM guard). Roving tabindex implements the WAI-ARIA pattern (D6 b);
+`data-open` is reserved for the eventual tab-strip styling slot. The
+container is intentionally thin — keyboard, filter, expansion logic
+all dispatch through Layer 3.
+
+**Foundation invariants** (asserted by `test/baseline.test.ts`):
+1. No `fs.watch` calls in src/ or electron/ (deferred-watcher gate).
+2. No direct `localStorage` access in src/ outside Layer 1 + the
+   FOUC carve-out.
+3. No ad-hoc `{ moduleId, sectionId }` literals outside the boundary
+   helpers (`refs.ts`, `contract.ts`, `corpus-loader.ts`,
+   `storage.ts`'s legacy schema, `command-palette.tsx`'s internal
+   `PaletteItem`).
+
 ## Notes
 
 Append-only log of architectural observations. Newest at the top.
+
+### 2026-05-06 — feat/file-tree foundation reset
+
+Replaced the Phase 1 `structure-tree.tsx` with a five-layer foundation
+(`refs` / `persistence` / `corpus-nav` / `workbench` / file-tree UI).
+The plan archive lives at
+`~/.gstack/projects/richard-ash-legiscode/richardash-feat-file-tree-design-20260428-150025.md`;
+the design rationale (D1-D13) is captured there. Most rendering
+logic moved out of React into pure-Node modules, so the test suite
+shifted from jsdom component tests to pure-function units. The
+single-active-section model became an `openItems[]` + `activeIndex`
+state with a `kind` discriminator that `feat/ai-agent` extends to
+chat tabs without touching this branch. A grep-gate baseline asserts
+the foundation invariants (no fs.watch, no localStorage outside
+Layer 1, no ad-hoc `{ moduleId, sectionId }` literals).
 
 ### 2026-05-05 — IPC layer collapsed to a single contract
 

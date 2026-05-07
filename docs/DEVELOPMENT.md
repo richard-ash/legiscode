@@ -94,8 +94,21 @@ docker run --rm -it legiscode-ci:latest sh
 
 From there: `pnpm exec tsc --noEmit`, `pnpm exec biome lint .`, `pnpm exec vitest run`, etc.
 
+## Refreshing the corpus during dev
+
+Run `pnpm corpus:sync` to regenerate the bundled corpus from the AmLegal
+HTML manifest. **Restart the dev app afterwards** — there is no live-reload
+watcher in v1.0 (`feat/file-tree` D3). The 1-2s restart cost is much
+cheaper than the silent-staleness bug where a forgotten reload makes a
+parser regression look real.
+
+A live watcher will land alongside the scheduled corpus-refresh pipeline
+(see TODOS.md "Scheduled corpus refresh workflow") — until then, app
+restart is the contract.
+
 ## Documentation
 
 - [`DESIGN.md`](../DESIGN.md) — visual design system
 - [`README.md`](../README.md) — quick start
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — module map and runtime topology
 - `~/.gstack/projects/legiscode/` — feature plans, ADRs, branch decomposition (out of tree)

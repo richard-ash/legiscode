@@ -90,13 +90,16 @@ describe("CommandPalette", () => {
     expect(screen.getByText(/No sections match/)).toBeInTheDocument();
   });
 
-  it("Enter selects the highlighted section and closes", async () => {
+  it("Enter selects the highlighted section and closes (emits a branded CorpusRef, not the wire shape)", async () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     render(<CommandPalette open onClose={onClose} corpus={corpus} onSelect={onSelect} />);
     await userEvent.type(screen.getByPlaceholderText(/Go to section/), "Commission");
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Enter" });
-    expect(onSelect).toHaveBeenCalledWith({ moduleId: "sf-port", sectionId: "1.2" });
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    const ref = onSelect.mock.calls[0]?.[0];
+    expect(ref?.module).toBe("sf-port");
+    expect(ref?.section).toBe("1.2");
     expect(onClose).toHaveBeenCalled();
   });
 

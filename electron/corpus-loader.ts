@@ -14,7 +14,7 @@
 
 import { readFile, readdir, stat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
-import type { SectionFile } from "@/types";
+import { ModuleIdSchema, type SectionFile, SectionIdSchema } from "@/types";
 import type {
   CorpusError,
   CorpusListResult,
@@ -226,12 +226,28 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
     module_version: string;
   };
 
+  // Validate the moduleId at the trust boundary. If the bundle ships a
+  // module id that fails ModuleIdSchema, the renderer's CorpusRef.parse()
+  // would later throw inside computeRows() during render, blanking the
+  // tree before BootOverlay can intercept. Surface the corruption here
+  // so loadCorpus's catch routes it to CorpusError("corrupt") instead.
+  const moduleIdCheck = ModuleIdSchema.safeParse(manifest.id);
+  if (!moduleIdCheck.success) {
+    throw new Error(`module ${moduleDir}: invalid id ${JSON.stringify(manifest.id)}`);
+  }
+
   const sectionsRoot = join(moduleDir, "sections");
   const sectionFiles = await collectJson(sectionsRoot);
   const sections: LoadedSection[] = [];
   for (const filePath of sectionFiles) {
     const raw = await readFile(filePath, "utf8");
     const section = JSON.parse(raw) as SectionFile;
+    // Same boundary discipline for sectionId — if the on-disk section file
+    // carries an id the renderer can't brand into a CorpusRef, fail loud.
+    const sectionIdCheck = SectionIdSchema.safeParse(section.id);
+    if (!sectionIdCheck.success) {
+      throw new Error(`module ${manifest.id}: invalid section id ${JSON.stringify(section.id)}`);
+    }
     const tail = section.hierarchy.length > 0 ? section.hierarchy.slice(1) : [];
     sections.push({ moduleId: manifest.id, section, hierarchyTail: tail });
   }
