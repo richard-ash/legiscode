@@ -81,10 +81,22 @@ export class CitationPatternError extends Error {
   }
 }
 
-export function extractCitations(text: string, module: ModuleConfig): Citation[] {
+// Position-bearing extraction result. Per A1 in the feat-parse-html-ast
+// design, the canonical extractor returns the position triples needed by
+// the pipeline's body-segment builder; callers that only need the bare
+// Citation[] shape (e.g. SectionFile.citations) map via `.citation`.
+export interface CitationMatch {
+  citation: Citation;
+  /** Inclusive start index in the input text. */
+  start: number;
+  /** Exclusive end index in the input text. */
+  end: number;
+}
+
+export function extractCitations(text: string, module: ModuleConfig): CitationMatch[] {
   if (!text) return [];
 
-  const citations: Citation[] = [];
+  const matches: CitationMatch[] = [];
   const seen = new Set<string>();
 
   for (const patternStr of module.citation_patterns) {
@@ -107,9 +119,19 @@ export function extractCitations(text: string, module: ModuleConfig): Citation[]
       seen.add(dedupeKey);
 
       const target = classifyMatch(display_text, text, matchIndex);
-      citations.push({ display_text, target });
+      matches.push({
+        citation: { display_text, target },
+        start: matchIndex,
+        end: matchIndex + display_text.length,
+      });
     }
   }
 
-  return citations;
+  // Sort by start so the body-segment builder can interleave with
+  // defined-term/format spans without re-sorting. Multiple patterns can
+  // produce matches at different offsets; the dedup above only catches
+  // identical (offset, text) pairs, so two patterns matching at different
+  // positions both stand.
+  matches.sort((a, b) => a.start - b.start);
+  return matches;
 }

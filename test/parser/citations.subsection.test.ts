@@ -19,17 +19,17 @@ describe("extractCitations — internal subsection", () => {
   it("captures (a)(2) as a subsection on internal targets", () => {
     const cites = extractCitations("As stated in § 10.04.020(a)(2), ...", manifest);
     expect(cites).toHaveLength(1);
-    expect(cites[0]?.target).toEqual({
+    expect(cites[0]?.citation.target).toEqual({
       kind: "internal",
       section_id: "10.04.020",
       subsection: "(a)(2)",
     });
-    expect(cites[0]?.display_text).toBe("§ 10.04.020(a)(2)");
+    expect(cites[0]?.citation.display_text).toBe("§ 10.04.020(a)(2)");
   });
 
   it("captures a single-letter subsection (a)", () => {
     const cites = extractCitations("§ 10.04.020(a) applies.", manifest);
-    expect(cites[0]?.target).toMatchObject({
+    expect(cites[0]?.citation.target).toMatchObject({
       kind: "internal",
       section_id: "10.04.020",
       subsection: "(a)",
@@ -38,11 +38,11 @@ describe("extractCitations — internal subsection", () => {
 
   it("does NOT carry a subsection for plain § N", () => {
     const cites = extractCitations("See § 10.04.020 for the rule.", manifest);
-    expect(cites[0]?.target).toEqual({ kind: "internal", section_id: "10.04.020" });
+    expect(cites[0]?.citation.target).toEqual({ kind: "internal", section_id: "10.04.020" });
   });
 
   it("classifies external Code citations even when a subsection is present", () => {
     const cites = extractCitations("Per Cal. Veh. Code § 22358(b), ...", manifest);
-    expect(cites[0]?.target.kind).toBe("external");
+    expect(cites[0]?.citation.target.kind).toBe("external");
   });
 });
