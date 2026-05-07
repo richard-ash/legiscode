@@ -25,6 +25,64 @@ reset, fixed in this PR). These were intentionally deferred:
 
 ---
 
+## Section-view scope cuts (feat/section-view scope-reduction 2026-05-06)
+
+`/plan-eng-review` on `feat-section-view` (2026-05-06) cut the following from
+the v1.0 wedge to ship the readable-section experience to Derek faster.
+Each has a designated owning branch for re-introduction.
+
+- **Line numbers (40px JetBrains Mono gutter).** DESIGN.md spec'd it; cut
+  because legal cites reference `(a)(2)` subsection labels, never display
+  lines (which change with viewport width). Westlaw/LexisNexis don't ship
+  line numbers over section text. Re-introduce only if Derek dogfood surfaces
+  a concrete "I wish I could cite line N" need. Owner: `feat/section-view-polish`
+  (new tail branch, parallel to `feat/file-tree-polish` #18) if validated.
+- **Minimap (44px right edge).** Same story — VS Code uses minimap for code
+  with structural visual texture; serif legal text doesn't have that, and
+  most SF sections fit on one screen. Re-introduce if a long-section
+  navigation pain surfaces in real reading sessions. Owner: same as above.
+- **Slot extension points** (`<SectionView slot="diff-banner" />`,
+  `<SectionView slot="annotations" />`). Plan archived these as the
+  integration mechanism for downstream branches per the master plans-overview
+  Conflict Flags ("extend via well-defined slots... so they can land in
+  parallel"). Cut because pre-designing slot shapes before the consumer
+  branches exist risks getting the seam wrong (memory
+  `feedback_minimum_shapes.md`). Each consumer adds its own slot when it
+  lands: `feat/citation-resolution` (#9, Phase 3) for annotations on cited
+  sections; `feat/diff` (#12, Phase 4) for diff-banner; `feat/sqlite-state`
+  (#14, Phase 6) for annotation overlays; `feat/ai-agent` (#13, Phase 5) for
+  per-section chat anchor. Phase 3-5 sequencing means parallel-merge risk is
+  low. If two consumers DO need to overlap, the second-lander introduces a
+  slot dispatcher (~20 LOC) at that moment with a real shape in hand.
+- **Print-friendly CSS.** Cut because "lawyers print" is asserted, not
+  validated. Re-introduce after first Derek/lawyer feedback round says they
+  print and tells us what they print (full section? selected paragraphs?
+  with or without citations expanded?). Owner: `feat/section-view-polish`.
+- **Section header metadata: enacted ordinance + last amended ordinance + date.**
+  Cut from `feat/section-view` because `SectionFileSchema` (in `src/types/section.ts`)
+  has no `enacted_at` / `last_amended` fields and the parser doesn't extract them
+  yet. The Done-when of `feat/section-view` originally listed "effective date" —
+  that target moves with this cut. Owner: schema-extension PR on
+  `feat/corpus-parser` adds the fields + parser extraction; renderer-side
+  consumption rolls into `feat/section-view-polish` or whichever section-view
+  branch is in flight when the schema lands.
+- ~~**Defined-term tooltip showing "definition source".**~~ **REVERTED 2026-05-06**
+  during the same /plan-eng-review session. Codex outside-voice catch:
+  `build/modules/{module-id}/definitions.json` already exists with shape
+  `Record<term, [{defined_in_section: SectionId, ...}]>`. The data IS there;
+  the cut was based on incorrect "data doesn't exist" reasoning. Re-included
+  as **D11** in feat/section-view: new IPC method `definitions.lookup(term,
+  moduleId)` + tooltip UI on `<DefinedTerm>`. ~70 LOC + tests + IPC channel
+  registration. No schema change needed.
+
+**Owner:** Distributed across owning branches as listed above. This entry
+is the index so future devs (or future-me) don't lose them. The natural
+home for the renderer-side re-introductions is a new `feat/section-view-polish`
+tail branch mirroring `feat/file-tree-polish` (#18) — propose adding it to
+the master plans-overview when the first re-introduction is scheduled.
+
+---
+
 ## Re-enable Phase-1-hidden chrome elements when their backing systems ship
 
 `feat/electron-shell` ships the chrome from the Claude Design handoff but **hides six elements** the mockup shows because their backing systems don't exist in Phase 1. Each has a designated owning branch. Without this tracking item, a future dev re-fetching the handoff and copying `chrome.jsx` verbatim could reintroduce dead UI before its system ships.
