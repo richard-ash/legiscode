@@ -85,6 +85,7 @@ describe("readers — happy path", () => {
         citations: [],
         defined_terms: [],
         hierarchy: ["title-10", "ch-10.04"],
+        body: [{ type: "text", text: "..." }],
       }),
       "utf8",
     );

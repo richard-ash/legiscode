@@ -5,7 +5,7 @@ const sectionEntry = {
   kind: "section" as const,
   id: "1.234",
   title: "Definitions",
-  text: "...",
+  text: "",
   citations: [],
   defined_terms: [],
   hierarchy: ["Charter"],

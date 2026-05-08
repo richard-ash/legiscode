@@ -19,7 +19,7 @@ describe("extractCitations — internal range (section_id === range.from invaria
   it("captures §§ X-Y with section_id equal to range.from", () => {
     const cites = extractCitations("Sections §§ 10.04.020-10.04.030 apply.", manifest);
     expect(cites).toHaveLength(1);
-    expect(cites[0]?.target).toEqual({
+    expect(cites[0]?.citation.target).toEqual({
       kind: "internal",
       section_id: "10.04.020",
       range: { from: "10.04.020", to: "10.04.030" },
@@ -31,7 +31,7 @@ describe("extractCitations — internal range (section_id === range.from invaria
       "Per Cal. Veh. Code §§ 22358-22359 the limits are tiered.",
       manifest,
     );
-    expect(cites[0]?.target.kind).toBe("external");
+    expect(cites[0]?.citation.target.kind).toBe("external");
   });
 
   it("does NOT produce both a single + a range from §§ X-Y", () => {
@@ -40,6 +40,6 @@ describe("extractCitations — internal range (section_id === range.from invaria
     // anchor differences, so we should see exactly one citation.
     const cites = extractCitations("§§ 10.04.020-10.04.030", manifest);
     expect(cites).toHaveLength(1);
-    expect(cites[0]?.target.kind).toBe("internal");
+    expect(cites[0]?.citation.target.kind).toBe("internal");
   });
 });

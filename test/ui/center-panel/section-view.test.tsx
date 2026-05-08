@@ -15,6 +15,7 @@ const view: CorpusSectionView = {
     defined_terms: [],
     hierarchy: ["Port Code", "ARTICLE 1"],
     editorial_status: "active",
+    body: [],
   },
   parents: [
     { code: "Port Code", name: "Port Code" },

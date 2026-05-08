@@ -24,6 +24,12 @@ pnpm exec tsc -p tsconfig.electron.json --noEmit
 """
 sources = ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "electron/**/*.ts", "tsconfig.json", "tsconfig.electron.json", "package.json"]
 
+[tasks."text-snapshot"]
+description = "Regenerate test/fixtures/parser/text-snapshot.json from the committed test fixture. Run ONLY when the parser intentionally changes text output (e.g. source.html fixture is updated). Otherwise drift = bug — investigate root cause."
+run = "pnpm exec tsx scripts/gen-text-snapshot.ts"
+sources = ["src/parser/**/*.ts", "src/corpus/**/*.ts", "src/storage/**/*.ts", "test/fixtures/sf/source.html", "test/fixtures/sf/jurisdiction.json", "scripts/gen-text-snapshot.ts"]
+outputs = ["test/fixtures/parser/text-snapshot.json"]
+
 [tasks.dev]
 description = "Run the Electron app in dev with HMR (electron-vite)"
 run = "pnpm exec electron-vite dev"

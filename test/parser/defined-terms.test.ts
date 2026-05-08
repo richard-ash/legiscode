@@ -12,36 +12,47 @@ const manifest: ModuleConfig = {
   defined_term_patterns: ['"([^"]+)"\\s+means', '"([^"]+)"\\s+shall mean'],
 };
 
-describe("extractDefinedTerms", () => {
-  it("captures a quoted term followed by 'means'", () => {
-    const terms = extractDefinedTerms('"Director of Transportation" means the Director.', manifest);
-    expect(terms).toEqual(["Director of Transportation"]);
+describe("extractDefinedTerms (position-bearing per A1)", () => {
+  it("captures a quoted term followed by 'means' with positions", () => {
+    const matches = extractDefinedTerms(
+      '"Director of Transportation" means the Director.',
+      manifest,
+    );
+    expect(matches.map((m) => m.term)).toEqual(["Director of Transportation"]);
+    // Position points at the captured term itself, not the surrounding "means".
+    expect(matches[0]?.start).toBe(1);
+    expect(matches[0]?.end).toBe(27);
   });
 
   it("captures a quoted term followed by 'shall mean'", () => {
-    const terms = extractDefinedTerms('"Bicycle" shall mean a two-wheeled vehicle.', manifest);
-    expect(terms).toEqual(["Bicycle"]);
+    const matches = extractDefinedTerms('"Bicycle" shall mean a two-wheeled vehicle.', manifest);
+    expect(matches.map((m) => m.term)).toEqual(["Bicycle"]);
   });
 
-  it("returns multiple distinct terms", () => {
-    const terms = extractDefinedTerms(
+  it("returns multiple distinct terms in start order", () => {
+    const matches = extractDefinedTerms(
       '"Bicycle" means a device. "Skateboard" means another device.',
       manifest,
     );
-    expect(terms.sort()).toEqual(["Bicycle", "Skateboard"]);
+    expect(matches.map((m) => m.term)).toEqual(["Bicycle", "Skateboard"]);
+    // Sorted by start position, not insertion order.
+    if (matches.length === 2) {
+      expect(matches[0]?.start).toBeLessThan(matches[1]?.start ?? 0);
+    }
   });
 
-  it("dedupes the same term repeated in one section", () => {
-    const terms = extractDefinedTerms(
+  it("surfaces every occurrence of the same term — caller dedupes for SectionFile.defined_terms", () => {
+    const matches = extractDefinedTerms(
       '"Bicycle" means a device. "Bicycle" means a wheeled thing.',
       manifest,
     );
-    expect(terms).toEqual(["Bicycle"]);
+    expect(matches).toHaveLength(2);
+    expect(matches.map((m) => m.term)).toEqual(["Bicycle", "Bicycle"]);
   });
 
   it("ignores quoted phrases not followed by means/shall mean", () => {
-    const terms = extractDefinedTerms('Cited as the "Traffic Code" of the City.', manifest);
-    expect(terms).toEqual([]);
+    const matches = extractDefinedTerms('Cited as the "Traffic Code" of the City.', manifest);
+    expect(matches).toEqual([]);
   });
 
   it("returns [] on empty text", () => {
@@ -53,5 +64,16 @@ describe("extractDefinedTerms", () => {
     expect(() => extractDefinedTerms('"Bicycle" means a device.', bad)).toThrow(
       DefinedTermPatternError,
     );
+  });
+
+  it("existing pipeline callers get back the deduped string[] via .map().Set()", () => {
+    // Pipeline.ts: defined_terms = Array.from(new Set(extractDefinedTerms(...).map(d => d.term)))
+    // This test asserts that contract still produces the legacy shape.
+    const matches = extractDefinedTerms(
+      '"Bicycle" means a device. "Bicycle" means a wheeled thing.',
+      manifest,
+    );
+    const legacyShape = Array.from(new Set(matches.map((d) => d.term)));
+    expect(legacyShape).toEqual(["Bicycle"]);
   });
 });

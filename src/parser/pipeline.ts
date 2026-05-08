@@ -27,10 +27,11 @@ import {
   SectionFileSchema,
   SectionIdSchema,
 } from "@/types";
-import { extractCitations } from "./citations";
+import { buildBodySegments } from "./build-body-segments";
+import { type CitationMatch, extractCitations } from "./citations";
 import { extractDefinedTerms } from "./defined-terms";
 import { computeDefinitions } from "./definitions";
-import { ParseAbortError, parseExport as parseExportRaw } from "./parse-html";
+import { ParseAbortError, parseExport as parseExportRaw, type SpanRecord } from "./parse-html";
 import { computeReferences } from "./references";
 
 // Known raw-parser strategies. Adding a new jurisdiction adds a token here
@@ -91,26 +92,63 @@ function buildParsedModule(
   const resolutionHistories: ResolutionHistory[] = [];
   const corpusEntryKinds = new Set<CorpusEntryKind>(["section"]);
 
+  // Three-pass section build (CT1 + CT4):
+  //
+  //   Pass 1 — per section: extract citations + defined terms (positions
+  //            retained for Pass 3), build a body-less SectionFile,
+  //            schema-validate. Skips on validation failure.
+  //   Pass 2 — module-wide: compute the defined-term dictionary so
+  //            occurrences anywhere in the module become highlightable in
+  //            any section's body[].
+  //   Pass 3 — per section: call buildBodySegments using Pass-1
+  //            extraction outputs + Pass-2 dictionary; re-validate the
+  //            section with the populated body[]. Schema failure here
+  //            indicates a buildBodySegments bug, so we skip with a
+  //            descriptive reason — the 0%-skip-rate gate then surfaces
+  //            it as a build failure.
+  //
+  // We cannot inline body-building in Pass 1 because Pass 2's dictionary
+  // requires every section's defined_terms to be known, which means all
+  // of Pass 1 must finish first.
+  interface SectionDraft {
+    section: SectionFile;
+    htmlSpans: readonly SpanRecord[];
+    citationMatches: readonly CitationMatch[];
+    rawSection: (typeof raw.sections)[number];
+  }
+  const drafts: SectionDraft[] = [];
+
+  // Pass 1
   for (const ps of raw.sections) {
+    const citationMatches = extractCitations(ps.text, module);
+    const definedTermMatches = extractDefinedTerms(ps.text, module);
     const candidate: SectionFile = {
       kind: "section",
       id: ps.id,
       title: ps.title,
       text: ps.text,
       hierarchy: ps.hierarchy,
-      citations: extractCitations(ps.text, module),
-      defined_terms: extractDefinedTerms(ps.text, module),
+      // A1: SectionFile shape stays Citation[] / string[]. Map back,
+      // deduping defined terms (the position-aware extractor surfaces
+      // every occurrence including same-section duplicates).
+      citations: citationMatches.map((c) => c.citation),
+      defined_terms: Array.from(new Set(definedTermMatches.map((d) => d.term))),
       editorial_status: ps.editorial_status,
       ...(ps.redirect_to ? { redirect_to: ps.redirect_to } : {}),
+      // body[] is replaced by buildBodySegments in Pass 3. We seed a
+      // single text segment so the schema's roundtrip invariant
+      // (bodyToText(body) === text) passes here — the real tokenized
+      // body[] needs the Pass-2 module-wide defined-term dictionary,
+      // which doesn't exist yet. Keeping Pass 1's safeParse means
+      // shape errors in non-body fields skip early, before the
+      // expensive body builder runs.
+      body: ps.text.length > 0 ? [{ type: "text", text: ps.text }] : [],
     };
     const validated = SectionFileSchema.safeParse(candidate);
     if (!validated.success) {
       const reason = `validator failed: ${validated.error.issues
         .map((i) => `${i.path.join(".")}: ${i.message}`)
         .join("; ")}`;
-      // If the section's own id failed SectionIdSchema, recording a
-      // kind:"section" SkippedEntry would just re-fail the same validator
-      // downstream. Fall back to kind:"parse" with the raw id verbatim.
       const idValid = SectionIdSchema.safeParse(ps.id).success;
       if (idValid) {
         skipped.push({ kind: "section", id: ps.id, reason });
@@ -124,8 +162,45 @@ function buildParsedModule(
       }
       continue;
     }
-    sections.push(validated.data);
-    sectionPaths[validated.data.id] = ps.hierarchy_slugs;
+    drafts.push({
+      section: validated.data,
+      htmlSpans: ps.htmlSpans,
+      citationMatches,
+      rawSection: ps,
+    });
+  }
+
+  // Pass 2: build the module-wide defined-term dictionary. Keys are
+  // every term that any section in this module locally defines; the
+  // body builder uses set-membership to mark occurrences.
+  const localDefinitions = computeDefinitions(drafts.map((d) => d.section));
+  const moduleDefinedTerms = new Set(Object.keys(localDefinitions));
+
+  // Pass 3: build body[] per section, attach via a fresh validated
+  // SectionFile (the superRefine on citation_index re-runs against
+  // the populated body[]).
+  for (const draft of drafts) {
+    const citationMatchesWithIndex = draft.citationMatches.map((cm, idx) => ({
+      ...cm,
+      citation_index: idx,
+    }));
+    const body = buildBodySegments({
+      text: draft.section.text,
+      htmlSpans: draft.htmlSpans,
+      citationMatches: citationMatchesWithIndex,
+      moduleDefinedTerms,
+    });
+    const withBody = { ...draft.section, body };
+    const finalValidated = SectionFileSchema.safeParse(withBody);
+    if (!finalValidated.success) {
+      const reason = `body-builder produced invalid section: ${finalValidated.error.issues
+        .map((i) => `${i.path.join(".")}: ${i.message}`)
+        .join("; ")}`;
+      skipped.push({ kind: "section", id: draft.section.id, reason });
+      continue;
+    }
+    sections.push(finalValidated.data);
+    sectionPaths[finalValidated.data.id] = draft.rawSection.hierarchy_slugs;
   }
 
   for (const pa of raw.appendices) {
@@ -212,7 +287,12 @@ function buildParsedModule(
     appendices,
     ordinanceHistories,
     resolutionHistories,
-    definitions: computeDefinitions(sections),
+    // Reuse Pass-2's dictionary. drafts (input) ⊇ sections (output) — they
+    // diverge only on Pass-3 failures, which fail the 0%-skip gate before
+    // the build ships. Recomputing would also drop a now-skipped section's
+    // defined-term from the map even though the surviving sections' body[]
+    // already references it.
+    definitions: localDefinitions,
     references: computeReferences(sections, module.id),
     skipped,
     // Warnings: the parse-html-level InterCodeLink resolver returns these,

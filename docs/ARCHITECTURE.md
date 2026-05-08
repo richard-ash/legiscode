@@ -199,8 +199,9 @@ defense-in-depth (A1).
 | `ParseWarning` | Non-fatal observation surfaced to the caller (e.g. `UnresolvedInterCodeLinkWarning`). |
 
 **Private internals (do not import directly):**
-- `parse-html.ts` — rbox classifier, hierarchy walk, per-kind parsers
-- `pipeline.ts` — orchestrates parse → enrich → validate → compute graphs
+- `parse-html.ts` — rbox classifier, hierarchy walk, per-kind parsers, walker that emits text + position-bearing format spans
+- `pipeline.ts` — orchestrates the 3-pass section build (extract → module-dictionary → tokenize body[]), enrich, validate, compute graphs
+- `build-body-segments.ts` — tiles primaries (citations, defined-term occurrences, subsection labels, paragraph breaks) and format spans into BodySegment[] with overlap-precedence resolution
 - `citations.ts`, `defined-terms.ts`, `definitions.ts`, `references.ts`
 - `slugify.ts`
 
@@ -377,6 +378,69 @@ all dispatch through Layer 3.
 ## Notes
 
 Append-only log of architectural observations. Newest at the top.
+
+### 2026-05-07 — body[] becomes the canonical section representation
+
+Section files previously shipped only a flat `text` field plus
+summary `citations[]` and `defined_terms[]` arrays; the renderer
+re-tokenized at display time. This branch (feat-parse-html-ast) added
+`body: BodySegment[]` to the section schema and made it the canonical
+form the renderer iterates. `text` stays alongside it so search,
+ripgrep, and exporters keep working unchanged.
+
+**3-pass parser pipeline** (`src/parser/pipeline.ts`). The body builder
+needs the module-wide defined-term dictionary, which can't exist until
+every section's local definitions are extracted, so the work splits:
+
+- Pass 1 — per section: extract citations + defined-term matches,
+  build a body-less section, schema-validate. Skips with a parse/section
+  reason on shape failure.
+- Pass 2 — module-wide: compute the defined-term dictionary so any
+  section's body[] can hyperlink occurrences of any other section's
+  definitions.
+- Pass 3 — per section: call `buildBodySegments` with the Pass-1
+  outputs + Pass-2 dictionary; re-validate the section with the
+  populated body[]. A failure here is a body-builder bug, surfaced via
+  the 0%-skip-rate gate.
+
+**Schema invariants enforced at the trust boundary**
+(`src/types/section.ts` superRefine). The boundary runs on every
+disk read via `readSection` (which calls `SectionFileSchema.safeParse`),
+so a stale `--corpus-path` bundle or hand-edited section JSON fails
+closed instead of corrupting the rendered view:
+
+1. **body[] re-flattens to text** (`bodyToText(body) === text`). The
+   renderer iterates body[]; search and export read text. Drift
+   between the two would render a section blank while search insists
+   it has content. The pure helper `bodyToText` is exported so the
+   schema and `test/parser/body-text-roundtrip.test.ts` agree on
+   what "re-flatten" means.
+2. **citation_index in range**. Bounds check against `citations[]`.
+3. **citation raw matches the indexed citation's display_text**.
+   Bounds-only would let `raw="§ 1.01"` link to `citations[0]` whose
+   display_text is `"§ 2.02"` — silent wire-mismatch where the visible
+   text doesn't match the click target. Both 2 and 3 must live at the
+   section level because segment-level validation can't see siblings.
+
+**Migration wedge for `--corpus-path`**. Section bundles built before
+this branch had no body[]. The schema's `body: z.array(...).default([])`
+fills in `[]`, which then fails the roundtrip invariant for any
+content-bearing section. Stale bundles surface as
+`CorpusError("corrupt")` at boot rather than rendering blank — users
+must re-run `mise run sync-corpus` to regenerate.
+
+**Two regression invariants** guard the migration end-to-end:
+`text-fidelity.test.ts` pins text bytes against a committed snapshot;
+`body-text-roundtrip.test.ts` asserts every section's body[]
+reflattens to its text byte-for-byte across the whole fixture. The
+operator-driven `mise run validate:full` runs the same gates over
+~11k production sections.
+
+This was caught and tightened during `/codex review`: an initial cut
+shipped only the bounds check on citations; codex flagged
+(a) the body[] roundtrip was provable at parse time but not enforced,
+and (b) raw/display_text drift was unchecked. Both were folded back
+into the same commits before opening the PR (`feedback_arch_fixes_in_review`).
 
 ### 2026-05-06 — feat/file-tree foundation reset
 

@@ -14,6 +14,7 @@ function section(id: string, citations: Citation[], defined_terms: string[] = []
     defined_terms,
     hierarchy: ["title-10", "ch-10.04"],
     editorial_status: "active",
+    body: [],
   };
 }
 

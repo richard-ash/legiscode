@@ -37,10 +37,42 @@ export type { UnresolvedInterCodeLinkWarning };
 // working unchanged. parseInterCodeLinks demonstrates the editorial-graph
 // value-add as a separate capability for the round-12 rewrite.
 
+// SpanRecord — a positioned format run inside a section's `text`. The
+// span-table approach (CT1) lets the body-builder in pipeline.ts merge
+// formatting with citation/defined-term annotations in a single pass
+// against the same `text`. Format kinds:
+//   - bold / italic   : <b>/<strong>, <i>/<em>
+//   - list / listItem : <ul>/<ol> wraps, <li> per item
+//   - paragraph_break : marks a \n in `text` that came from an rbox
+//                       boundary (one rbox ≈ one paragraph in AmLegal)
+//
+// `start`/`end` index into the SECTION'S `text` (post-normalize), not
+// the raw HTML. Empty/zero-length spans are not emitted.
+//
+// Whether to surface a kind: cheerio's flatten loses these, but the
+// renderer needs them for visual fidelity. We don't surface every HTML
+// tag — only the ones that meaningfully change rendering. Tags we walk
+// through transparently: <a>, <InterCodeLink>, <Link>, <div>, <span>,
+// <h1-h6>. Tags we DROP entirely (with their content): none right now;
+// add as new fixtures surface them.
+export type SpanFormat = "bold" | "italic" | "list" | "listItem" | "paragraph_break";
+
+export interface SpanRecord {
+  start: number;
+  end: number;
+  format: SpanFormat;
+}
+
 export interface ParsedSection {
   id: string;
   title: string;
   text: string;
+  /** Positioned format runs in `text`. Empty for [Reserved.] / [Repealed.] /
+   * [Redesignated.] sections (those literals carry no formatting). Empty
+   * for sections whose body source has no inline tags (the common case
+   * in the test fixture). Populated when AmLegal HTML carries
+   * <b>/<i>/<ul>/<li> markers around content in production corpora. */
+  htmlSpans: SpanRecord[];
   hierarchy: string[];
   hierarchy_slugs: string[];
   source_location: { line: number };
@@ -449,8 +481,13 @@ function parseModuleFromBound(
     m.kind === "resolution_history" ||
     m.kind === "hierarchy_marker";
 
-  function collectBody(startJ: number): { text: string; elements: cheerio.Cheerio<any>[] } {
+  function collectBody(startJ: number): {
+    text: string;
+    htmlSpans: SpanRecord[];
+    elements: cheerio.Cheerio<any>[];
+  } {
     const parts: string[] = [];
+    const partSpans: SpanRecord[][] = [];
     const elements: cheerio.Cheerio<any>[] = [];
     for (let j = startJ; j < endIdx; j++) {
       const m = metas[j - startIdx];
@@ -458,10 +495,37 @@ function parseModuleFromBound(
       if (isEntryBoundary(m)) break;
       const el = $(allRboxes[j]);
       elements.push(el);
-      const t = el.text();
-      if (/[A-Za-z0-9]/.test(t)) parts.push(t);
+      // GENERIC: walkRboxText produces the same flattened text that
+      // cheerio's el.text() does, plus a list of format spans from
+      // <b>/<i>/<ul>/<li> wrappers. Empty-content spans (e.g. <b></b>)
+      // are dropped at the walker, so partSpans never carries
+      // start === end entries.
+      const { text: t, spans } = walkRboxText(el);
+      if (/[A-Za-z0-9]/.test(t)) {
+        parts.push(t);
+        partSpans.push(spans);
+      }
     }
-    return { text: parts.join("\n"), elements };
+    // Concatenate parts with "\n" separators, offsetting each rbox's
+    // spans by the cumulative position. The "\n" separator itself is NOT
+    // covered by any span here — paragraph_break spans are emitted by
+    // the post-normalize pass on the surviving \n positions in the
+    // final text.
+    let text = "";
+    const htmlSpans: SpanRecord[] = [];
+    for (let i = 0; i < parts.length; i++) {
+      if (i > 0) text += "\n";
+      const baseOffset = text.length;
+      text += parts[i] ?? "";
+      for (const s of partSpans[i] ?? []) {
+        htmlSpans.push({
+          start: baseOffset + s.start,
+          end: baseOffset + s.end,
+          format: s.format,
+        });
+      }
+    }
+    return { text, htmlSpans, elements };
   }
 
   for (let i = startIdx; i < endIdx; i++) {
@@ -492,6 +556,7 @@ function parseModuleFromBound(
           hierarchy,
           meta.editorial_status,
           body.text,
+          body.htmlSpans,
           body.elements,
         );
         if (parsed.kind === "ok") {
@@ -659,6 +724,7 @@ function parseSectionElement(
   hierarchy: string[],
   editorialFromClass: "active" | "reserved" | "repealed" | "redesignated",
   bodyText: string,
+  bodyHtmlSpans: SpanRecord[],
   bodyElements: cheerio.Cheerio<any>[],
 ): SectionParse {
   const node = sectionEl.get(0) as any;
@@ -739,6 +805,12 @@ function parseSectionElement(
 
   let finalTitle: string;
   let finalText: string;
+  // For editorial-status placeholders ([Reserved.] etc.) htmlSpans is
+  // empty — the literal carries no formatting. Active sections compute
+  // both the normalized text AND the position-mapped span table in a
+  // single pass so format runs index into the same `text` the renderer
+  // displays.
+  let finalSpans: SpanRecord[] = [];
   switch (editorialStatus) {
     case "reserved":
       finalTitle = "[Reserved.]";
@@ -752,15 +824,28 @@ function parseSectionElement(
       finalTitle = title || "[Redesignated.]";
       finalText = "[Redesignated.]";
       break;
-    default:
+    default: {
       finalTitle = title;
-      finalText = normalizeBodyText(bodyText);
+      const normalized = normalizeBodyTextWithSpans(bodyText, bodyHtmlSpans);
+      finalText = normalized.text;
+      // Append paragraph_break markers at every \n in the final text.
+      // \n only appears at rbox boundaries that survived the empty-line
+      // filter, so each is a real paragraph boundary.
+      finalSpans = [...normalized.spans];
+      for (let i = 0; i < finalText.length; i++) {
+        if (finalText[i] === "\n") {
+          finalSpans.push({ start: i, end: i + 1, format: "paragraph_break" });
+        }
+      }
+      finalSpans.sort((a, b) => (a.start === b.start ? a.end - b.end : a.start - b.start));
+    }
   }
 
   const section: ParsedSection = {
     id,
     title: finalTitle,
     text: finalText,
+    htmlSpans: finalSpans,
     hierarchy,
     hierarchy_slugs: hierarchy.map(slugify),
     source_location: { line },
@@ -835,17 +920,186 @@ function extractSectionTitle(headingText: string, rawId: string): string {
   return headingText.replace(/\.$/, "").trim();
 }
 
+// Single-source through normalizeBodyTextWithSpans so the appendix /
+// history body-text rules can never drift from section-text rules.
+// (The text-fidelity snapshot only covers section bodies; without
+// shared logic, an appendix-only normalizer change could go undetected
+// for releases.)
 function normalizeBodyText(s: string): string {
-  return s
-    .split("\n")
-    .map((line) =>
-      line
-        .replace(/ /g, " ")
-        .replace(/[ \t]+/g, " ")
-        .trim(),
-    )
-    .filter((line) => line.length > 0)
-    .join("\n");
+  return normalizeBodyTextWithSpans(s, []).text;
+}
+
+// GENERIC: tag-to-format mapping. The AmLegal HTML corpus uses standard
+// inline tags for formatting; future jurisdictions may need different
+// mappings, in which case this lives behind a parser-strategy switch
+// per A5.
+function tagToFormat(tag: string | undefined): Exclude<SpanFormat, "paragraph_break"> | null {
+  switch (tag?.toLowerCase()) {
+    case "b":
+    case "strong":
+      return "bold";
+    case "i":
+    case "em":
+      return "italic";
+    case "ul":
+    case "ol":
+      return "list";
+    case "li":
+      return "listItem";
+    default:
+      return null;
+  }
+}
+
+// GENERIC: walk a cheerio element subtree producing the concatenated
+// text of all descendant text nodes (matching cheerio's .text()
+// semantics) plus a positioned format-span list. Spans index into the
+// returned `text` (pre-normalize). Empty-content spans (e.g. `<b></b>`)
+// are dropped here so downstream code never sees a zero-length span.
+//
+// Other tags (<a>, <div>, <span>, <h1-h6>, <Link>, <InterCodeLink>) are
+// transparent — their text contributes but no span is recorded. The
+// renderer treats unrecognized inline runs as plain text.
+//
+// Exported for unit testing. Production callers use it via collectBody
+// inside parseExport — there's no scenario where consumers need to walk
+// individual cheerio elements.
+export function walkRboxText(el: cheerio.Cheerio<any>): { text: string; spans: SpanRecord[] } {
+  let text = "";
+  const spans: SpanRecord[] = [];
+
+  function visit(node: any): void {
+    if (!node) return;
+    // Cheerio's parse5-backed nodes use type "text" for text nodes and
+    // "tag" for elements. Skip "comment", "cdata", "directive" — they
+    // contribute no rendered text.
+    if (node.type === "text") {
+      text += node.data ?? "";
+      return;
+    }
+    if (node.type !== "tag") return;
+    const myFormat = tagToFormat(node.name);
+    const start = text.length;
+    for (const child of node.children ?? []) visit(child);
+    const end = text.length;
+    if (myFormat && end > start) {
+      spans.push({ start, end, format: myFormat });
+    }
+  }
+
+  for (const rootNode of el.toArray()) visit(rootNode as any);
+  return { text, spans };
+}
+
+// GENERIC: position-aware variant of normalizeBodyText. Mirrors that
+// function's behavior byte-for-byte (NBSP→space, run-collapse, per-line
+// trim, drop empty lines, join with \n) while building a posMap that
+// lets us remap raw-text spans into final-text positions.
+//
+// Why we can't reuse normalizeBodyText: that function operates on the
+// entire string, so we'd lose position information at every step.
+// Instead, we walk char-by-char tracking the final-text index for every
+// raw-text index, then replay over rawSpans to produce finalSpans.
+//
+// LOAD-BEARING: the `text` returned here MUST equal what
+// normalizeBodyText(rawText) would produce. The text-fidelity test in
+// test/parser/text-fidelity.test.ts catches drift via the committed
+// snapshot.
+//
+// Exported for unit testing.
+export function normalizeBodyTextWithSpans(
+  rawText: string,
+  rawSpans: SpanRecord[],
+): { text: string; spans: SpanRecord[] } {
+  // posMap[rawIdx] = finalIdx, or -1 if the raw char was dropped.
+  const posMap = new Array<number>(rawText.length).fill(-1);
+  let finalText = "";
+
+  const lines = rawText.split("\n");
+  let rawCursor = 0;
+  for (const line of lines) {
+    // Step A: per-char NBSP→space + run-collapse over this line.
+    let normalizedLine = "";
+    const lineMap: number[] = [];
+    let prevWasSpace = false;
+    for (let i = 0; i < line.length; i++) {
+      const code = line.charCodeAt(i);
+      // Whitespace classes that normalizeBodyText collapses: 0x20 space,
+      // 0x09 tab, 0xa0 NBSP. (The original regex covered " " | "\t" |
+      // " ".)
+      const isWhitespace = code === 0x20 || code === 0x09 || code === 0xa0;
+      if (isWhitespace) {
+        if (prevWasSpace) {
+          lineMap.push(-1);
+        } else {
+          normalizedLine += " ";
+          lineMap.push(normalizedLine.length - 1);
+          prevWasSpace = true;
+        }
+      } else {
+        normalizedLine += line[i] ?? "";
+        lineMap.push(normalizedLine.length - 1);
+        prevWasSpace = false;
+      }
+    }
+
+    // Step B: trim leading/trailing whitespace. After Step A, the only
+    // whitespace in normalizedLine is single ASCII spaces.
+    let firstNonSpace = 0;
+    while (
+      firstNonSpace < normalizedLine.length &&
+      normalizedLine.charCodeAt(firstNonSpace) === 0x20
+    ) {
+      firstNonSpace++;
+    }
+    let lastNonSpace = normalizedLine.length - 1;
+    while (lastNonSpace >= firstNonSpace && normalizedLine.charCodeAt(lastNonSpace) === 0x20) {
+      lastNonSpace--;
+    }
+
+    if (firstNonSpace > lastNonSpace) {
+      // Line is entirely whitespace — dropped per .filter(l => l.length > 0).
+      // posMap entries for this line stay -1 (initialized above).
+    } else {
+      const trimmed = normalizedLine.slice(firstNonSpace, lastNonSpace + 1);
+      const lineStartInFinal = finalText.length === 0 ? 0 : finalText.length + 1;
+      if (finalText.length > 0) finalText += "\n";
+      finalText += trimmed;
+      for (let i = 0; i < line.length; i++) {
+        const normIdx = lineMap[i] ?? -1;
+        if (normIdx >= firstNonSpace && normIdx <= lastNonSpace) {
+          posMap[rawCursor + i] = lineStartInFinal + (normIdx - firstNonSpace);
+        }
+      }
+    }
+
+    rawCursor += line.length + 1;
+  }
+
+  // Remap raw spans: each [start, end) → first/last surviving raw
+  // position's mapped index. If no raw position in the span survived,
+  // drop the span entirely (e.g. a <b> wrapping pure whitespace).
+  const finalSpans: SpanRecord[] = [];
+  for (const span of rawSpans) {
+    let mappedStart = -1;
+    for (let i = span.start; i < span.end && i < posMap.length; i++) {
+      if (posMap[i] !== -1) {
+        mappedStart = posMap[i] as number;
+        break;
+      }
+    }
+    let mappedEnd = -1;
+    for (let i = Math.min(span.end, posMap.length) - 1; i >= span.start; i--) {
+      if (posMap[i] !== -1) {
+        mappedEnd = (posMap[i] as number) + 1;
+        break;
+      }
+    }
+    if (mappedStart === -1 || mappedEnd <= mappedStart) continue;
+    finalSpans.push({ start: mappedStart, end: mappedEnd, format: span.format });
+  }
+
+  return { text: finalText, spans: finalSpans };
 }
 
 export function parseExport(

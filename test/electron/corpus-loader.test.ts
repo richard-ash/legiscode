@@ -51,17 +51,22 @@ async function buildFixtureCorpus(
     const sectionsDir = join(moduleDir, "sections");
     await mkdir(sectionsDir, { recursive: true });
     for (const s of m.sections) {
+      const sectionText = s.text ?? "Sample text.";
       await writeFile(
         join(sectionsDir, `${s.id}.json`),
         JSON.stringify({
           kind: "section",
           id: s.id,
           title: s.title,
-          text: s.text ?? "Sample text.",
+          text: sectionText,
           citations: [],
           defined_terms: [],
           hierarchy: s.hierarchy ?? [m.codeTitle],
           editorial_status: "active",
+          // body[] must re-flatten to text per the SectionFileSchema
+          // roundtrip invariant (loader runs safeParse, so a missing
+          // body would surface as CorpusError("corrupt")).
+          body: [{ type: "text", text: sectionText }],
         }),
       );
     }

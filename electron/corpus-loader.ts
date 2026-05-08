@@ -7,14 +7,20 @@
 // boot for zero-latency corpus:read calls. Per-section lazy loading lands
 // when the corpus grows past comfortable RAM (deferred to feat/sqlite-state).
 //
-// The loader trusts the bundle's content (it was validated 0%-skip-rate at
-// build time per the legal-corpus completeness gates). It DOES NOT re-run
-// schema validation; a malformed bundle indicates upstream corruption and
-// should surface as a CorpusError("corrupt") rather than silent breakage.
+// The loader runs schema validation at the trust boundary. Bundles are
+// validated at build time (0%-skip-rate gate per the legal-corpus
+// completeness rules), but bundles travel — a custom --corpus-path can
+// point at a hand-edited or stale tree, and a future bundled module
+// could ship with a schema-mismatched section file. Re-validating with
+// SectionFileSchema.safeParse here turns those into CorpusError("corrupt")
+// at boot rather than crashes downstream when the renderer reaches into
+// a malformed body[] segment or an unknown editorial_status. The
+// performance cost (zod parse per section, ~11k sections) is amortized
+// against the boot once-per-app-launch.
 
 import { readFile, readdir, stat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
-import { ModuleIdSchema, type SectionFile, SectionIdSchema } from "@/types";
+import { ModuleIdSchema, type SectionFile, SectionFileSchema } from "@/types";
 import type {
   CorpusError,
   CorpusListResult,
@@ -241,13 +247,27 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
   const sections: LoadedSection[] = [];
   for (const filePath of sectionFiles) {
     const raw = await readFile(filePath, "utf8");
-    const section = JSON.parse(raw) as SectionFile;
-    // Same boundary discipline for sectionId — if the on-disk section file
-    // carries an id the renderer can't brand into a CorpusRef, fail loud.
-    const sectionIdCheck = SectionIdSchema.safeParse(section.id);
-    if (!sectionIdCheck.success) {
-      throw new Error(`module ${manifest.id}: invalid section id ${JSON.stringify(section.id)}`);
+    // Validate at the trust boundary. SectionFileSchema enforces every
+    // field (incl. the body[] discriminated union and the citation_index
+    // superRefine); a malformed file fails closed here instead of
+    // surfacing as a render-time crash. The thrown Error is caught by
+    // loadCorpus's outer catch and routed to CorpusError("corrupt").
+    let parsed: ReturnType<typeof JSON.parse>;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (cause) {
+      throw new Error(
+        `module ${manifest.id}: section ${filePath} is not valid JSON: ${describe(cause)}`,
+      );
     }
+    const validated = SectionFileSchema.safeParse(parsed);
+    if (!validated.success) {
+      const issues = validated.error.issues
+        .map((i) => `${i.path.join(".")}: ${i.message}`)
+        .join("; ");
+      throw new Error(`module ${manifest.id}: section ${filePath} failed schema: ${issues}`);
+    }
+    const section: SectionFile = validated.data;
     const tail = section.hierarchy.length > 0 ? section.hierarchy.slice(1) : [];
     sections.push({ moduleId: manifest.id, section, hierarchyTail: tail });
   }
