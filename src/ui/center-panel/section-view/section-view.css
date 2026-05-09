@@ -1,0 +1,185 @@
+/* Section view component styles. Imported by section-view.tsx; Vite
+ * inlines into the renderer bundle. Composes around the .lc-doc /
+ * .lc-doc-inner / .lc-section / .lc-para / .lc-section-id /
+ * .lc-section-meta hooks defined in src/styles/globals.css; the new
+ * classes here cover concerns the Phase-1 placeholder didn't have:
+ * citation links, defined-term highlights with tooltips, subsection
+ * labels, editorial-status chip + redirect link, in-section error
+ * banner, list/listItem format wrappers, and the optional line-height
+ * multiplier toggled by the Settings dropdown.
+ *
+ * Line-height multiplier (C11): the body element multiplies its
+ * natural 1.75 line-height by `--section-line-height-mult` (default 1).
+ * The Settings dropdown writes "1" or "1.7" to the <html> CSS var so
+ * the swap is global. 1.7× yields ~3.0 effective line-height for
+ * accessibility — codex flagged the "1.0 vs 1.75" wording muddle, hence
+ * the explicit comment.
+ */
+
+.lc-section-body {
+  margin-top: 24px;
+  line-height: calc(1.75 * var(--section-line-height-mult, 1));
+}
+
+/* ── Citations ──────────────────────────────────────────────────────── */
+.lc-cite {
+  cursor: default;
+  text-decoration: none;
+  border-bottom: 1px dotted currentColor;
+}
+.lc-cite-internal {
+  color: var(--blue);
+}
+.lc-cite-external {
+  color: var(--mauve, var(--blue));
+  border-bottom-style: dashed;
+}
+.lc-cite-vague {
+  color: var(--overlay1);
+  border-bottom-style: dashed;
+  font-style: italic;
+}
+
+/* ── Defined terms ──────────────────────────────────────────────────── */
+.lc-deftrm {
+  position: relative;
+  font-style: italic;
+  border-bottom: 1px dashed var(--green);
+  cursor: help;
+}
+/* With definitions present the trigger is a real <button> for a11y;
+   strip the native chrome so it reads as inline prose. */
+button.lc-deftrm {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px dashed var(--green);
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-style: italic;
+  color: inherit;
+  text-align: inherit;
+  vertical-align: baseline;
+}
+.lc-deftrm-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  min-width: 160px;
+  background: var(--bg-surface0);
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  font-style: normal;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--subtext1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+/* Hover bridge: fills the 6px visual gap between the tooltip body and
+   the highlighted term so the mouse can travel from the term into the
+   tooltip without `mouseleave` firing on `.lc-deftrm` (which would
+   close the tooltip before the user can click a jump-link). The
+   pseudo-element is a descendant of `.lc-deftrm-tooltip`, which is a
+   descendant of `.lc-deftrm`, so the browser's relatedTarget stays
+   inside the parent during the traversal. */
+.lc-deftrm-tooltip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 6px;
+}
+.lc-deftrm-tooltip-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--overlay1);
+}
+.lc-deftrm-tooltip-link {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  text-align: left;
+  color: var(--blue);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+.lc-deftrm-tooltip-link:hover {
+  text-decoration: underline;
+}
+
+/* ── Subsection labels ──────────────────────────────────────────────── */
+.lc-subsection-label {
+  font-weight: 600;
+  color: var(--text);
+  margin-right: 4px;
+}
+
+/* ── Editorial status ───────────────────────────────────────────────── */
+.lc-status-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  background: color-mix(in oklab, var(--warning, var(--yellow, #d4a36a)) 22%, transparent);
+  color: var(--warning, var(--yellow, #d4a36a));
+  border-radius: 3px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.lc-redirect-link {
+  background: none;
+  border: none;
+  margin-left: 10px;
+  padding: 0;
+  color: var(--blue);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+.lc-redirect-link:hover {
+  text-decoration: underline;
+}
+
+/* ── Error banner (D8) ──────────────────────────────────────────────── */
+.lc-section-error {
+  margin-top: 24px;
+  padding: 16px 20px;
+  background: color-mix(in oklab, var(--red, #d4636a) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--red, #d4636a) 35%, transparent);
+  border-radius: 6px;
+  color: var(--text);
+}
+.lc-section-error-title {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.lc-section-error-detail {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--subtext0);
+}
+
+/* ── Format spans (bold/italic inherit; lists need block layout) ────── */
+.lc-format-list {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+  list-style: disc;
+}
+.lc-format-list-item {
+  margin: 0.25em 0;
+}
+
+/* lc-para is shared with the placeholder; keep paragraph spacing here
+ * so this CSS file holds the full vocabulary the new component owns. */
+.lc-para {
+  margin: 0 0 1.1em;
+}
