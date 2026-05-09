@@ -71,9 +71,75 @@ Each has a designated owning branch for re-introduction.
   `build/modules/{module-id}/definitions.json` already exists with shape
   `Record<term, [{defined_in_section: SectionId, ...}]>`. The data IS there;
   the cut was based on incorrect "data doesn't exist" reasoning. Re-included
-  as **D11** in feat/section-view: new IPC method `definitions.lookup(term,
-  moduleId)` + tooltip UI on `<DefinedTerm>`. ~70 LOC + tests + IPC channel
-  registration. No schema change needed.
+  as **D11** in feat/section-view. **2026-05-07 update (post-codex re-review):**
+  shape locked as bulk-pre-resolve at `corpus:read` time (not per-hover IPC).
+  `CorpusSectionView.definitions: Record<term, ReadonlyArray<{defined_in_section}>>`.
+  Tooltip renders synchronously, lists ALL defining sections (preserves multi-section
+  data the original lookup signature would have flattened). No new IPC channel.
+- **Clickable breadcrumb parent navigation.** Cut 2026-05-07 from feat/section-view
+  via /plan-eng-review outside-voice (codex). The original D4 plan had clickable
+  parent labels dispatching to a file-tree imperative `scrollAndReveal(rowId)` API
+  with ancestor expansion + virtualizer-timing handling — 80-150 LOC for a secondary
+  affordance with real edge cases (sticky-header transitions, ARIA, focus management).
+  Cut because non-clickable parents are usable in the wedge and the clickable
+  affordance is much easier to implement once tabs/route state settles (then the
+  breadcrumb can dispatch through the same nav pipeline #7 builds, instead of
+  reaching imperatively into the file-tree). Re-introduce in `feat/section-view-polish`
+  AFTER `feat/tabs` (#7) lands, when the right plumbing is obvious. Owner:
+  `feat/section-view-polish` (when scheduled).
+- **Defined-term tooltip: rank multi-section definitions for readability.**
+  Surfaced 2026-05-09 while reviewing §11.1 ("DEFINITIONS" in sf-cable). The
+  tooltip currently lists every defining section in section-id order — for
+  common terms ("City") that's 5+ entries spanning unrelated chapters, with
+  no signal which one applies in the current reading context. Three polish
+  passes worth doing before public release:
+    1. **Group by chapter scope.** "In this chapter: § 11.1" then "Elsewhere
+       in this code: § 15.1, § 22a.2, …". Same-module definitions almost
+       always govern the section the user is reading.
+    2. **Sort by likelihood-of-applies.** Same-module first, then alphabetic
+       by chapter, then cross-module last.
+    3. **Truncate long lists.** First 3 rows + "Show 2 more" disclosure when
+       count > 4. The tooltip box gets unwieldy at 5+ entries (already visible
+       in the §11.1 City case).
+  None of the three are blockers for the wedge; they're worth landing
+  together as a focused polish PR. Owner: `feat/section-view-polish` (when
+  scheduled — same branch that picks up the breadcrumb-clickable cut).
+- **Pre-launch CI gate on `mise run validate:full`.** Surfaced 2026-05-07 by
+  /plan-eng-review outside-voice (codex). Today `validate:full` is operator-driven
+  (per `mise.toml` task description: "Operator-driven, NOT in CI"). The wedge can
+  ship and pass while full SF body[]/citation/definition rendering is unexercised
+  — only the bundled subset (Chapter 10.04) is rebuilt by feat/section-view's
+  D-DELTA-1 regen step. Before any public release, add a CI workflow that runs
+  `validate:full` against a checked-in production HTML snapshot and asserts the
+  same 0%-skip / 100%-TOC-coverage / 100%-citation-resolution gates. Owner:
+  pre-launch CI work (TBD).
+- **Parser emits definitions.json keys with stray whitespace.** Surfaced
+  2026-05-08 while implementing feat/section-view's D-DELTA-2 (loader joins
+  module's definitions.json into corpus:read). The operator-built dev corpus
+  (`build/modules-full/`) carries ≥6 modules whose `definitions.json` has keys
+  with leading newlines (e.g. `"\nCity"`) or trailing spaces (e.g. `"...third
+  party "`) that violate `DefinedTermSchema`'s `^\S(?:.*\S)?$` regex. The loader
+  soft-fails per-key (logs once per module summarizing the dropped keys, projects
+  the rest), so the wedge boots and most tooltips work. Fix the upstream parser
+  (extract defined-term keys with `.trim()` plus a `DefinedTermSchema.safeParse`
+  gate on emit) so future definitions.json files arrive clean and the loader
+  can flip back to hard-fail. Owner: `feat/corpus-parser` follow-up or whichever
+  branch next touches the defined-term emit path.
+- **Parser tokenizes defined terms too short.** Surfaced 2026-05-09 in §2a.81
+  ("POLICE; TRAFFIC REGULATION"). Body[] highlights bare "Department" instead
+  of the full proper noun "Department of Public Works" / "Department of City
+  Planning" / "Fire Department" the surrounding sentence is naming. The match
+  is technically correct — "Department" *is* a defined term in sf-administrative
+  — but the reader has no signal which department, since legal drafters use
+  capitalized "Department" as a shorthand for whichever full name was introduced
+  earlier in the article. Fix: in the parser's defined-term emit pass, prefer
+  the LONGEST defined-term phrase that matches at any given offset (replace the
+  current first-match-wins with longest-match-wins), so "Department of Public
+  Works" wins over "Department" when both are in scope. Requires emitting the
+  full phrases as defined terms (definitions.json today only has "Department",
+  not "Department of Public Works") OR having the parser walk the surrounding
+  prepositional phrase and extend the highlight client-side. Owner:
+  `feat/corpus-parser` follow-up.
 
 **Owner:** Distributed across owning branches as listed above. This entry
 is the index so future devs (or future-me) don't lose them. The natural
