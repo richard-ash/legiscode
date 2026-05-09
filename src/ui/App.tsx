@@ -7,6 +7,7 @@
 
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/app/api";
+import { applyPersistedLineHeightMult } from "@/app/section-line-height";
 import { type CorpusRef, corpusRefFromWire, corpusRefToWire, hash as refHash } from "@/corpus/refs";
 import type {
   CorpusError,
@@ -51,6 +52,14 @@ export function App() {
   // Detect renderer recovery — main.ts appends ?recovered=1 after crash.
   useEffect(() => {
     if (window.location.search.includes("recovered=1")) setCrashed(true);
+  }, []);
+
+  // Apply the persisted section-body line-height multiplier on cold
+  // start. Cheap synchronous DOM write — runs once before the section
+  // body has any content to render, so the CSS var is in place by the
+  // time the first <p class="lc-para"> paints.
+  useEffect(() => {
+    applyPersistedLineHeightMult();
   }, []);
 
   // Initial corpus load + cold-start state hydration. Runs once. The

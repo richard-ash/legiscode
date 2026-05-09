@@ -5,13 +5,21 @@
 
 export {
   getStorageBackend,
+  LineHeightMultSchema,
   listOwnedKeys,
   PersistedOpenItemsSchema,
+  readLineHeightMult,
   readOpenItems,
   readTheme,
   removeOpenItems,
   ThemeSchema,
+  writeLineHeightMult,
   writeOpenItems,
   writeTheme,
 } from "./storage";
-export type { PersistedOpenItem, PersistedOpenItems, Theme } from "./storage";
+export type {
+  LineHeightMult,
+  PersistedOpenItem,
+  PersistedOpenItems,
+  Theme,
+} from "./storage";
