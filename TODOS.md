@@ -25,6 +25,130 @@ reset, fixed in this PR). These were intentionally deferred:
 
 ---
 
+## Section-view scope cuts (feat/section-view scope-reduction 2026-05-06)
+
+`/plan-eng-review` on `feat-section-view` (2026-05-06) cut the following from
+the v1.0 wedge to ship the readable-section experience to Derek faster.
+Each has a designated owning branch for re-introduction.
+
+- **Line numbers (40px JetBrains Mono gutter).** DESIGN.md spec'd it; cut
+  because legal cites reference `(a)(2)` subsection labels, never display
+  lines (which change with viewport width). Westlaw/LexisNexis don't ship
+  line numbers over section text. Re-introduce only if Derek dogfood surfaces
+  a concrete "I wish I could cite line N" need. Owner: `feat/section-view-polish`
+  (new tail branch, parallel to `feat/file-tree-polish` #18) if validated.
+- **Minimap (44px right edge).** Same story — VS Code uses minimap for code
+  with structural visual texture; serif legal text doesn't have that, and
+  most SF sections fit on one screen. Re-introduce if a long-section
+  navigation pain surfaces in real reading sessions. Owner: same as above.
+- **Slot extension points** (`<SectionView slot="diff-banner" />`,
+  `<SectionView slot="annotations" />`). Plan archived these as the
+  integration mechanism for downstream branches per the master plans-overview
+  Conflict Flags ("extend via well-defined slots... so they can land in
+  parallel"). Cut because pre-designing slot shapes before the consumer
+  branches exist risks getting the seam wrong (memory
+  `feedback_minimum_shapes.md`). Each consumer adds its own slot when it
+  lands: `feat/citation-resolution` (#9, Phase 3) for annotations on cited
+  sections; `feat/diff` (#12, Phase 4) for diff-banner; `feat/sqlite-state`
+  (#14, Phase 6) for annotation overlays; `feat/ai-agent` (#13, Phase 5) for
+  per-section chat anchor. Phase 3-5 sequencing means parallel-merge risk is
+  low. If two consumers DO need to overlap, the second-lander introduces a
+  slot dispatcher (~20 LOC) at that moment with a real shape in hand.
+- **Print-friendly CSS.** Cut because "lawyers print" is asserted, not
+  validated. Re-introduce after first Derek/lawyer feedback round says they
+  print and tells us what they print (full section? selected paragraphs?
+  with or without citations expanded?). Owner: `feat/section-view-polish`.
+- **Section header metadata: enacted ordinance + last amended ordinance + date.**
+  Cut from `feat/section-view` because `SectionFileSchema` (in `src/types/section.ts`)
+  has no `enacted_at` / `last_amended` fields and the parser doesn't extract them
+  yet. The Done-when of `feat/section-view` originally listed "effective date" —
+  that target moves with this cut. Owner: schema-extension PR on
+  `feat/corpus-parser` adds the fields + parser extraction; renderer-side
+  consumption rolls into `feat/section-view-polish` or whichever section-view
+  branch is in flight when the schema lands.
+- ~~**Defined-term tooltip showing "definition source".**~~ **REVERTED 2026-05-06**
+  during the same /plan-eng-review session. Codex outside-voice catch:
+  `build/modules/{module-id}/definitions.json` already exists with shape
+  `Record<term, [{defined_in_section: SectionId, ...}]>`. The data IS there;
+  the cut was based on incorrect "data doesn't exist" reasoning. Re-included
+  as **D11** in feat/section-view. **2026-05-07 update (post-codex re-review):**
+  shape locked as bulk-pre-resolve at `corpus:read` time (not per-hover IPC).
+  `CorpusSectionView.definitions: Record<term, ReadonlyArray<{defined_in_section}>>`.
+  Tooltip renders synchronously, lists ALL defining sections (preserves multi-section
+  data the original lookup signature would have flattened). No new IPC channel.
+- **Clickable breadcrumb parent navigation.** Cut 2026-05-07 from feat/section-view
+  via /plan-eng-review outside-voice (codex). The original D4 plan had clickable
+  parent labels dispatching to a file-tree imperative `scrollAndReveal(rowId)` API
+  with ancestor expansion + virtualizer-timing handling — 80-150 LOC for a secondary
+  affordance with real edge cases (sticky-header transitions, ARIA, focus management).
+  Cut because non-clickable parents are usable in the wedge and the clickable
+  affordance is much easier to implement once tabs/route state settles (then the
+  breadcrumb can dispatch through the same nav pipeline #7 builds, instead of
+  reaching imperatively into the file-tree). Re-introduce in `feat/section-view-polish`
+  AFTER `feat/tabs` (#7) lands, when the right plumbing is obvious. Owner:
+  `feat/section-view-polish` (when scheduled).
+- **Defined-term tooltip: rank multi-section definitions for readability.**
+  Surfaced 2026-05-09 while reviewing §11.1 ("DEFINITIONS" in sf-cable). The
+  tooltip currently lists every defining section in section-id order — for
+  common terms ("City") that's 5+ entries spanning unrelated chapters, with
+  no signal which one applies in the current reading context. Three polish
+  passes worth doing before public release:
+    1. **Group by chapter scope.** "In this chapter: § 11.1" then "Elsewhere
+       in this code: § 15.1, § 22a.2, …". Same-module definitions almost
+       always govern the section the user is reading.
+    2. **Sort by likelihood-of-applies.** Same-module first, then alphabetic
+       by chapter, then cross-module last.
+    3. **Truncate long lists.** First 3 rows + "Show 2 more" disclosure when
+       count > 4. The tooltip box gets unwieldy at 5+ entries (already visible
+       in the §11.1 City case).
+  None of the three are blockers for the wedge; they're worth landing
+  together as a focused polish PR. Owner: `feat/section-view-polish` (when
+  scheduled — same branch that picks up the breadcrumb-clickable cut).
+- **Pre-launch CI gate on `mise run validate:full`.** Surfaced 2026-05-07 by
+  /plan-eng-review outside-voice (codex). Today `validate:full` is operator-driven
+  (per `mise.toml` task description: "Operator-driven, NOT in CI"). The wedge can
+  ship and pass while full SF body[]/citation/definition rendering is unexercised
+  — only the bundled subset (Chapter 10.04) is rebuilt by feat/section-view's
+  D-DELTA-1 regen step. Before any public release, add a CI workflow that runs
+  `validate:full` against a checked-in production HTML snapshot and asserts the
+  same 0%-skip / 100%-TOC-coverage / 100%-citation-resolution gates. Owner:
+  pre-launch CI work (TBD).
+- **Parser emits definitions.json keys with stray whitespace.** Surfaced
+  2026-05-08 while implementing feat/section-view's D-DELTA-2 (loader joins
+  module's definitions.json into corpus:read). The operator-built dev corpus
+  (`build/modules-full/`) carries ≥6 modules whose `definitions.json` has keys
+  with leading newlines (e.g. `"\nCity"`) or trailing spaces (e.g. `"...third
+  party "`) that violate `DefinedTermSchema`'s `^\S(?:.*\S)?$` regex. The loader
+  soft-fails per-key (logs once per module summarizing the dropped keys, projects
+  the rest), so the wedge boots and most tooltips work. Fix the upstream parser
+  (extract defined-term keys with `.trim()` plus a `DefinedTermSchema.safeParse`
+  gate on emit) so future definitions.json files arrive clean and the loader
+  can flip back to hard-fail. Owner: `feat/corpus-parser` follow-up or whichever
+  branch next touches the defined-term emit path.
+- **Parser tokenizes defined terms too short.** Surfaced 2026-05-09 in §2a.81
+  ("POLICE; TRAFFIC REGULATION"). Body[] highlights bare "Department" instead
+  of the full proper noun "Department of Public Works" / "Department of City
+  Planning" / "Fire Department" the surrounding sentence is naming. The match
+  is technically correct — "Department" *is* a defined term in sf-administrative
+  — but the reader has no signal which department, since legal drafters use
+  capitalized "Department" as a shorthand for whichever full name was introduced
+  earlier in the article. Fix: in the parser's defined-term emit pass, prefer
+  the LONGEST defined-term phrase that matches at any given offset (replace the
+  current first-match-wins with longest-match-wins), so "Department of Public
+  Works" wins over "Department" when both are in scope. Requires emitting the
+  full phrases as defined terms (definitions.json today only has "Department",
+  not "Department of Public Works") OR having the parser walk the surrounding
+  prepositional phrase and extend the highlight client-side. Owner:
+  `feat/corpus-parser` follow-up.
+
+**Owner:** Distributed across owning branches as listed above. This entry
+is the index so future devs (or future-me) don't lose them. The natural
+home for the renderer-side re-introductions is a new `feat/section-view-polish`
+tail branch mirroring `feat/file-tree-polish` (#18) — propose adding it to
+the master plans-overview when the first re-introduction is scheduled.
+
+---
+
 ## Re-enable Phase-1-hidden chrome elements when their backing systems ship
 
 `feat/electron-shell` ships the chrome from the Claude Design handoff but **hides six elements** the mockup shows because their backing systems don't exist in Phase 1. Each has a designated owning branch. Without this tracking item, a future dev re-fetching the handoff and copying `chrome.jsx` verbatim could reintroduce dead UI before its system ships.

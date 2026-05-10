@@ -7,6 +7,7 @@
 
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/app/api";
+import { applyPersistedLineHeightMult } from "@/app/section-line-height";
 import { type CorpusRef, corpusRefFromWire, corpusRefToWire, hash as refHash } from "@/corpus/refs";
 import type {
   CorpusError,
@@ -15,7 +16,7 @@ import type {
   CorpusTreeNode,
 } from "@/corpus/wire";
 import { readOpenItems, writeOpenItems } from "@/persistence";
-import { SectionView } from "@/ui/center-panel/section-view";
+import { SectionView } from "@/ui/center-panel/section-view/section-view";
 import { ActivityBar } from "@/ui/chrome/activity-bar";
 import { BootOverlay } from "@/ui/chrome/boot-overlay";
 import { Breadcrumb } from "@/ui/chrome/breadcrumb";
@@ -40,12 +41,25 @@ export function App() {
   const [corpusError, setCorpusError] = useState<CorpusError | null>(null);
   const [openItems, setOpenItems] = useState<OpenItemsState>(emptyOpenItems);
   const [section, setSection] = useState<CorpusSectionView | null>(null);
+  // Per-read error: distinct from corpusError (which is fatal — drops to
+  // BootOverlay). Set when a single corpus.read returns ok:false; cleared
+  // on the next successful read. Pairs with `setSection(null)` so stale
+  // breadcrumb/title chrome doesn't leak past the failed section (C7).
+  const [sectionError, setSectionError] = useState<CorpusError | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [crashed, setCrashed] = useState(false);
 
   // Detect renderer recovery — main.ts appends ?recovered=1 after crash.
   useEffect(() => {
     if (window.location.search.includes("recovered=1")) setCrashed(true);
+  }, []);
+
+  // Apply the persisted section-body line-height multiplier on cold
+  // start. Cheap synchronous DOM write — runs once before the section
+  // body has any content to render, so the CSS var is in place by the
+  // time the first <p class="lc-para"> paints.
+  useEffect(() => {
+    applyPersistedLineHeightMult();
   }, []);
 
   // Initial corpus load + cold-start state hydration. Runs once. The
@@ -107,6 +121,7 @@ export function App() {
     const active = activeItem(openItems);
     if (!active || active.kind !== "section") {
       setSection(null);
+      setSectionError(null);
       return;
     }
     let cancelled = false;
@@ -114,7 +129,16 @@ export function App() {
       try {
         const r = await api().corpus.read(corpusRefToWire(active.ref));
         if (cancelled) return;
-        if (r.ok) setSection(r.value);
+        if (r.ok) {
+          setSection(r.value);
+          setSectionError(null);
+        } else {
+          // C7: clear stale section so breadcrumb + parents kicker don't
+          // render the previous section's chrome behind the in-section
+          // error banner. Both pieces of state flip together.
+          setSection(null);
+          setSectionError(r.error);
+        }
       } catch (cause) {
         if (cancelled) return;
         setCorpusError({
@@ -204,7 +228,12 @@ export function App() {
   const center: ReactNode = (
     <div className="lc-center">
       <Breadcrumb parents={section?.parents ?? []} sectionLabel={sectionLabel} />
-      <SectionView view={section} parentsLabel={parentsLabel} />
+      <SectionView
+        view={section}
+        parentsLabel={parentsLabel}
+        error={sectionError}
+        onActivate={onActivate}
+      />
     </div>
   );
 

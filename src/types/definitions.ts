@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { DefinedTermSchema, SectionIdSchema } from "./identifiers";
 
-const DefinitionEntrySchema = z
+export const DefinitionEntrySchema = z
   .object({
     defined_in_section: SectionIdSchema,
   })

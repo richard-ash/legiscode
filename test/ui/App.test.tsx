@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /// <reference lib="dom" />
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetVisibleRowsCache } from "@/corpus-nav";
@@ -47,6 +47,7 @@ function buildApi(overrides: Partial<Api["corpus"]> = {}): Api {
           parents: [],
           prev: null,
           next: null,
+          definitions: {},
         },
       }),
       ...overrides,
@@ -183,6 +184,7 @@ function buildPopulatedApi(): Api {
           parents: [{ code: "Port Code", name: "" }],
           prev: null,
           next: null,
+          definitions: {},
         },
       })),
     },
@@ -264,6 +266,49 @@ describe("App — workbench openItems flow (Layer 4 ↔ Layer 5)", () => {
     await waitFor(() => {
       expect(activeRow).toHaveClass("is-active");
     });
+  });
+
+  it("corpus.read ok:false renders the in-section banner and clears stale chrome (F3, D8 + C7)", async () => {
+    // Round 1: open § 1.1 normally so the banner has stale state to clear.
+    const apiMod: { current: Api } = { current: buildPopulatedApi() };
+    // biome-ignore lint/suspicious/noExplicitAny: test fixture
+    (window as any).api = apiMod.current;
+    render(<App />);
+    // Scope assertions to the section-view subtree so file-tree text
+    // ("§ 1.1", "Definitions") doesn't collide with the section header.
+    const sectionView = await screen.findByTestId("section-view");
+    await waitFor(() => {
+      expect(within(sectionView).getByText("§ 1.1")).toBeInTheDocument();
+    });
+    expect(within(sectionView).getByText("Definitions")).toBeInTheDocument();
+
+    // Switch the read mock to ok:false BEFORE clicking § 1.2 so the next
+    // read fails.
+    const readMock = apiMod.current.corpus.read as ReturnType<typeof vi.fn>;
+    readMock.mockResolvedValueOnce({
+      ok: false,
+      error: { kind: "not_found", detail: "Section 1.2 not found in module sf-port" },
+    });
+
+    const row12 = await screen.findByTestId("tree-row-sf-port::1.2");
+    fireEvent.click(row12);
+
+    // Banner appears with the error detail.
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Couldn't load this section")).toBeInTheDocument();
+    expect(screen.getByText(/Section 1.2 not found in module sf-port/)).toBeInTheDocument();
+
+    // C7: stale chrome inside the section view is gone — the previous
+    // § 1.1 / Definitions header text should not remain inside the
+    // section-view subtree (it stays in the file-tree, which is correct).
+    const sectionViewAfter = screen.getByTestId("section-view");
+    expect(within(sectionViewAfter).queryByText("§ 1.1")).toBeNull();
+    expect(within(sectionViewAfter).queryByText("Definitions")).toBeNull();
+    // Breadcrumb's active label slot is empty — no section label.
+    const breadcrumb = screen.getByTestId("breadcrumb");
+    expect(within(breadcrumb).queryByText(/§ 1\./)).toBeNull();
   });
 
   it("legacy `legiscode.activeSection` migrates on cold start (REGRESSION — IRON RULE UF5)", async () => {

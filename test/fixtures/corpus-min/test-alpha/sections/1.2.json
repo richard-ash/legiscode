@@ -1,0 +1,16 @@
+{
+  "kind": "section",
+  "id": "1.2",
+  "title": "Test Section 1.2",
+  "text": "Hermetic fixture content for section 1.2.",
+  "citations": [],
+  "defined_terms": [],
+  "hierarchy": ["Alpha"],
+  "editorial_status": "active",
+  "body": [
+    {
+      "type": "text",
+      "text": "Hermetic fixture content for section 1.2."
+    }
+  ]
+}

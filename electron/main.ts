@@ -172,6 +172,17 @@ function installCspGuard(): void {
   });
 }
 
+// E2E mock seam (codex C13). When LEGISCODE_E2E_MOCK_CORPUS_READ is set,
+// corpus:read intercepts and returns a synthetic response. "fail" returns
+// CorpusError("not_found") on the FIRST call only so the spec can verify
+// banner-then-recover. "long" returns a synthetic 100KB section that
+// matches sf-publicworks 184.12's worst-case body size; the spec asserts
+// real-Chromium render time. The seam lives here (not in the renderer)
+// because the renderer's IPC bridge has no test override; injecting at
+// the handler keeps the production code path identical.
+const E2E_MOCK_CORPUS_READ = process.env.LEGISCODE_E2E_MOCK_CORPUS_READ;
+let e2eFailRemaining = E2E_MOCK_CORPUS_READ === "fail" ? 1 : 0;
+
 function registerIpcHandlers(): void {
   const handlers: Handlers = {
     "corpus:list": async () => {
@@ -180,11 +191,71 @@ function registerIpcHandlers(): void {
     },
     "corpus:read": async (req) => {
       await (corpusReady ?? Promise.resolve());
+      const mocked = maybeMockCorpusRead(req);
+      if (mocked) return mocked;
       return readSection(req);
     },
     "app:ping": () => ({ pong: Date.now() }),
   };
   registerHandlers(handlers);
+}
+
+function maybeMockCorpusRead(
+  req: Parameters<typeof readSection>[0],
+): ReturnType<typeof readSection> | null {
+  if (E2E_MOCK_CORPUS_READ === "fail" && e2eFailRemaining > 0) {
+    e2eFailRemaining -= 1;
+    return {
+      ok: false,
+      error: { kind: "not_found", detail: "e2e-mock-failure" },
+    };
+  }
+  if (E2E_MOCK_CORPUS_READ === "long") {
+    return buildSyntheticLongSection(req);
+  }
+  return null;
+}
+
+function buildSyntheticLongSection(
+  req: Parameters<typeof readSection>[0],
+): ReturnType<typeof readSection> {
+  // 200 paragraphs × ~510 chars ≈ 102KB body — matches sf-publicworks
+  // 184.12 worst case. Body[] is text + paragraph_break only; the spec
+  // is measuring layout cost, not annotation density.
+  const para = "x".repeat(500);
+  const body: Array<{ type: string; text?: string }> = [];
+  const textLines: string[] = [];
+  for (let i = 0; i < 200; i++) {
+    body.push({ type: "text", text: para });
+    textLines.push(para);
+    if (i < 199) {
+      body.push({ type: "paragraph_break" });
+      textLines.push("\n");
+    }
+  }
+  const text = textLines.join("");
+  return {
+    ok: true,
+    value: {
+      moduleId: req.moduleId,
+      section: {
+        kind: "section",
+        id: req.sectionId,
+        title: "E2E Long Section",
+        text,
+        citations: [],
+        defined_terms: [],
+        hierarchy: ["E2E"],
+        editorial_status: "active",
+        // biome-ignore lint/suspicious/noExplicitAny: synthetic body shape matches BodySegment but bypasses zod
+        body: body as any,
+      },
+      parents: [{ code: "E2E", name: "" }],
+      prev: null,
+      next: null,
+      definitions: {},
+    },
+  };
 }
 
 // ─── Window bounds persistence (localStorage placeholder) ───────────────────

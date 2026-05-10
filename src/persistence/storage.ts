@@ -17,9 +17,10 @@
 // even though localStorage is sync today).
 //
 // Key namespace:
-//   legiscode.theme           — Theme primitive ("dark" | "light")
-//   legiscode.openItems       — workbench OpenItems[] + activeIndex
-//   legiscode.activeSection   — legacy single-ref (read-once + delete on migrate)
+//   legiscode.theme                — Theme primitive ("dark" | "light")
+//   legiscode.openItems            — workbench OpenItems[] + activeIndex
+//   legiscode.activeSection        — legacy single-ref (read-once + delete on migrate)
+//   legiscode.section.lineHeightMult — section body line-height multiplier ("1" | "1.7")
 
 import { z } from "zod";
 
@@ -27,6 +28,7 @@ const NAMESPACE = "legiscode";
 const KEY_THEME = `${NAMESPACE}.theme`;
 const KEY_OPEN_ITEMS = `${NAMESPACE}.openItems`;
 const KEY_LEGACY_ACTIVE_SECTION = `${NAMESPACE}.activeSection`;
+const KEY_LINE_HEIGHT_MULT = `${NAMESPACE}.section.lineHeightMult`;
 
 // ─── Schemas ────────────────────────────────────────────────────────────────
 
@@ -113,6 +115,49 @@ export function writeTheme(value: Theme): void {
     backend.setItem(KEY_THEME, value);
   } catch {
     // Quota / private-mode failure: theme stays in-memory only this session.
+  }
+}
+
+// ─── Section line-height multiplier ─────────────────────────────────────────
+//
+// "1" = use the body's natural 1.75 line-height unmultiplied. "1.7" =
+// accessibility option that multiplies to ~3.0 effective. The renderer's
+// CSS reads this as a CSS variable on <html>; persistence here is the
+// localStorage source of truth that the Settings dropdown writes through.
+// Naming caveat (codex C11): the toggle is a *multiplier*, not the
+// line-height value itself — comment in section-view.css mirrors this so
+// future readers don't conflate "1.0" with the absolute 1.75.
+
+export const LineHeightMultSchema = z.union([z.literal("1"), z.literal("1.7")]);
+export type LineHeightMult = z.infer<typeof LineHeightMultSchema>;
+
+export function readLineHeightMult(): LineHeightMult | null {
+  const backend = getStorageBackend();
+  if (!backend) return null;
+  let raw: string | null;
+  try {
+    raw = backend.getItem(KEY_LINE_HEIGHT_MULT);
+  } catch {
+    return null;
+  }
+  if (raw === null) return null;
+  const parsed = LineHeightMultSchema.safeParse(raw);
+  if (!parsed.success) {
+    console.warn(
+      `[persistence] discarding unrecognized lineHeightMult value: ${JSON.stringify(raw)}`,
+    );
+    return null;
+  }
+  return parsed.data;
+}
+
+export function writeLineHeightMult(value: LineHeightMult): void {
+  const backend = getStorageBackend();
+  if (!backend) return;
+  try {
+    backend.setItem(KEY_LINE_HEIGHT_MULT, value);
+  } catch {
+    // Quota / private-mode failure: stays in-memory for this session.
   }
 }
 

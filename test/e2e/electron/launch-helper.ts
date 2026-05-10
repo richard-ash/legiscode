@@ -16,6 +16,13 @@ export interface LaunchOptions {
    * temp dir so they don't leak into the developer's real app data.
    */
   userDataDir?: string;
+  /**
+   * Extra environment variables forwarded into the spawned Electron
+   * process. Used by the section-view spec to inject
+   * `LEGISCODE_E2E_MOCK_CORPUS_READ` so the main-process corpus:read
+   * handler returns synthetic data without touching the real loader.
+   */
+  env?: Record<string, string>;
 }
 
 export async function launchApp(opts: LaunchOptions = {}): Promise<{
@@ -40,6 +47,7 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<{
       // Suppress Electron's "Insecure Content-Security-Policy" warning in
       // E2E logs; the prod CSP is what we assert in posture.spec.ts.
       ELECTRON_DISABLE_SECURITY_WARNINGS: "1",
+      ...(opts.env ?? {}),
     },
     cwd: projectRoot,
   });
