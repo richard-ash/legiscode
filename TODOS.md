@@ -169,6 +169,22 @@ the master plans-overview when the first re-introduction is scheduled.
 
 ---
 
+## Tabs v1.1 polish (feat/tabs design review 2026-05-10)
+
+`/plan-design-review` on `feat-tabs` (2026-05-10) explicitly deferred two power-user paths from v1 because they're not wedge-critical and would extend scope past the locked plan. Documented here so the v1.1 polish branch picks them up as a unit.
+
+- **What:**
+  1. Modifier-click semantics on `.lc-tab-close`: Cmd+click X = close-others, Alt+click X = close-to-the-right. Mirrors VS Code's tab close-modifier semantics.
+  2. Right-click context menu on `.lc-tab`: Close / Close Others / Close to the Right / Pin Tab (Pin defers to its own v1.1 pinning feature). Lightweight popover anchored to the tab; arrow-key navigable.
+- **Why:** v1 covers every browse-loop close path (⌘W + middle-click + visible X) but lacks the bulk-close affordances heavy users reach for after a long session. Discoverability via right-click is the conventional path on every IDE / browser they already use.
+- **Pros:** Closes the "I have 12 tabs and need to clear most of them" friction in one branch; matches VS Code muscle memory; right-click menu is a natural home for future commands (Move to New Window, Duplicate).
+- **Cons:** Right-click menu adds a small component surface (popover positioning, outside-click dismiss, keyboard a11y) that the v1 strip avoids; close-others/close-to-right need new use-tabs hook methods + tests.
+- **Context:** Surfaced by /plan-design-review Pass 7 on the locked feat/tabs plan. The plan's `## Visual Spec` and `## Accessibility & responsive` sections already establish the patterns (ARIA tablist, roving tabindex, close-button aria-label) that v1.1 polish will extend.
+- **Depends on / Blocked by:** `feat/tabs` v1 ships and the use-tabs hook surface stabilizes.
+- **Owner:** future `feat/tabs-polish` branch (propose adding to master plans-overview when scheduled).
+
+---
+
 ## Production release pipeline
 
 Production sign + notarize + publish lives on a separate branch — `feat/build-pipeline` ships PR-side CI only. The release branch is blocked on credentials (Apple Developer cert + Azure Trusted Signing) that aren't yet in hand.

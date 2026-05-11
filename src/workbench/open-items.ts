@@ -1,7 +1,7 @@
 // Workbench state. Pure functions over an `OpenItemsState` shape the UI
 // binds to. The `kind` discriminator on `OpenItem` is present from day
-// one so a future chat-tabs feature adds a `kind: "chat"` case as an
-// additive variant rather than a state rewrite. Today only
+// one so a future chat-tabs feature (#13) adds a `kind: "chat"` case as
+// an additive variant rather than a state rewrite. Today only
 // `kind: "section"` is produced at runtime; the chat case is exercised
 // by tests that validate coexistence semantics.
 //
@@ -10,6 +10,11 @@
 // `CorpusRef`s) and the persistence wire shape (raw string fields). Refs
 // that fail validation on read are dropped silently — the caller reflects
 // the reduced state and the user re-clicks if needed.
+//
+// `reorderItems` is the only state mutator added for feat/tabs; the
+// `recentlyClosed` buffer lives in the use-tabs hook (sibling useState)
+// rather than on `OpenItemsState` so persistence stays focused on the
+// canonical "what's open right now" shape — see plan A5.
 
 import type { CorpusRef } from "@/corpus/refs";
 import { parse as parseRef, equals as refsEqual } from "@/corpus/refs";
@@ -74,6 +79,34 @@ export function closeItem(state: OpenItemsState, index: number): OpenItemsState 
   return { items, activeIndex: active };
 }
 
+/**
+ * Move the tab at `from` to position `to`. Out-of-range / `from === to`
+ * return state unchanged. `activeIndex` is remapped so the currently
+ * active tab stays active wherever it lands — mirrors `closeItem`'s
+ * activeIndex bookkeeping.
+ */
+export function reorderItems(state: OpenItemsState, from: number, to: number): OpenItemsState {
+  const len = state.items.length;
+  if (from < 0 || from >= len) return state;
+  if (to < 0 || to >= len) return state;
+  if (from === to) return state;
+  const next = state.items.slice();
+  const [moved] = next.splice(from, 1);
+  if (!moved) return state;
+  next.splice(to, 0, moved);
+  let active = state.activeIndex;
+  if (active !== null) {
+    if (active === from) {
+      active = to;
+    } else if (from < active && to >= active) {
+      active = active - 1;
+    } else if (from > active && to <= active) {
+      active = active + 1;
+    }
+  }
+  return { items: next, activeIndex: active };
+}
+
 export function setActiveIndex(state: OpenItemsState, index: number | null): OpenItemsState {
   if (index === null) {
     if (state.activeIndex === null) return state;
@@ -119,6 +152,25 @@ export function validateAgainstCorpus(
     return state;
   }
   return { items, activeIndex: active };
+}
+
+/**
+ * Drop refs from a recently-closed buffer whose targets no longer exist
+ * in the loaded corpus. Used by the use-tabs hook on cold-start so a
+ * ⌘shift+T reopen can't resurrect a section the corpus upgrade removed.
+ * Pure helper — the LIFO buffer itself lives in the hook.
+ */
+export function validateRecentlyClosed(
+  buffer: readonly CorpusRef[],
+  isValidRef: (ref: CorpusRef) => boolean,
+): readonly CorpusRef[] {
+  const out: CorpusRef[] = [];
+  let changed = false;
+  for (const ref of buffer) {
+    if (isValidRef(ref)) out.push(ref);
+    else changed = true;
+  }
+  return changed ? out : buffer;
 }
 
 export function activeItem(state: OpenItemsState): OpenItem | null {

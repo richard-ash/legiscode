@@ -25,6 +25,7 @@ import {
 import { type CorpusRef, equals as refsEqual, hash as refHash } from "@/corpus/refs";
 import type { CorpusTreeNode } from "@/corpus/wire";
 import { collapse, expand, keyboardAction, prefixMatch, type Row, toggle } from "@/corpus-nav";
+import { shouldHandleGlobalShortcut } from "@/ui/tabs/should-handle-shortcut";
 import { activeSectionRef, type OpenItemsState } from "@/workbench";
 import { TreeNode } from "./tree-node";
 import { useCorpusTree } from "./use-corpus-tree";
@@ -86,6 +87,11 @@ export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }
 
   const onKeyDown = useCallback(
     (e: KeyboardEvent<HTMLDivElement>) => {
+      // Guard typeahead + cmd/ctrl actions when focus is captured by a
+      // text-entry surface or a dialog (e.g. command palette opened atop
+      // the tree). The tree itself isn't a typing surface, but the shared
+      // guard keeps the contract consistent across every keydown handler.
+      if (!shouldHandleGlobalShortcut(e.nativeEvent)) return;
       // Typeahead path — printable single chars without modifiers, but
       // not Space/Enter (those drive activation/toggle via keyboardAction).
       if (e.key.length === 1 && e.key !== " " && !e.metaKey && !e.ctrlKey && !e.altKey) {

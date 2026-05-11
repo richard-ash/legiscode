@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from "react-resizable-panels";
 import { getStorageBackend } from "@/persistence";
+import { shouldHandleGlobalShortcut } from "@/ui/tabs/should-handle-shortcut";
 
 const LAYOUT_ID = "legiscode-three-panel";
 const PANEL_IDS = ["left", "center", "right"];
@@ -45,10 +46,12 @@ export function ThreePanel({ left, center, right }: ThreePanelProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
-      if ((e.key === "b" || e.key === "B") && !e.altKey) {
+      if (!(e.key === "b" || e.key === "B")) return;
+      if (!shouldHandleGlobalShortcut(e)) return;
+      if (!e.altKey) {
         e.preventDefault();
         toggle(leftRef);
-      } else if ((e.key === "b" || e.key === "B") && e.altKey) {
+      } else {
         e.preventDefault();
         toggle(rightRef);
       }

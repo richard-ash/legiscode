@@ -38,7 +38,15 @@ export function SettingsDropdown({ open, onClose }: SettingsDropdownProps) {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      // Per codex F11: when the palette (role=dialog) sits atop the
+      // dropdown, the palette owns Escape — defer to it. Otherwise
+      // close, even if focus is on a dropdown radio (which is an
+      // HTMLInputElement — the shared global-shortcut guard would
+      // suppress the close here, so we apply only the dialog check).
+      const active = typeof document === "undefined" ? null : document.activeElement;
+      if (active?.closest("[role=dialog]")) return;
+      onClose();
     };
     // Defer attach so the click that opened the dropdown doesn't immediately close it.
     const t = window.setTimeout(() => {

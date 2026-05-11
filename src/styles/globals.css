@@ -431,6 +431,130 @@ input {
   color: var(--subtext0);
 }
 
+/* ===== Tabs (feat/tabs) ===== */
+/* Copied verbatim from the Claude Design handoff styles.css 486-535
+ * (`api.anthropic.com/v1/design/h/Uk6qqAfEIYjnrQKhkCj4_A`). Active-tab
+ * top indicator (var(--blue) hairline at top) per plan visual spec.
+ * `data-kind` attribute selectors reserve diff/chat icon colors for
+ * future feat/diff (#11) and feat/ai-agent (#13) branches — section-only
+ * branch fires only the `--blue` rule today. */
+.lc-tabs {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-mantle);
+  border-bottom: 1px solid var(--border-soft);
+  overflow-x: auto;
+  flex-shrink: 0;
+  min-width: 0;
+  scrollbar-width: none;
+}
+.lc-tabs::-webkit-scrollbar {
+  display: none;
+}
+.lc-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  height: 34px;
+  border-right: 1px solid var(--border-soft);
+  background: var(--bg-mantle);
+  color: var(--overlay1);
+  font-size: var(--ui-sm);
+  font-family: var(--font-mono);
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  position: relative;
+  white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lc-tab > span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lc-tab:hover {
+  color: var(--subtext1);
+}
+.lc-tab.is-active {
+  background: var(--bg-base);
+  color: var(--text);
+}
+.lc-tab.is-active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: var(--blue);
+}
+.lc-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.lc-tab .lc-tab-close {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--overlay0);
+  border-radius: 3px;
+  opacity: 0;
+}
+.lc-tab:hover .lc-tab-close,
+.lc-tab.is-active .lc-tab-close {
+  opacity: 1;
+}
+.lc-tab .lc-tab-close:hover {
+  background: var(--bg-surface1);
+  color: var(--text);
+}
+.lc-tab .lc-tab-ico {
+  color: var(--blue);
+  display: inline-flex;
+  align-items: center;
+}
+.lc-tab[data-kind="diff"] .lc-tab-ico {
+  color: var(--peach);
+}
+.lc-tab[data-kind="chat"] .lc-tab-ico {
+  color: var(--mauve);
+}
+.lc-tab .lc-tab-dirty {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--subtext0);
+  margin-left: 2px;
+}
+
+/* ===== Empty state (no tabs open) ===== */
+.lc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding-top: 96px;
+  max-width: 480px;
+  margin: 0 auto;
+}
+.lc-empty-title {
+  font-family: var(--font-serif);
+  font-size: var(--ui-lg);
+  font-weight: 400;
+  color: var(--subtext1);
+}
+.lc-empty-hint {
+  font-family: var(--font-sans);
+  font-size: var(--ui-sm);
+  color: var(--overlay1);
+}
+
 /* ===== Breadcrumb ===== */
 .lc-breadcrumb {
   display: flex;

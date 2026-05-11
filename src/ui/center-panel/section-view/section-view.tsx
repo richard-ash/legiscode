@@ -38,6 +38,13 @@ export interface SectionViewProps {
   error: CorpusError | null;
   /** Used by defined-term tooltip jump-links and the redesignated redirect link. */
   onActivate: (ref: CorpusRef) => void;
+  /** Callback ref attached to the scroll container so the parent can
+   *  drive per-tab scroll restoration via the use-tabs hook. Only wired
+   *  on the loaded-view branch — error/placeholder branches don't have
+   *  meaningful per-section scroll state. */
+  scrollContainerRef?: (el: HTMLElement | null) => void;
+  /** Called on every scroll event with the container's scrollTop. */
+  onScrollY?: (y: number) => void;
 }
 
 interface RenderCtx {
@@ -46,7 +53,14 @@ interface RenderCtx {
   onJump: (sectionId: SectionId) => void;
 }
 
-export function SectionView({ view, parentsLabel, error, onActivate }: SectionViewProps) {
+export function SectionView({
+  view,
+  parentsLabel,
+  error,
+  onActivate,
+  scrollContainerRef,
+  onScrollY,
+}: SectionViewProps) {
   if (error) {
     return (
       <div className="lc-doc lc-scroll" data-testid="section-view">
@@ -82,7 +96,12 @@ export function SectionView({ view, parentsLabel, error, onActivate }: SectionVi
   const paragraphs = splitParagraphs(section.body);
 
   return (
-    <div className="lc-doc lc-scroll" data-testid="section-view">
+    <div
+      ref={scrollContainerRef}
+      onScroll={onScrollY ? (e) => onScrollY(e.currentTarget.scrollTop) : undefined}
+      className="lc-doc lc-scroll"
+      data-testid="section-view"
+    >
       <div className="lc-doc-inner">
         <div className="lc-doc-title">{parentsLabel}</div>
         <h1 className="lc-section" style={{ marginBottom: 4 }}>
