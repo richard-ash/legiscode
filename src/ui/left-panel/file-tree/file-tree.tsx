@@ -41,7 +41,7 @@ export interface FileTreeProps {
 }
 
 export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }: FileTreeProps) {
-  const { setExpansion, rows } = useCorpusTree(tree);
+  const { setExpansion, rows, rowIndexById } = useCorpusTree(tree);
   // Pull stable functions out of useTypeahead. The hook returns a fresh
   // object literal each render, so depending on `typeahead` itself in any
   // useCallback would flip identity per render. The individual callbacks
@@ -52,25 +52,31 @@ export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }
   const { virtualizer, useVirtualization } = useTreeVirtualizer(rows, containerRef);
   const { focusedRowId, setFocusedRowId, registerRowRef, requestFocus } = useRovingFocus({
     rows,
+    rowIndexById,
     openItems,
     containerRef,
     virtualizer,
     useVirtualization,
   });
 
-  // Latest `rows` accessible to event handlers without invalidating their
-  // identity. Without this, onClickRow's `rows` dep would flip the
-  // callback every expansion, which defeats React.memo on TreeNode for
+  // Latest `rows` + `rowIndexById` accessible to event handlers without
+  // invalidating their identity. Without these refs, onClickRow's deps
+  // would flip every expansion, defeating React.memo on TreeNode for
   // the most common interaction (clicking parents to expand/collapse).
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+  const rowIndexByIdRef = useRef(rowIndexById);
+  rowIndexByIdRef.current = rowIndexById;
 
-  // Stable click dispatcher. Reads the latest rows through `rowsRef` so
-  // the callback identity does not flip when expansion changes — that
-  // keeps React.memo on TreeNode effective for focus-only renders.
+  // Stable click dispatcher. Reads the latest rows + lookup map through
+  // refs so the callback identity does not flip when expansion changes
+  // — that keeps React.memo on TreeNode effective for focus-only
+  // renders. O(1) row lookup via rowIndexById matches the F-perf
+  // pattern applied across keyboard nav.
   const onClickRow = useCallback(
     (rowId: string, e: MouseEvent<HTMLDivElement>) => {
-      const row = rowsRef.current.find((r) => r.id === rowId);
+      const idx = rowIndexByIdRef.current.get(rowId);
+      const row = idx === undefined ? undefined : rowsRef.current[idx];
       if (!row) return;
       const openMod = e.metaKey || e.ctrlKey;
       if (row.hasKids) {
@@ -97,7 +103,12 @@ export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }
       if (e.key.length === 1 && e.key !== " " && !e.metaKey && !e.ctrlKey && !e.altKey) {
         const buffer = typeaheadAppendChar(e.key);
         const predicate = prefixMatch(buffer);
-        const focusedIdx = rows.findIndex((r) => r.id === focusedRowId);
+        // F-perf D17 scope honesty: the focused-row lookup is O(1) via
+        // rowIndexById, but the forward-scan for the next prefix match
+        // remains O(n) by design — a Map keyed by id can't accelerate a
+        // predicate sweep over node fields. Deferred to a separate perf
+        // pass if real corpus usage shows headroom loss.
+        const focusedIdx = focusedRowId === null ? -1 : (rowIndexById.get(focusedRowId) ?? -1);
         const startAt = focusedIdx + 1;
         // For an extending buffer (length > 1), include the currently focused
         // row in the search so the user's existing match continues to satisfy
@@ -115,7 +126,7 @@ export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }
         return;
       }
 
-      const action = keyboardAction(e, { rows, focusedRowId });
+      const action = keyboardAction(e, { rows, rowIndexById, focusedRowId });
       switch (action.type) {
         case "none":
           return;
@@ -143,6 +154,7 @@ export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }
     },
     [
       rows,
+      rowIndexById,
       focusedRowId,
       setExpansion,
       setFocusedRowId,

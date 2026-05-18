@@ -23,6 +23,11 @@ export type Action =
 
 export interface KeyboardState {
   rows: readonly Row[];
+  /** Reverse index `row.id → position in rows`. REQUIRED (no findIndex
+   * fallback) so every caller threads the same memoized lookup through;
+   * dispatch stays O(1) at large corpus sizes. Construct via
+   * `useCorpusTree` or, in tests, build alongside the rows fixture. */
+  rowIndexById: ReadonlyMap<string, number>;
   focusedRowId: string | null;
 }
 
@@ -104,10 +109,7 @@ export function keyboardAction(event: KeyEvent, state: KeyboardState): Action {
 
 function focusedIndex(state: KeyboardState): number {
   if (state.focusedRowId === null) return -1;
-  for (let i = 0; i < state.rows.length; i++) {
-    if (state.rows[i]?.id === state.focusedRowId) return i;
-  }
-  return -1;
+  return state.rowIndexById.get(state.focusedRowId) ?? -1;
 }
 
 function focusFirst(state: KeyboardState): Action {
