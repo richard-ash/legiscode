@@ -3,6 +3,21 @@
 Upgrading dependencies and tools is done purposefully. Update one thing at a
 time, run the full pipeline (`make ci`), read the changelog, then commit.
 
+## Cadence
+
+There is no bot doing this — upgrades happen on the maintainer's clock.
+Recommended rhythm:
+
+- **Monthly**: `mise exec -- pnpm outdated` plus the GitHub Actions check
+  (see *Updating GitHub Actions* below). Bump anything with a security
+  advisory; defer cosmetic minors.
+- **Before any release**: dedicated upgrade pass — Node, pnpm, the Electron
+  group, all devDependencies. One package per commit when possible.
+- **On CVE notification**: out-of-band, treat as a normal upgrade PR.
+
+The point of running upgrades manually is to *choose* when to spend CI
+minutes, not to let dependencies drift indefinitely.
+
 ## Source-of-truth map
 
 | Concern | File | Notes |
@@ -129,6 +144,22 @@ mise exec -- pnpm up vitest@<version>
 make test
 ```
 
+## Updating Electron (grouped)
+
+Electron and its tooling must move together — `electron`, `electron-builder`,
+and `electron-vite` read each other's APIs. Bumping one without the others
+breaks the build.
+
+```sh
+mise exec -- pnpm up electron@<version> electron-builder@latest electron-vite@latest
+make ci
+make docker-quality
+```
+
+Read the [Electron release notes](https://www.electronjs.org/blog) for the
+Chromium and Node.js versions that come with each major — those drive most
+renderer breakage.
+
 ## Updating the build base image (`electronuserland/builder`)
 
 The base image lives at the top of [`.development/Dockerfile`](../.development/Dockerfile).
@@ -152,6 +183,30 @@ make docker-dist                                # verify
 Update the FROM line in [`.development/Dockerfile`](../.development/Dockerfile)
 and (when it exists in Phase 1+) `.release/Dockerfile`. Both files should be
 updated together — they share the same base for production parity.
+
+## Updating GitHub Actions
+
+Workflow files pin third-party actions (`actions/checkout@v6`,
+`docker/setup-buildx-action@v4`, `docker/build-push-action@v7`,
+`actions/upload-artifact@v7`). Pinning to a major (`@vN`) means minor and
+patch bumps inside that major are picked up automatically by GitHub — no
+work needed until the action ships a new major.
+
+Find current pins:
+
+```sh
+grep -rh 'uses:' .github/workflows/ | sort -u
+```
+
+Check the latest release for each one, e.g.:
+
+```sh
+gh api repos/actions/checkout/releases/latest --jq .tag_name
+```
+
+Bump the `@vN` in the workflow file, open a PR, let `quality-check.yml`
+run, merge if green. Action major bumps occasionally rename inputs — read
+the release notes before the PR.
 
 ## Cleanup
 
