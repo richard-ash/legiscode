@@ -151,6 +151,37 @@ describe("FileTree — render", () => {
   });
 });
 
+describe("FileTree — sticky header stack absence (direct-render branch)", () => {
+  // The tree fixture above is well below JSDOM_GUARD_ROW_COUNT, so the
+  // direct-render branch (no virtualization) is what unit tests exercise.
+  // The sticky stack belongs to the virtualization branch only — there's
+  // no scroll under jsdom, no need to pin ancestors. This test guards
+  // against a future change that accidentally mounts the stack in both
+  // branches, which would produce duplicate aria nodes.
+  it("does not render a sticky stack wrapper", () => {
+    const { container } = render(
+      <FileTree
+        tree={tree}
+        openItems={emptyOpenItems()}
+        onActivate={vi.fn()}
+        onOpenWithoutSwitching={vi.fn()}
+      />,
+    );
+    expect(container.querySelector(".lc-tree-sticky-stack")).toBeNull();
+  });
+
+  it("each row id resolves to exactly one role=treeitem (no sticky duplicate)", () => {
+    setup();
+    // Three rows in the fixture (sf-port, ART1, 1.1, 1.2, 1.3 — 5 visible).
+    // The sticky stack would duplicate ancestors if it leaked into the
+    // direct-render branch.
+    const rows = screen.getAllByRole("treeitem");
+    const ids = rows.map((r) => r.getAttribute("data-row-id"));
+    const unique = new Set(ids);
+    expect(unique.size).toBe(ids.length);
+  });
+});
+
 describe("FileTree — roving tabindex", () => {
   it("only one row carries tabIndex=0 (the focused row)", () => {
     setup();

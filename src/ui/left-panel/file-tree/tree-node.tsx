@@ -10,7 +10,7 @@
 
 import { type CSSProperties, type MouseEvent, memo } from "react";
 import type { Row } from "@/corpus-nav";
-import { Icons } from "@/ui/icons";
+import { rowPaddingLeft, TreeRowContent } from "./tree-row-content";
 
 export interface TreeNodeProps {
   row: Row;
@@ -34,7 +34,6 @@ function TreeNodeImpl({
   registerRowRef,
   style,
 }: TreeNodeProps) {
-  const node = row.node;
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: tree row keyboard handling lives on the container per the WAI-ARIA roving-tabindex pattern
     <div
@@ -50,30 +49,10 @@ function TreeNodeImpl({
       data-row-id={row.id}
       data-testid={`tree-row-${row.id}`}
       className={`lc-tree-row ${isActive ? "is-active" : ""}`}
-      style={{ ...style, paddingLeft: 10 + row.depth * 12 }}
+      style={{ ...style, paddingLeft: rowPaddingLeft(row) }}
       onClick={(e) => onClickRow(row.id, e)}
     >
-      <span
-        className={`lc-tree-chevron ${row.hasKids ? "" : "is-leaf"} ${row.isExpanded ? "is-open" : ""}`}
-        aria-hidden
-      >
-        <Icons.Chevron size={10} />
-      </span>
-      <span className="lc-tree-ico" aria-hidden>
-        {row.hasKids ? (
-          row.isExpanded ? (
-            <Icons.FolderOpen size={14} color={isActive ? "var(--blue)" : "var(--overlay1)"} />
-          ) : (
-            <Icons.Folder size={14} color="var(--overlay1)" />
-          )
-        ) : (
-          <Icons.Section size={13} color={isActive ? "var(--blue)" : "var(--overlay0)"} />
-        )}
-      </span>
-      <span className="lc-tree-label">
-        <code>{node.code}</code>
-        {node.name}
-      </span>
+      <TreeRowContent row={row} isActive={isActive} />
     </div>
   );
 }

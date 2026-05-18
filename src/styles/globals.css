@@ -358,7 +358,10 @@ input {
   font-weight: 400;
 }
 .lc-tree {
-  padding: 2px 0 8px;
+  /* No padding-top: sticky stack pins at top:0 of the scroll-port, and
+   * any padding-top here leaves a visible strip above the stack that
+   * scrolling rows peek through. */
+  padding: 0 0 8px;
   font-size: 13px;
   flex: 1;
   overflow: auto;
@@ -429,6 +432,30 @@ input {
 }
 .lc-tree-row.is-active .lc-tree-label code {
   color: var(--subtext0);
+}
+
+/* ===== Sticky ancestor headers (feat/file-tree-polish) ===== */
+/* VSCode-style sticky ancestor stack. Mounted inside the scrolling
+ * container; the browser handles pinning math against the nearest
+ * scrolling ancestor via position: sticky. Wrapper is aria-hidden so
+ * AT users don't hear double-announcements; the real treeitem rows
+ * beneath remain the navigation target. */
+.lc-tree-sticky-stack {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  /* Solid background so virtualized rows scrolling under the stack
+   * don't bleed through. Matches `.lc-leftpanel` (var(--bg-mantle)) so
+   * the pinned copies read as a layer pinned to the panel chrome, not
+   * as a lighter island floating over it. */
+  background: var(--bg-mantle);
+  border-bottom: 1px solid var(--border-soft);
+}
+/* Sticky-copy modifier on .lc-tree-row. Inherits flex layout + height +
+ * padding from .lc-tree-row; suppresses the active-row left bar (a
+ * sticky copy is never "active" — that's the real row's role). */
+.lc-tree-sticky-row::before {
+  content: none;
 }
 
 /* ===== Tabs (feat/tabs) ===== */

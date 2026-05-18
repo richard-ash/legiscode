@@ -19,19 +19,28 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import { type CorpusRef, equals as refsEqual, hash as refHash } from "@/corpus/refs";
 import type { CorpusTreeNode } from "@/corpus/wire";
 import { collapse, expand, keyboardAction, prefixMatch, type Row, toggle } from "@/corpus-nav";
 import { shouldHandleGlobalShortcut } from "@/ui/tabs/should-handle-shortcut";
 import { activeSectionRef, type OpenItemsState } from "@/workbench";
+import { StickyHeaderStack } from "./sticky-header-stack";
 import { TreeNode } from "./tree-node";
 import { useCorpusTree } from "./use-corpus-tree";
 import { useRovingFocus } from "./use-roving-focus";
-import { useTreeVirtualizer } from "./use-tree-virtualizer";
+import { useStickyHeaders } from "./use-sticky-headers";
+import { TREE_ROW_HEIGHT_PX, useTreeVirtualizer } from "./use-tree-virtualizer";
 import { useTypeahead } from "./use-typeahead";
+
+// D16 (uniform-height assumption) lets us derive sticky stack height
+// as `ancestors.length × TREE_ROW_HEIGHT_PX` without measureElement /
+// IntersectionObserver feedback machinery. Constant lives in
+// use-tree-virtualizer.ts as the single source of truth.
 
 export interface FileTreeProps {
   tree: readonly CorpusTreeNode[];
@@ -49,7 +58,31 @@ export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }
   const { appendChar: typeaheadAppendChar, reset: resetTypeahead } = useTypeahead();
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const { virtualizer, useVirtualization } = useTreeVirtualizer(rows, containerRef);
+  // Sticky stack height threads two ways:
+  //   - into useTreeVirtualizer as `scrollMargin` so scrollToIndex
+  //     calculates positions relative to the visible band BELOW the
+  //     sticky stack
+  //   - into useStickyHeaders so its topmost-row pick uses the same
+  //     threshold the virtualizer is using
+  // Initial value 0 (no sticky stack yet known on the first render).
+  // The post-ancestors useEffect below settles the value in one frame;
+  // D16 trusts React batching to absorb the height + scrollMargin
+  // update together.
+  const [stickyStackHeight, setStickyStackHeight] = useState(0);
+  const { virtualizer, useVirtualization } = useTreeVirtualizer(rows, containerRef, {
+    scrollMargin: stickyStackHeight,
+  });
+  const ancestors = useStickyHeaders({
+    rows,
+    rowIndexById,
+    virtualizer,
+    useVirtualization,
+    stickyStackHeight,
+  });
+  useEffect(() => {
+    const next = ancestors.length * TREE_ROW_HEIGHT_PX;
+    if (next !== stickyStackHeight) setStickyStackHeight(next);
+  }, [ancestors.length, stickyStackHeight]);
   const { focusedRowId, setFocusedRowId, registerRowRef, requestFocus } = useRovingFocus({
     rows,
     rowIndexById,
@@ -218,8 +251,43 @@ export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }
   if (useVirtualization) {
     const virtualItems = virtualizer.getVirtualItems();
     const totalSize = virtualizer.getTotalSize();
+    // Render-math coordinate system (D14):
+    //
+    //   container scroll position ──┐
+    //                               ▼
+    //   ┌─ visible viewport ──────────────────┐
+    //   │   sticky stack (height = sM)        │ ← position: sticky; top: 0
+    //   ├─────────────────────────────────────┤
+    //   │   row N    (translateY: start − sM) │
+    //   │   row N+1  (translateY: start − sM) │   useVirtualizer sees
+    //   │   row N+2  (translateY: start − sM) │   scrollMargin = sM and
+    //   └─────────────────────────────────────┘   adjusts geometry. Render
+    //                                             must mirror with the
+    //                                             matching subtraction or
+    //                                             rows shift down by sM.
     return (
       <div ref={containerRef} {...treeAttrs}>
+        <StickyHeaderStack
+          ancestors={ancestors}
+          rowIndexById={rowIndexById}
+          virtualizer={virtualizer}
+          containerRef={containerRef}
+          onCollapse={(ancestorId) => {
+            setExpansion((prev) => collapse(prev, ancestorId));
+            setFocusedRowId(ancestorId);
+            // The chevron span is aria-hidden + has no tabindex, so the
+            // click never lands DOM focus inside the tree. Without this,
+            // setFocusedRowId updates React state but useRovingFocus's
+            // "drive focus" effect skips work (focusIsInTree=false), and
+            // the user has to click into the tree before keyboard nav
+            // resumes. Matches the onStickyClick path below.
+            requestFocus(ancestorId);
+          }}
+          onStickyClick={(ancestorId) => {
+            setFocusedRowId(ancestorId);
+            requestFocus(ancestorId);
+          }}
+        />
         <div style={{ height: totalSize, width: "100%", position: "relative" }}>
           {virtualItems.map((vItem) => {
             const row = rows[vItem.index];
@@ -236,7 +304,7 @@ export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }
                 top: 0,
                 left: 0,
                 width: "100%",
-                transform: `translateY(${vItem.start}px)`,
+                transform: `translateY(${vItem.start - stickyStackHeight}px)`,
               },
             });
           })}
