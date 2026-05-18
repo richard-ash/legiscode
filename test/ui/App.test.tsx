@@ -330,3 +330,146 @@ describe("App — workbench openItems flow (Layer 4 ↔ Layer 5)", () => {
     expect(activeRow12).toHaveClass("is-active");
   });
 });
+
+describe("App — tab strip integration (feat/tabs)", () => {
+  beforeEach(() => {
+    __resetVisibleRowsCache();
+    // biome-ignore lint/suspicious/noExplicitAny: test fixture
+    (window as any).api = buildPopulatedApi();
+  });
+
+  it("cold-start hydrates persisted tabs into the strip + activates the persisted index", async () => {
+    window.localStorage.setItem(
+      "legiscode.openItems",
+      JSON.stringify({
+        items: [
+          { kind: "section", ref: { module: "sf-port", section: "1.1" } },
+          { kind: "section", ref: { module: "sf-port", section: "1.2" } },
+        ],
+        activeIndex: 1,
+      }),
+    );
+    render(<App />);
+    await waitFor(() => {
+      const tabs = screen.getAllByRole("tab");
+      // 1 activity-bar tab + 2 section tabs.
+      expect(tabs.length).toBeGreaterThanOrEqual(3);
+    });
+    // The section tab list lives under aria-label="Open sections".
+    const sectionList = screen.getByRole("tablist", { name: "Open sections" });
+    expect(within(sectionList).getAllByRole("tab")).toHaveLength(2);
+    const activeTab = within(sectionList)
+      .getAllByRole("tab")
+      .find((t) => t.getAttribute("aria-selected") === "true");
+    expect(activeTab).toBeDefined();
+    expect(activeTab?.textContent).toContain("1.2");
+  });
+
+  it("FileTree.onActivate opens a section as a new tab in the strip", async () => {
+    render(<App />);
+    await screen.findByTestId("section-view");
+    // Click § 1.2 in the tree.
+    const row12 = await screen.findByTestId("tree-row-sf-port::1.2");
+    fireEvent.click(row12);
+    await waitFor(() => {
+      const sectionList = screen.getByRole("tablist", { name: "Open sections" });
+      const tabs = within(sectionList).getAllByRole("tab");
+      expect(tabs).toHaveLength(2);
+    });
+    const sectionList = screen.getByRole("tablist", { name: "Open sections" });
+    const tabs = within(sectionList).getAllByRole("tab");
+    expect(tabs[1]?.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("cmd+click on a tree row opens a tab in background (active does NOT switch)", async () => {
+    render(<App />);
+    await screen.findByTestId("section-view");
+    const row12 = await screen.findByTestId("tree-row-sf-port::1.2");
+    // Cmd+click → openItemWithoutSwitching.
+    fireEvent.click(row12, { metaKey: true });
+    await waitFor(() => {
+      const sectionList = screen.getByRole("tablist", { name: "Open sections" });
+      expect(within(sectionList).getAllByRole("tab")).toHaveLength(2);
+    });
+    const sectionList = screen.getByRole("tablist", { name: "Open sections" });
+    const tabs = within(sectionList).getAllByRole("tab");
+    // Active is still the first tab (§ 1.1) — background open didn't switch.
+    expect(tabs[0]?.getAttribute("aria-selected")).toBe("true");
+    expect(tabs[1]?.getAttribute("aria-selected")).toBe("false");
+  });
+
+  it("persisted-empty {items:[], activeIndex:null} renders empty state (A7 / codex F2)", async () => {
+    // Pre-populate localStorage with an explicit empty list. App must
+    // respect that — NOT re-seed defaultRef.
+    window.localStorage.setItem(
+      "legiscode.openItems",
+      JSON.stringify({ items: [], activeIndex: null }),
+    );
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText("No section open")).toBeInTheDocument();
+    });
+    // No tab strip rendered.
+    expect(screen.queryByRole("tablist", { name: "Open sections" })).toBeNull();
+    // corpus.read MUST NOT have been called — no active section to load.
+    // biome-ignore lint/suspicious/noExplicitAny: test fixture
+    const readMock = (window as any).api.corpus.read as ReturnType<typeof vi.fn>;
+    // Wait a tick for any pending effects.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(readMock).not.toHaveBeenCalled();
+  });
+
+  it("persisted-with-items-all-invalidated re-seeds defaultRef (codex review #1)", async () => {
+    // Simulate a corpus upgrade: persisted refs that no longer resolve
+    // against the new tree. The original A7 split treated this case the
+    // same as "explicitly empty," landing on a blank workbench. Fix:
+    // distinguish — only preserve emptiness when persisted itself was
+    // explicitly empty; an invalidation seeds the default instead.
+    window.localStorage.setItem(
+      "legiscode.openItems",
+      JSON.stringify({
+        items: [{ kind: "section", ref: { module: "sf-port", section: "old-renumbered-id" } }],
+        activeIndex: 0,
+      }),
+    );
+    render(<App />);
+    // biome-ignore lint/suspicious/noExplicitAny: test fixture
+    const readMock = (window as any).api.corpus.read as ReturnType<typeof vi.fn>;
+    // Defaultref is sf-port::1.1 — the seed must fire.
+    await waitFor(() => {
+      expect(readMock).toHaveBeenCalledWith({ moduleId: "sf-port", sectionId: "1.1" });
+    });
+    // The tab strip renders the seeded ref, not the stale one.
+    const sectionList = screen.getByRole("tablist", { name: "Open sections" });
+    expect(within(sectionList).getAllByRole("tab")).toHaveLength(1);
+  });
+
+  it("⌘P inside the open palette closes it (codex review #2 — fallthrough fix)", async () => {
+    render(<App />);
+    // Open the palette first.
+    fireEvent.keyDown(window, { key: "p", metaKey: true });
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/Go to section/)).toBeInTheDocument();
+    });
+    const input = screen.getByPlaceholderText(/Go to section/) as HTMLInputElement;
+    input.focus();
+    // Active element is the palette input — the shared global-shortcut
+    // guard would suppress; the fix bypasses the guard for ⌘P only.
+    expect(document.activeElement).toBe(input);
+    // Second ⌘P must toggle the palette closed AND preventDefault so
+    // Electron's print dialog doesn't fall through. Capture the event
+    // to assert preventDefault was called.
+    let captured: Event | null = null;
+    const probe = (e: Event) => {
+      captured = e;
+    };
+    window.addEventListener("keydown", probe, true);
+    fireEvent.keyDown(window, { key: "p", metaKey: true });
+    window.removeEventListener("keydown", probe, true);
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText(/Go to section/)).toBeNull();
+    });
+    expect(captured).not.toBeNull();
+    expect((captured as unknown as Event).defaultPrevented).toBe(true);
+  });
+});

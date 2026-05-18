@@ -16,7 +16,6 @@ import type {
   CorpusTreeNode,
 } from "@/corpus/wire";
 import { readOpenItems, writeOpenItems } from "@/persistence";
-import { SectionView } from "@/ui/center-panel/section-view/section-view";
 import { ActivityBar } from "@/ui/chrome/activity-bar";
 import { BootOverlay } from "@/ui/chrome/boot-overlay";
 import { Breadcrumb } from "@/ui/chrome/breadcrumb";
@@ -25,6 +24,11 @@ import { StatusBar } from "@/ui/chrome/status-bar";
 import { TitleBar } from "@/ui/chrome/title-bar";
 import { ThreePanel } from "@/ui/layout/three-panel";
 import { FileTree } from "@/ui/left-panel/file-tree/file-tree";
+import { TabEmptyState } from "@/ui/tabs/empty-state";
+import { useTabKeyboardShortcuts } from "@/ui/tabs/keyboard-shortcuts";
+import { TabContent } from "@/ui/tabs/tab-content";
+import { buildTitleMap, TabStrip } from "@/ui/tabs/tab-strip";
+import { useTabs } from "@/ui/tabs/use-tabs";
 import {
   activeItem,
   emptyOpenItems,
@@ -82,7 +86,15 @@ export function App() {
         const persisted = readOpenItems();
         let state = persisted ? fromPersisted(persisted) : emptyOpenItems();
         state = validateAgainstCorpus(state, (ref) => hasRefInTree(r.value.tree, ref));
-        if (state.items.length === 0) {
+        // Seed defaultRef in two cases:
+        //   (a) true cold start — no persisted value at all
+        //   (b) corpus invalidation — persisted had items but
+        //       validateAgainstCorpus dropped them all (e.g. corpus
+        //       upgrade renumbered every section ref)
+        // Preserve emptiness only when persisted was explicitly empty
+        // (user closed every tab last session — that intent stands).
+        const persistedExplicitlyEmpty = persisted !== null && persisted.items.length === 0;
+        if (state.items.length === 0 && !persistedExplicitlyEmpty) {
           state = openItem(state, corpusRefFromWire(r.value.defaultRef));
         }
         setOpenItems(state);
@@ -152,7 +164,10 @@ export function App() {
     };
   }, [activeKey]);
 
-  // ⌘P palette toggle.
+  // ⌘P palette toggle. The shared typing-surface guard would suppress
+  // this when focus is inside the palette's own input — ⌘P is the
+  // palette's OWN toggle, so it must always preventDefault (to swallow
+  // Electron's native print dialog) and fire, regardless of focus.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === "p" || e.key === "P")) {
@@ -171,6 +186,61 @@ export function App() {
   const onOpenWithoutSwitching = useCallback((ref: CorpusRef) => {
     setOpenItems((prev) => openItemWithoutSwitching(prev, ref));
   }, []);
+
+  // CQ4 — `Map<RefHash, CorpusTreeNode>` keyed by `module::section`,
+  // built once per corpus snapshot and threaded through TabStrip for
+  // O(1) per-tab title lookup (P1).
+  const titleMap = useMemo(() => buildTitleMap(corpus?.tree ?? []), [corpus]);
+
+  // CQ4-adjacent: use the title map as the corpus-validity predicate for
+  // recentlyClosed re-validation. Cheap, no second tree walk.
+  const isRefInCorpus = useCallback((ref: CorpusRef) => titleMap.has(refHash(ref)), [titleMap]);
+
+  const {
+    close: closeTabAt,
+    reopenLast,
+    saveScroll,
+    useRestoreScroll,
+  } = useTabs({
+    openItems,
+    setOpenItems,
+    isValidRef: isRefInCorpus,
+  });
+
+  // Callback ref + state for SectionView's scroll container — the hook
+  // needs the live DOM node, so we track it in state to trigger a
+  // re-run of `useRestoreScroll` when it mounts after the corpus load.
+  const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null);
+
+  // Drive scroll restoration from the rendered section (not just from
+  // the active tab change) so the restored scrollTop lands on the new
+  // section's DOM, not the previous one's. sectionKey flips only after
+  // the section read settles.
+  const activeSectionRef = useMemo(() => {
+    const a = activeItem(openItems);
+    return a && a.kind === "section" ? a.ref : null;
+  }, [openItems]);
+  const sectionKey = section ? `${section.moduleId}::${section.section.id}` : null;
+  useRestoreScroll(activeSectionRef, scrollEl, sectionKey);
+
+  const onScrollY = useCallback(
+    (y: number) => {
+      if (activeSectionRef) saveScroll(activeSectionRef, y);
+    },
+    [activeSectionRef, saveScroll],
+  );
+
+  const closeActiveTab = useCallback(() => {
+    if (openItems.activeIndex === null) return;
+    closeTabAt(openItems.activeIndex);
+  }, [openItems.activeIndex, closeTabAt]);
+
+  useTabKeyboardShortcuts({
+    openItems,
+    setOpenItems,
+    closeActive: closeActiveTab,
+    reopenLast,
+  });
 
   const fileLabel = useMemo(() => {
     if (!section) return "";
@@ -225,15 +295,34 @@ export function App() {
   // empty bodies. The window stays show:false in main.ts so this state is
   // never visible to the user.
   const sectionLabel = section ? `§ ${section.section.id}` : null;
+  const active = activeItem(openItems);
+  const hasItems = openItems.items.length > 0;
   const center: ReactNode = (
     <div className="lc-center">
-      <Breadcrumb parents={section?.parents ?? []} sectionLabel={sectionLabel} />
-      <SectionView
-        view={section}
-        parentsLabel={parentsLabel}
-        error={sectionError}
-        onActivate={onActivate}
-      />
+      {hasItems ? (
+        <>
+          <TabStrip
+            openItems={openItems}
+            setOpenItems={setOpenItems}
+            titleMap={titleMap}
+            closeAt={closeTabAt}
+          />
+          <Breadcrumb parents={section?.parents ?? []} sectionLabel={sectionLabel} />
+          {active ? (
+            <TabContent
+              item={active}
+              section={section}
+              sectionError={sectionError}
+              parentsLabel={parentsLabel}
+              onActivate={onActivate}
+              scrollContainerRef={setScrollEl}
+              onScrollY={onScrollY}
+            />
+          ) : null}
+        </>
+      ) : (
+        <TabEmptyState />
+      )}
     </div>
   );
 

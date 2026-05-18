@@ -69,6 +69,7 @@ export const Icons = {
   Command: makeIcon(
     '<path d="M5 3.5A1.5 1.5 0 1 1 6.5 5v6A1.5 1.5 0 1 1 5 12.5M11 3.5A1.5 1.5 0 1 0 9.5 5v6A1.5 1.5 0 1 0 11 12.5"/><path d="M6.5 5h3M6.5 11h3M6.5 8h3"/>',
   ),
+  Close: makeIcon('<path d="M4 4l8 8M12 4l-8 8"/>'),
 };
 
 export type IconName = keyof typeof Icons;

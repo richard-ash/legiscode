@@ -12,8 +12,10 @@ export {
   fromPersisted,
   openItem,
   openItemWithoutSwitching,
+  reorderItems,
   setActiveIndex,
   toPersisted,
   validateAgainstCorpus,
+  validateRecentlyClosed,
 } from "./open-items";
 export type { OpenItem, OpenItemsState } from "./open-items";

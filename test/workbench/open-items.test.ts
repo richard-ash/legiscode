@@ -9,9 +9,11 @@ import {
   type OpenItem,
   openItem,
   openItemWithoutSwitching,
+  reorderItems,
   setActiveIndex,
   toPersisted,
   validateAgainstCorpus,
+  validateRecentlyClosed,
 } from "@/workbench";
 
 const refA = corpusRefParse({ module: "sf-port", section: "1.1" });
@@ -112,6 +114,85 @@ describe("closeItem (right-then-left fall-back)", () => {
     const s = buildState(0);
     expect(closeItem(s, -1)).toBe(s);
     expect(closeItem(s, 99)).toBe(s);
+  });
+});
+
+describe("reorderItems (drag-reorder pure mutator)", () => {
+  function buildABC(active: number | null) {
+    let s = openItem(openItem(openItem(emptyOpenItems(), refA), refB), refC);
+    s = setActiveIndex(s, active);
+    return s;
+  }
+  function sectionIds(state: ReturnType<typeof emptyOpenItems>): string[] {
+    return state.items.map((i) => (i.kind === "section" ? i.ref.section : i.kind));
+  }
+
+  it("from out-of-range → state unchanged", () => {
+    const s = buildABC(0);
+    expect(reorderItems(s, -1, 0)).toBe(s);
+    expect(reorderItems(s, 99, 0)).toBe(s);
+  });
+
+  it("to out-of-range → state unchanged", () => {
+    const s = buildABC(0);
+    expect(reorderItems(s, 0, -1)).toBe(s);
+    expect(reorderItems(s, 0, 99)).toBe(s);
+  });
+
+  it("from === to → state unchanged (no-op)", () => {
+    const s = buildABC(1);
+    expect(reorderItems(s, 1, 1)).toBe(s);
+  });
+
+  it("basic move forward: [A,B,C] move 0→2 → [B,C,A]; activeIndex unaffected when active is at neither end", () => {
+    const s = buildABC(1); // B active
+    const after = reorderItems(s, 0, 2);
+    expect(sectionIds(after)).toEqual(["1.2", "101", "1.1"]);
+    // B moved from idx 1 to idx 0 (because A vacated idx 0 and swept right).
+    expect(after.activeIndex).toBe(0);
+  });
+
+  it("active === from → active follows the moved tab to its new index", () => {
+    const s = buildABC(0); // A active
+    const after = reorderItems(s, 0, 2);
+    expect(sectionIds(after)).toEqual(["1.2", "101", "1.1"]);
+    expect(after.activeIndex).toBe(2);
+  });
+
+  it("active in crossed range moving right: from < active && to >= active → active shifts down by 1", () => {
+    const s = buildABC(1); // B active at idx 1
+    // Move idx 0 (A) to idx 2 — sweeps across active.
+    const after = reorderItems(s, 0, 2);
+    expect(after.activeIndex).toBe(0); // B is now at idx 0
+  });
+
+  it("active in crossed range moving left: from > active && to <= active → active shifts up by 1", () => {
+    const s = buildABC(1); // B active at idx 1
+    // Move idx 2 (C) to idx 0 — sweeps across active.
+    const after = reorderItems(s, 2, 0);
+    expect(sectionIds(after)).toEqual(["101", "1.1", "1.2"]);
+    expect(after.activeIndex).toBe(2); // B shifted right
+  });
+
+  it("activeIndex null stays null after reorder", () => {
+    const s = setActiveIndex(buildABC(0), null);
+    const after = reorderItems(s, 0, 2);
+    expect(after.activeIndex).toBeNull();
+  });
+});
+
+describe("validateRecentlyClosed (drop stale refs)", () => {
+  it("drops refs that fail the predicate and returns a fresh array", () => {
+    const buf = [refA, refB, refC];
+    const out = validateRecentlyClosed(buf, (ref) => ref.section !== "1.2");
+    expect(out).toHaveLength(2);
+    expect(out).not.toBe(buf);
+  });
+
+  it("returns the same reference when nothing is dropped (cheap fast path)", () => {
+    const buf = [refA, refB];
+    const out = validateRecentlyClosed(buf, () => true);
+    expect(out).toBe(buf);
   });
 });
 
