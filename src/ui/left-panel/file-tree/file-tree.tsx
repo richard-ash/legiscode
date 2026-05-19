@@ -19,19 +19,28 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import { type CorpusRef, equals as refsEqual, hash as refHash } from "@/corpus/refs";
 import type { CorpusTreeNode } from "@/corpus/wire";
 import { collapse, expand, keyboardAction, prefixMatch, type Row, toggle } from "@/corpus-nav";
 import { shouldHandleGlobalShortcut } from "@/ui/tabs/should-handle-shortcut";
 import { activeSectionRef, type OpenItemsState } from "@/workbench";
+import { StickyHeaderStack } from "./sticky-header-stack";
 import { TreeNode } from "./tree-node";
 import { useCorpusTree } from "./use-corpus-tree";
 import { useRovingFocus } from "./use-roving-focus";
-import { useTreeVirtualizer } from "./use-tree-virtualizer";
+import { useStickyHeaders } from "./use-sticky-headers";
+import { TREE_ROW_HEIGHT_PX, useTreeVirtualizer } from "./use-tree-virtualizer";
 import { useTypeahead } from "./use-typeahead";
+
+// D16 (uniform-height assumption) lets us derive sticky stack height
+// as `ancestors.length × TREE_ROW_HEIGHT_PX` without measureElement /
+// IntersectionObserver feedback machinery. Constant lives in
+// use-tree-virtualizer.ts as the single source of truth.
 
 export interface FileTreeProps {
   tree: readonly CorpusTreeNode[];
@@ -41,7 +50,7 @@ export interface FileTreeProps {
 }
 
 export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }: FileTreeProps) {
-  const { setExpansion, rows } = useCorpusTree(tree);
+  const { setExpansion, rows, rowIndexById } = useCorpusTree(tree);
   // Pull stable functions out of useTypeahead. The hook returns a fresh
   // object literal each render, so depending on `typeahead` itself in any
   // useCallback would flip identity per render. The individual callbacks
@@ -49,28 +58,58 @@ export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }
   const { appendChar: typeaheadAppendChar, reset: resetTypeahead } = useTypeahead();
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const { virtualizer, useVirtualization } = useTreeVirtualizer(rows, containerRef);
+  // Sticky stack height threads two ways:
+  //   - into useTreeVirtualizer as `scrollMargin` so scrollToIndex
+  //     calculates positions relative to the visible band BELOW the
+  //     sticky stack
+  //   - into useStickyHeaders so its topmost-row pick uses the same
+  //     threshold the virtualizer is using
+  // Initial value 0 (no sticky stack yet known on the first render).
+  // The post-ancestors useEffect below settles the value in one frame;
+  // D16 trusts React batching to absorb the height + scrollMargin
+  // update together.
+  const [stickyStackHeight, setStickyStackHeight] = useState(0);
+  const { virtualizer, useVirtualization } = useTreeVirtualizer(rows, containerRef, {
+    scrollMargin: stickyStackHeight,
+  });
+  const ancestors = useStickyHeaders({
+    rows,
+    rowIndexById,
+    virtualizer,
+    useVirtualization,
+    stickyStackHeight,
+  });
+  useEffect(() => {
+    const next = ancestors.length * TREE_ROW_HEIGHT_PX;
+    if (next !== stickyStackHeight) setStickyStackHeight(next);
+  }, [ancestors.length, stickyStackHeight]);
   const { focusedRowId, setFocusedRowId, registerRowRef, requestFocus } = useRovingFocus({
     rows,
+    rowIndexById,
     openItems,
     containerRef,
     virtualizer,
     useVirtualization,
   });
 
-  // Latest `rows` accessible to event handlers without invalidating their
-  // identity. Without this, onClickRow's `rows` dep would flip the
-  // callback every expansion, which defeats React.memo on TreeNode for
+  // Latest `rows` + `rowIndexById` accessible to event handlers without
+  // invalidating their identity. Without these refs, onClickRow's deps
+  // would flip every expansion, defeating React.memo on TreeNode for
   // the most common interaction (clicking parents to expand/collapse).
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+  const rowIndexByIdRef = useRef(rowIndexById);
+  rowIndexByIdRef.current = rowIndexById;
 
-  // Stable click dispatcher. Reads the latest rows through `rowsRef` so
-  // the callback identity does not flip when expansion changes — that
-  // keeps React.memo on TreeNode effective for focus-only renders.
+  // Stable click dispatcher. Reads the latest rows + lookup map through
+  // refs so the callback identity does not flip when expansion changes
+  // — that keeps React.memo on TreeNode effective for focus-only
+  // renders. O(1) row lookup via rowIndexById matches the F-perf
+  // pattern applied across keyboard nav.
   const onClickRow = useCallback(
     (rowId: string, e: MouseEvent<HTMLDivElement>) => {
-      const row = rowsRef.current.find((r) => r.id === rowId);
+      const idx = rowIndexByIdRef.current.get(rowId);
+      const row = idx === undefined ? undefined : rowsRef.current[idx];
       if (!row) return;
       const openMod = e.metaKey || e.ctrlKey;
       if (row.hasKids) {
@@ -97,7 +136,12 @@ export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }
       if (e.key.length === 1 && e.key !== " " && !e.metaKey && !e.ctrlKey && !e.altKey) {
         const buffer = typeaheadAppendChar(e.key);
         const predicate = prefixMatch(buffer);
-        const focusedIdx = rows.findIndex((r) => r.id === focusedRowId);
+        // F-perf D17 scope honesty: the focused-row lookup is O(1) via
+        // rowIndexById, but the forward-scan for the next prefix match
+        // remains O(n) by design — a Map keyed by id can't accelerate a
+        // predicate sweep over node fields. Deferred to a separate perf
+        // pass if real corpus usage shows headroom loss.
+        const focusedIdx = focusedRowId === null ? -1 : (rowIndexById.get(focusedRowId) ?? -1);
         const startAt = focusedIdx + 1;
         // For an extending buffer (length > 1), include the currently focused
         // row in the search so the user's existing match continues to satisfy
@@ -115,7 +159,7 @@ export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }
         return;
       }
 
-      const action = keyboardAction(e, { rows, focusedRowId });
+      const action = keyboardAction(e, { rows, rowIndexById, focusedRowId });
       switch (action.type) {
         case "none":
           return;
@@ -143,6 +187,7 @@ export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }
     },
     [
       rows,
+      rowIndexById,
       focusedRowId,
       setExpansion,
       setFocusedRowId,
@@ -206,8 +251,43 @@ export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }
   if (useVirtualization) {
     const virtualItems = virtualizer.getVirtualItems();
     const totalSize = virtualizer.getTotalSize();
+    // Render-math coordinate system (D14):
+    //
+    //   container scroll position ──┐
+    //                               ▼
+    //   ┌─ visible viewport ──────────────────┐
+    //   │   sticky stack (height = sM)        │ ← position: sticky; top: 0
+    //   ├─────────────────────────────────────┤
+    //   │   row N    (translateY: start − sM) │
+    //   │   row N+1  (translateY: start − sM) │   useVirtualizer sees
+    //   │   row N+2  (translateY: start − sM) │   scrollMargin = sM and
+    //   └─────────────────────────────────────┘   adjusts geometry. Render
+    //                                             must mirror with the
+    //                                             matching subtraction or
+    //                                             rows shift down by sM.
     return (
       <div ref={containerRef} {...treeAttrs}>
+        <StickyHeaderStack
+          ancestors={ancestors}
+          rowIndexById={rowIndexById}
+          virtualizer={virtualizer}
+          containerRef={containerRef}
+          onCollapse={(ancestorId) => {
+            setExpansion((prev) => collapse(prev, ancestorId));
+            setFocusedRowId(ancestorId);
+            // The chevron span is aria-hidden + has no tabindex, so the
+            // click never lands DOM focus inside the tree. Without this,
+            // setFocusedRowId updates React state but useRovingFocus's
+            // "drive focus" effect skips work (focusIsInTree=false), and
+            // the user has to click into the tree before keyboard nav
+            // resumes. Matches the onStickyClick path below.
+            requestFocus(ancestorId);
+          }}
+          onStickyClick={(ancestorId) => {
+            setFocusedRowId(ancestorId);
+            requestFocus(ancestorId);
+          }}
+        />
         <div style={{ height: totalSize, width: "100%", position: "relative" }}>
           {virtualItems.map((vItem) => {
             const row = rows[vItem.index];
@@ -224,7 +304,7 @@ export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }
                 top: 0,
                 left: 0,
                 width: "100%",
-                transform: `translateY(${vItem.start}px)`,
+                transform: `translateY(${vItem.start - stickyStackHeight}px)`,
               },
             });
           })}

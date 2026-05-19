@@ -18,6 +18,10 @@ import { activeSectionRef, type OpenItemsState } from "@/workbench";
 
 export interface UseRovingFocusOptions {
   rows: readonly Row[];
+  /** Reverse index `row.id → position in rows`. REQUIRED (D6); used for
+   * the F-pendingFocus visibility check and the scroll-into-view index
+   * lookup so neither path falls back to a per-render `findIndex` scan. */
+  rowIndexById: ReadonlyMap<string, number>;
   openItems: OpenItemsState;
   containerRef: RefObject<HTMLDivElement | null>;
   virtualizer: Virtualizer<HTMLDivElement, Element>;
@@ -38,6 +42,7 @@ export interface UseRovingFocusResult {
 
 export function useRovingFocus({
   rows,
+  rowIndexById,
   openItems,
   containerRef,
   virtualizer,
@@ -52,14 +57,26 @@ export function useRovingFocus({
   const useVirtualizationRef = useRef(useVirtualization);
   useVirtualizationRef.current = useVirtualization;
 
-  // Keep focusedRowId in-sync with the visible row set: if the focused row
-  // disappears (collapse, filter), fall back to the active row or the
-  // first row.
+  // Two responsibilities, both keyed to visible-row changes:
+  // (1) Keep focusedRowId in sync with the visible row set — if the
+  //     focused row disappears (collapse, filter), fall back to the
+  //     active row or the first row.
+  // (2) F-pendingFocus: drop the stash if its target id is no longer in
+  //     the visible set. Without this, a stash set by keyboard nav into a
+  //     virtualized-out row — then orphaned when the user collapsed the
+  //     parent before the row mounted — would steal focus when an
+  //     unrelated row at the same id remounts later in a different
+  //     ancestor chain (rare but possible across collapse/expand cycles).
   useEffect(() => {
-    if (focusedRowId !== null && rows.some((r) => r.id === focusedRowId)) return;
-    const next = initialFocus(rows, openItems);
-    if (next !== focusedRowId) setFocusedRowId(next);
-  }, [rows, openItems, focusedRowId]);
+    if (focusedRowId !== null && !rowIndexById.has(focusedRowId)) {
+      const next = initialFocus(rows, openItems);
+      if (next !== focusedRowId) setFocusedRowId(next);
+    }
+    const pending = pendingFocusRowRef.current;
+    if (pending !== null && !rowIndexById.has(pending)) {
+      pendingFocusRowRef.current = null;
+    }
+  }, [rows, openItems, focusedRowId, rowIndexById]);
 
   // Scroll the focused row into view when virtualizing — keeps the row's
   // DOM node mounted so roving tabindex stays reachable. `align: "auto"`
@@ -67,10 +84,10 @@ export function useRovingFocus({
   useEffect(() => {
     if (!useVirtualization) return;
     if (focusedRowId === null) return;
-    const idx = rows.findIndex((r) => r.id === focusedRowId);
+    const idx = rowIndexById.get(focusedRowId) ?? -1;
     if (idx < 0) return;
     virtualizer.scrollToIndex(idx, { align: "auto" });
-  }, [focusedRowId, rows, useVirtualization, virtualizer]);
+  }, [focusedRowId, rowIndexById, useVirtualization, virtualizer]);
 
   // Drive focus to the focused row's element when focus is already
   // somewhere in the tree. Skip when focus is elsewhere (palette, search

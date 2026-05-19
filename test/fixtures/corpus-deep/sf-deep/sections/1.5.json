@@ -1,0 +1,16 @@
+{
+  "kind": "section",
+  "id": "1.5",
+  "title": "Test Section 1.5",
+  "text": "Hermetic fixture content for sticky-header E2E section 1.5.",
+  "citations": [],
+  "defined_terms": [],
+  "hierarchy": ["Deep", "Article I"],
+  "editorial_status": "active",
+  "body": [
+    {
+      "type": "text",
+      "text": "Hermetic fixture content for sticky-header E2E section 1.5."
+    }
+  ]
+}
