@@ -112,11 +112,13 @@ describe("baseline grep gates", () => {
         // legacy state was. The migration deletes the legacy key after
         // converting to `{ module, section }`.
         "src/persistence/storage.ts",
-        // Command palette keeps `PaletteItem` in the wire shape
-        // internally for ergonomics, then wraps via `corpusRefFromWire`
-        // at the `onSelect` boundary. Internal shape stays wire-named;
-        // the boundary emits CorpusRef.
-        "src/ui/chrome/command-palette.tsx",
+        // Command palette score+hook pre-compute SearchableItem rows
+        // in the wire shape (moduleId, sectionId) and the component
+        // wraps via `corpusRefFromWire` at the navigate boundary. The
+        // wire shape stays internal; the boundary emits CorpusRef.
+        "src/ui/command-palette/score.ts",
+        "src/ui/command-palette/use-command-palette.ts",
+        "src/ui/command-palette/command-palette.tsx",
       ].map((p) => resolve(REPO_ROOT, p)),
     );
     const sourceFiles = [

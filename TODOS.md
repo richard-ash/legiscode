@@ -34,7 +34,6 @@ Remaining:
 - **F2 — Stale `legiscode.activeSection` legacy key never deleted when valid `legiscode.openItems` exists.** `src/persistence/storage.ts:135` returns the parsed new value immediately, leaving the legacy key behind. If a future schema bump corrupts `openItems`, the fall-through migration silently rolls user state back to whatever was at first migration. Fix: remove legacy key on the line that returns the valid new value (~3 lines). Owner: `feat/sqlite-state` (#14) — same branch that's already inheriting all persistence concerns.
 - **F3 — `corpus.read` returning `{ ok: false }` silently leaves stale section visible.** `src/ui/App.tsx:117` only sets section on `r.ok=true`. Today the loader doesn't produce mid-session domain errors, but the contract permits them. Fix: route ok:false to either `setCorpusError` or `setSection(null)`. Owner: `feat/sqlite-state` (#14).
 - **F7 — Out-of-range persisted `activeIndex` blanks the center forever.** `src/persistence/storage.ts:46` schema accepts any int; `fromPersisted` maps out-of-range to null; `App.tsx:71` only seeds `defaultRef` when `items.length===0`. Persisted `{items:[A,B,C], activeIndex:999}` cold-starts with 3 tabs but no active section. Fix: when activeIndex remaps to null but `items.length>0`, promote `items[0]` to active. Owner: `feat/sqlite-state` (#14).
-- **F-palette — `⌘B` collapses the panel underneath an open command palette.** Three `window` keydown handlers (App.tsx:131, three-panel.tsx:46, file-tree onKeyDown) compete with no focus-trap coordination. Fix: palette dialog stops keydown propagation, OR three-panel checks `document.activeElement` is inside `[role=dialog]`. Owner: `feat/command-palette` (#10).
 - **F-empty-css — `.lc-tree-empty` and `.lc-tree-empty-caption` referenced in `file-tree.tsx:169` but not styled in globals.css.** Branch shouldn't fire in Phase 1 per DESIGN.md but is reachable defensively. Fix: add 8 lines of CSS or drop the class hooks. Owner: `feat/ripgrep-search` (#8) — the branch that makes the empty branch actually reachable via filter.
 
 ---
@@ -326,17 +325,13 @@ Hover over a citation link → small floating panel shows the cited section's ti
 
 ---
 
-## Command palette virtualization + debounce
+## Command palette follow-ups (feat/command-palette 2026-05-21)
 
-`feat/electron-shell` shipped a placeholder section-finder palette (`src/ui/chrome/command-palette.tsx`) at Phase 1. At SF Municipal scale (11,659 sections), the per-keystroke filter is a synchronous full-list scan + lowercase + DOM-render-every-match — ~hundreds of ms of jank per keystroke. The filter is correct; the rendering shape is the problem.
+`feat/command-palette` (#10) shipped the perf rewrite + field-weighted scorer + `:def` subtype + ⌘+Enter background-tab + F-palette regression test + perf budget. Three follow-ups intentionally deferred:
 
-Already scheduled inline in plan-overview branch #10's row; this entry exists as a TODO-side pointer with extra implementation detail.
-
-- **What:** In `feat/command-palette` (#10), replace the current implementation with: (a) `useDeferredValue` or a 50-100ms debounce on the input string; (b) a precomputed lowercase index built once when `corpus.tree` arrives; (c) `@tanstack/react-virtual` over the matched-items list (the same dep `feat/file-tree` already pulled in for the tree); (d) a result cap (e.g. top 200 matches).
-- **Why:** Until `feat/command-palette` lands, ⌘P remains laggy. Acceptable because the wedge browse loop is tree-driven, not palette-driven.
-- **Context:** Surfaced 2026-05-06 alongside the file-tree click-latency report. Tree virt landed in `feat/file-tree` as a wedge-blocker; palette virt deferred to its owning Phase 3 branch.
-- **Depends on / Blocked by:** `feat/command-palette` (#10) starting.
-- **Owner:** `feat/command-palette` (#10).
+- **Playwright e2e perf check for palette + file-tree + section-view.** This PR ships a hermetic vitest perf budget (`rank()` p95 < 8ms over a 12k-item synthetic fixture). That catches scorer / haystack regressions, but it does NOT measure real-Electron + real-React + virt overhead + GC under load. Owner of the e2e gate: `feat/release-pipeline` (#17) — the natural home for pre-release perf instrumentation. Concrete spec: open the bundled corpus, simulate 20 keystrokes in ⌘P, assert keystroke→paint p95 < 50ms. Same infra amortizes across file-tree and section-view scroll perf gates.
+- **Multi-definer disambiguation UX within a module.** D5 in this PR's plan ships per-(term, module) rows so cross-module collisions stay distinct. But intra-module collisions (e.g. the same module defines a term in 4+ sections) today get summarized as "+N more" with first-definer navigation — the user can't pick *which* definer. Same shape problem as the defined-term tooltip (`TODOS.md` line 89-101). Bundle the UX as one focused PR with the tooltip work. Owner: `feat/section-view-polish` (#19).
+- **Cross-restart `q` persistence.** v1 persists `q` across ⌘P toggles within a session via the `useCommandPalette` hook. Cross-restart persistence (last query, recents) belongs in `feat/sqlite-state` (#14) — the branch that owns all persistence concerns. Same place per-tab history would have landed if it weren't retired.
 
 ---
 
