@@ -405,8 +405,11 @@ primitive + ⌘⌥←/→ global shortcuts; it shouldn't be confused with
    FOUC carve-out.
 3. No ad-hoc `{ moduleId, sectionId }` literals outside the boundary
    helpers (`refs.ts`, `corpus/wire.ts`, `contract.ts`,
-   `corpus-loader.ts`, `storage.ts`'s legacy schema,
-   `command-palette.tsx`'s internal `PaletteItem`).
+   `corpus-loader.ts`, `storage.ts`'s legacy schema, and the
+   command-palette wire-shape carve-out — `src/ui/command-palette/`'s
+   `score.ts`, `use-command-palette.ts`, and `command-palette.tsx`
+   pre-compute `SearchableItem` rows in the wire shape and wrap via
+   `corpusRefFromWire` at the navigate boundary).
 
 ## Notes
 

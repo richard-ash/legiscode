@@ -451,6 +451,7 @@ function buildSummary(
 ): CorpusModuleSummary {
   const tree: CorpusTreeNode[] = modules.map(buildModuleTree);
   const totalSections = modules.reduce((n, m) => n + m.sections.length, 0);
+  const definitions = aggregateDefinitions(modules);
   const firstModule = modules[0];
   const firstSection = firstModule?.sections[0];
   if (!firstModule || !firstSection) {
@@ -464,6 +465,7 @@ function buildSummary(
       sectionCount: 0,
       defaultRef: { moduleId: "", sectionId: "" },
       tree: [],
+      definitions: [],
     };
   }
   return {
@@ -474,7 +476,39 @@ function buildSummary(
     sectionCount: totalSections,
     defaultRef: { moduleId: firstModule.id, sectionId: firstSection.section.id },
     tree,
+    definitions,
   };
+}
+
+/**
+ * Walk every module's `definitions` map and emit one row per
+ * `(term, moduleId)` pair. Cross-module collisions are preserved as
+ * separate rows so the command palette's `:def` filter can show each
+ * definer authority distinctly — collapsing across modules would be
+ * materially wrong for legal reading (D5).
+ *
+ * Sorted by `(term, moduleId)` so display order is stable across
+ * boots — both for human eyes scrolling the palette and for the
+ * hermetic test fixtures.
+ */
+function aggregateDefinitions(
+  modules: readonly LoadedModule[],
+): CorpusModuleSummary["definitions"] {
+  const rows: Array<{ term: string; moduleId: string; definers: readonly SectionId[] }> = [];
+  for (const m of modules) {
+    for (const [term, entries] of m.definitions) {
+      rows.push({
+        term,
+        moduleId: m.id,
+        definers: entries.map((e) => e.defined_in_section),
+      });
+    }
+  }
+  rows.sort((a, b) => {
+    if (a.term !== b.term) return a.term.localeCompare(b.term, "en", { sensitivity: "variant" });
+    return a.moduleId.localeCompare(b.moduleId);
+  });
+  return rows;
 }
 
 function rootLabelFromJurisdiction(jurisdiction: string): string {

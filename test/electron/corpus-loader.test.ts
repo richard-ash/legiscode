@@ -175,6 +175,116 @@ describe("loadCorpus + listCorpus + readSection", () => {
     expect(result.value.tree).toHaveLength(2);
     expect(result.value.tree[0]?.kind).toBe("code");
     expect(result.value.defaultRef).toEqual({ moduleId: "sf-fire", sectionId: "1" });
+    // No definitions.json in either module fixture → field is the
+    // empty array, not undefined. Consumers can branch on length
+    // alone without an existence check.
+    expect(result.value.definitions).toEqual([]);
+  });
+
+  it("aggregates definitions across modules as per-(term, module) rows (T1)", async () => {
+    // Cross-module collision: "Director" defined in both sf-port and
+    // sf-administrative must stay as two distinct rows. Silently
+    // collapsing across modules would be materially wrong for legal
+    // reading (D5 in the plan: a Director in sf-port is not the
+    // Director in sf-administrative).
+    await buildFixtureCorpus(dir, [
+      {
+        id: "sf-administrative",
+        name: "Administrative Code",
+        codeTitle: "Administrative Code",
+        moduleVersion: "2026.05.20",
+        jurisdiction: "City and County of San Francisco",
+        sections: [{ id: "1.1", title: "Defs", hierarchy: ["Administrative Code"] }],
+        definitions: {
+          Director: [{ defined_in_section: "1.1" }],
+          City: [{ defined_in_section: "1.1" }],
+        },
+      },
+      {
+        id: "sf-port",
+        name: "Port Code",
+        codeTitle: "Port Code",
+        moduleVersion: "2026.05.20",
+        jurisdiction: "City and County of San Francisco",
+        sections: [
+          { id: "1.1", title: "Defs", hierarchy: ["Port Code"] },
+          { id: "1.2", title: "More Defs", hierarchy: ["Port Code"] },
+        ],
+        definitions: {
+          // Intra-module collision: two definers in the same module.
+          // Both preserved in `definers[]`; the renderer surfaces the
+          // count as "+N more" but the data stays here.
+          Director: [{ defined_in_section: "1.1" }, { defined_in_section: "1.2" }],
+        },
+      },
+    ]);
+    await loadCorpus(dir);
+    const result = listCorpus();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Sorted by (term, moduleId): "City" first; then "Director" with
+    // sf-administrative before sf-port alphabetically.
+    expect(result.value.definitions).toEqual([
+      { term: "City", moduleId: "sf-administrative", definers: ["1.1"] },
+      { term: "Director", moduleId: "sf-administrative", definers: ["1.1"] },
+      { term: "Director", moduleId: "sf-port", definers: ["1.1", "1.2"] },
+    ]);
+  });
+
+  it("aggregated definitions omit modules with no definitions.json (T1)", async () => {
+    await buildFixtureCorpus(dir, [
+      {
+        id: "sf-with-defs",
+        name: "With Defs",
+        codeTitle: "With Defs",
+        moduleVersion: "2026.05.20",
+        jurisdiction: "City and County of San Francisco",
+        sections: [{ id: "1.1", title: "X", hierarchy: ["With Defs"] }],
+        definitions: { Person: [{ defined_in_section: "1.1" }] },
+      },
+      {
+        id: "sf-without-defs",
+        name: "Without Defs",
+        codeTitle: "Without Defs",
+        moduleVersion: "2026.05.20",
+        jurisdiction: "City and County of San Francisco",
+        sections: [{ id: "1.1", title: "X", hierarchy: ["Without Defs"] }],
+      },
+    ]);
+    await loadCorpus(dir);
+    const result = listCorpus();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.definitions).toEqual([
+      { term: "Person", moduleId: "sf-with-defs", definers: ["1.1"] },
+    ]);
+  });
+
+  it("aggregated definitions drop entries that failed per-key schema validation (T1)", async () => {
+    // The per-key soft-fail policy in loadDefinitions already skips
+    // whitespace-padded keys at the section join; the aggregated list
+    // inherits that filter automatically because it walks the same Map.
+    await buildFixtureCorpus(dir, [
+      {
+        id: "sf-port",
+        name: "Port",
+        codeTitle: "Port",
+        moduleVersion: "2026.05.20",
+        jurisdiction: "City and County of San Francisco",
+        sections: [{ id: "1.1", title: "X", hierarchy: ["Port"] }],
+        definitions: {
+          "\nDropMe": [{ defined_in_section: "1.1" }],
+          KeepMe: [{ defined_in_section: "1.1" }],
+        },
+      },
+    ]);
+    await loadCorpus(dir);
+    const result = listCorpus();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.definitions).toEqual([
+      { term: "KeepMe", moduleId: "sf-port", definers: ["1.1"] },
+    ]);
   });
 
   it("section tree node.code carries display_label, not section.id", async () => {

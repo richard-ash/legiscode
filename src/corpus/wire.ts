@@ -74,6 +74,22 @@ export interface CorpusModuleSummary {
   defaultRef: { moduleId: string; sectionId: string };
   /** Top-level structure tree, eagerly loaded. */
   tree: CorpusTreeNode[];
+  /**
+   * Per-(term, module) defined-term entries aggregated across every
+   * loaded module. The command palette's `:def` subtype filter renders
+   * one row per row here — cross-module collisions intentionally stay
+   * as separate rows (a "Director" defined in `sf-port` is a different
+   * legal authority than one defined in `sf-administrative`; silently
+   * collapsing them would be materially wrong for legal reading).
+   * Intra-module duplicates are summarized as "+N more" at the row
+   * level; the full `definers` array is preserved here for that count.
+   * Sorted by `(term, moduleId)` for stable display.
+   */
+  definitions: ReadonlyArray<{
+    term: string;
+    moduleId: string;
+    definers: ReadonlyArray<SectionId>;
+  }>;
 }
 
 export interface CorpusReadRequest {
