@@ -28,7 +28,8 @@ import type { Citation } from "@/types/citation";
 import { ActivityBar } from "@/ui/chrome/activity-bar";
 import { BootOverlay } from "@/ui/chrome/boot-overlay";
 import { Breadcrumb } from "@/ui/chrome/breadcrumb";
-import { CommandPalette } from "@/ui/chrome/command-palette";
+import { CommandPalette } from "@/ui/command-palette/command-palette";
+import { useCommandPalette } from "@/ui/command-palette/use-command-palette";
 import { StatusBar } from "@/ui/chrome/status-bar";
 import { TitleBar } from "@/ui/chrome/title-bar";
 import { ThreePanel } from "@/ui/layout/three-panel";
@@ -61,8 +62,8 @@ export function App() {
   // on the next successful read. Pairs with `setSection(null)` so stale
   // breadcrumb/title chrome doesn't leak past the failed section (C7).
   const [sectionError, setSectionError] = useState<CorpusError | null>(null);
-  const [paletteOpen, setPaletteOpen] = useState(false);
   const [crashed, setCrashed] = useState(false);
+  const palette = useCommandPalette(corpus);
 
   // Detect renderer recovery — main.ts appends ?recovered=1 after crash.
   useEffect(() => {
@@ -183,12 +184,12 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === "p" || e.key === "P")) {
         e.preventDefault();
-        setPaletteOpen((o) => !o);
+        palette.toggle();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [palette.toggle]);
 
   // CQ4 — `Map<RefHash, CorpusTreeNode>` keyed by `module::section`,
   // built once per corpus snapshot and threaded through TabStrip for
@@ -496,7 +497,9 @@ export function App() {
       <TitleBar
         workspaceLabel={corpus?.rootLabel ?? ""}
         fileLabel={fileLabel}
-        onOpenPalette={() => setPaletteOpen(true)}
+        onOpenPalette={() => {
+          if (!palette.open) palette.toggle();
+        }}
       />
       <div className="lc-frame">
         <ActivityBar active="structure" onChange={() => {}} />
@@ -529,14 +532,7 @@ export function App() {
         jurisdictionVersion={corpus?.jurisdictionVersion ?? ""}
         codeCount={corpus?.codeCount ?? 0}
       />
-      {corpus ? (
-        <CommandPalette
-          open={paletteOpen}
-          onClose={() => setPaletteOpen(false)}
-          corpus={corpus}
-          navigate={navigate}
-        />
-      ) : null}
+      {corpus ? <CommandPalette palette={palette} navigate={navigate} /> : null}
     </>
   );
 }

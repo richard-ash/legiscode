@@ -27,6 +27,7 @@ function buildApi(overrides: Partial<Api["corpus"]> = {}): Api {
           sectionCount: 0,
           defaultRef: { moduleId: "m", sectionId: "1" },
           tree: [],
+          definitions: [],
         },
       }),
       read: vi.fn().mockResolvedValue({
@@ -129,6 +130,7 @@ const populatedCorpus: CorpusModuleSummary = {
   codeCount: 1,
   sectionCount: 2,
   defaultRef: { moduleId: "sf-port", sectionId: "1.1" },
+  definitions: [],
   tree: [
     {
       id: "sf-port",
@@ -474,6 +476,50 @@ describe("App — tab strip integration (feat/tabs)", () => {
     });
     expect(captured).not.toBeNull();
     expect((captured as unknown as Event).defaultPrevented).toBe(true);
+  });
+
+  it("IRON RULE: ⌘B with the palette OPEN does NOT collapse the panel (F-palette regression)", async () => {
+    // The original bug was three competing window-keydown handlers
+    // (App.tsx, three-panel.tsx, file-tree onKeyDown) with no focus-trap
+    // coordination — ⌘B with the palette open would fire ThreePanel's
+    // toggle under the open dialog. The fix landed in
+    // `should-handle-shortcut.ts` (`target.closest("[role=dialog]")`
+    // returns false + the input-focus check). This test defends both
+    // checks against future removal: if either is dropped, the ⌘B
+    // handler runs to completion and calls preventDefault, which the
+    // probe catches.
+    //
+    // Codex F12 argued this was test bloat already covered at the hook
+    // layer. Pushed back: the hook test verifies the guard's CONTRACT;
+    // this integration test verifies the call sites in
+    // three-panel.tsx and file-tree.tsx are actually wired to it.
+    // Different failure mode — keep the test (IRON RULE).
+    render(<App />);
+    fireEvent.keyDown(window, { key: "p", metaKey: true });
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/Go to section/)).toBeInTheDocument();
+    });
+    const input = screen.getByPlaceholderText(/Go to section/) as HTMLInputElement;
+    input.focus();
+    expect(document.activeElement).toBe(input);
+    // Capture ⌘B at window level so we can assert the ThreePanel
+    // handler did NOT call preventDefault (which it would if the
+    // guard were removed and the handler ran to completion).
+    let captured: Event | null = null;
+    const probe = (e: Event) => {
+      captured = e;
+    };
+    window.addEventListener("keydown", probe, true);
+    fireEvent.keyDown(window, { key: "b", metaKey: true });
+    window.removeEventListener("keydown", probe, true);
+    expect(captured).not.toBeNull();
+    // Guard fired → handler returned early → no preventDefault.
+    // (If this flips to true, the guard regressed and ⌘B can again
+    // collapse the panel under an open palette.)
+    expect((captured as unknown as Event).defaultPrevented).toBe(false);
+    // Palette is still open (extra belt-and-suspenders — the dialog
+    // never received the ⌘B as something to act on).
+    expect(screen.getByPlaceholderText(/Go to section/)).toBeInTheDocument();
   });
 });
 
