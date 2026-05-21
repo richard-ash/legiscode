@@ -17,13 +17,21 @@
 
 import { useCallback, useDeferredValue, useMemo, useState } from "react";
 import type { CorpusModuleSummary, CorpusTreeNode } from "@/corpus/wire";
-import { rank, type PaletteMode, type SearchableItem } from "./score";
+import { type PaletteMode, rank, type SearchableItem } from "./score";
 
 /** Trailing space is required so that typing `:def` mid-string (with
  *  more to come) doesn't flip mode until the user commits with a
  *  space. Codex F9 — `:de` and `:def` alone should not trigger; only
  *  `:def ` does. */
 export const DEFINED_TERM_PREFIX = ":def ";
+
+/** Empty-state cap: when the user opens the palette with no query (or
+ *  deletes back to empty), show this many rows instead of the full
+ *  corpus. Scrolling 11k sections without a search target is noise; a
+ *  short preview is a tighter affordance to "start typing." Once any
+ *  token is entered, the cap releases and the full ranked set shows
+ *  (the AND filter is what narrows from there). */
+export const EMPTY_STATE_CAP = 15;
 
 export interface UseCommandPaletteResult {
   open: boolean;
@@ -79,9 +87,16 @@ export function useCommandPalette(corpus: CorpusModuleSummary | null): UseComman
   const { mode, strippedQ } = useMemo(() => parseQuery(q), [q]);
   const deferredQ = useDeferredValue(strippedQ);
   const deferredMode = useDeferredValue(mode);
-  const results = useMemo(
+  const ranked = useMemo(
     () => rank(searchableItems, deferredQ, deferredMode),
     [searchableItems, deferredQ, deferredMode],
+  );
+  // Empty-state cap operates on the DEFERRED q so the cap releases in
+  // lockstep with the ranked output (otherwise typing a character could
+  // cap the previous frame's full results, or vice versa).
+  const results = useMemo(
+    () => (deferredQ.trim().length === 0 ? ranked.slice(0, EMPTY_STATE_CAP) : ranked),
+    [ranked, deferredQ],
   );
   // isStale: true while React hasn't caught up to the latest `q` yet.
   // Sync today (one frame) — visible only when v1.1 swaps in an async

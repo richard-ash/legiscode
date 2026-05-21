@@ -209,3 +209,70 @@ describe("rank — F1 canonical-num query normalization", () => {
     expect(result[0]?.kind === "section" ? result[0].num : null).toBe("§ 1.01.010");
   });
 });
+
+describe("rank — multi-term AND", () => {
+  it("'133 planning' narrows § 133 to the Planning Code module", () => {
+    // The dogfood case: § 133 exists in multiple codes; typing the
+    // module's name after the number must filter to that module only.
+    const planning = section("§ 133", "Side Yards", "Planning Code · ARTICLE 1");
+    const police = section("§ 133", "Police Powers", "Police Code · CHAPTER 1");
+    const result = rank([planning, police], "133 planning");
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBe(planning);
+  });
+  it("token order does not matter (AND is commutative)", () => {
+    const planning = section("§ 133", "Side Yards", "Planning Code · ARTICLE 1");
+    const police = section("§ 133", "Police Powers", "Police Code · CHAPTER 1");
+    const result = rank([planning, police], "planning 133");
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBe(planning);
+  });
+  it("drops items where any token fails to match", () => {
+    const a = section("§ 1", "habitable Room", "Port Code");
+    const b = section("§ 2", "Other", "Port Code · habitable area");
+    // Token "habitable" matches name on `a` and path on `b`. Token
+    // "zzz" matches neither → both drop.
+    const result = rank([a, b], "habitable zzz");
+    expect(result).toEqual([]);
+  });
+  it("per-token score uses best field, summed across tokens", () => {
+    // Token "habitable": exact name on `exactName` (400), prefix on
+    // `prefixName` (300). Token "port": path substring at pos 0 on
+    // both (50). Totals: exactName=450, prefixName=350.
+    const exactName = section("§ 1", "habitable", "Port Code · ARTICLE 1");
+    const prefixName = section("§ 2", "habitable Other Thing", "Port Code · ARTICLE 1");
+    const result = rank([prefixName, exactName], "habitable port");
+    expect(result[0]).toBe(exactName);
+    expect(result[1]).toBe(prefixName);
+  });
+  it("multi-term works in defined-term mode", () => {
+    // The user types `:def director building` and expects "Director of
+    // Building Inspection" to surface over a plain "Director" row.
+    const directorOfBuilding = definedTerm("Director of Building Inspection");
+    const director = definedTerm("Director");
+    const result = rank([director, directorOfBuilding], "director building", "defined-term");
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBe(directorOfBuilding);
+  });
+  it("'§ 133 planning' (sigil + multi-token) tokenizes correctly", () => {
+    // Sigil strip must happen before tokenization or "§" becomes its own
+    // token and drops every row.
+    const planning = section("§ 133", "Side Yards", "Planning Code · ARTICLE 1");
+    const result = rank([planning], "§ 133 planning");
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBe(planning);
+  });
+  it("max-first sort: exact num hit beats prefix-num + name-exact across tokens", () => {
+    // The codex-flagged ranking trap. With a pure sum:
+    //   target  → 1000 (num exact) + 50 (path)        = 1050
+    //   decoy   → 800  (num prefix) + 400 (name exact) = 1200
+    // …decoy sorts above target, which would re-surface the U1 bug
+    // ("typing '133' should pick § 133, not § 1330") in multi-token
+    // form. Max-first lex sort keeps target on top: max(1000) > max(800).
+    const target = section("§ 133", "Side Yards", "Planning Code · ARTICLE 1");
+    const decoy = section("§ 1330", "Planning", "Some Code · CHAPTER X");
+    const result = rank([decoy, target], "133 planning");
+    expect(result[0]).toBe(target);
+    expect(result[1]).toBe(decoy);
+  });
+});

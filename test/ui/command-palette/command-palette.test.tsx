@@ -6,8 +6,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { CorpusModuleSummary } from "@/corpus/wire";
 import { CommandPalette } from "../../../src/ui/command-palette/command-palette";
 import {
-  useCommandPalette,
   type UseCommandPaletteResult,
+  useCommandPalette,
 } from "../../../src/ui/command-palette/use-command-palette";
 
 const corpus: CorpusModuleSummary = {

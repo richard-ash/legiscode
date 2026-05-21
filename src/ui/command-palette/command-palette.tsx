@@ -12,7 +12,7 @@
 //     results, a11y wiring, mode-aware empty-state copy.
 //
 // What's new vs the placeholder, beyond the rank-quality fix (U1):
-//   - virt over ranked results, soft-cap header "Showing top 50 of M"
+//   - virt over ranked results
 //   - ⌘+Enter background-tab open with selection advance (U4 / F8)
 //   - aria-activedescendant + stable row ids + scrollToIndex on selection
 //   - Home / End / PageUp / PageDown keyboard nav (Codex F10)
@@ -40,8 +40,6 @@ import type { UseCommandPaletteResult } from "./use-command-palette";
 
 /** Uniform row height (mirrors `.lc-palette-item` in globals.css). */
 const ROW_HEIGHT_PX = 32;
-/** Soft-cap header threshold — UX, not perf. */
-const SOFT_CAP = 50;
 /** Long-query input cap — defends against the "user pastes 10kB" lag
  *  failure mode without taking discretion from typical use. */
 const INPUT_MAX_LENGTH = 200;
@@ -201,7 +199,6 @@ export function CommandPalette({ palette, navigate }: CommandPaletteProps) {
 
   if (!open) return null;
 
-  const showSoftCap = results.length > SOFT_CAP;
   const empty = results.length === 0;
   const emptyCopy =
     mode === "defined-term"
@@ -243,15 +240,6 @@ export function CommandPalette({ palette, navigate }: CommandPaletteProps) {
           />
           <span className="lc-palette-kbd">⌘P</span>
         </div>
-        {showSoftCap ? (
-          // No aria-live — the count changes on every keystroke; an
-          // announcement per keystroke turns into screen-reader spam.
-          // The visible header is sufficient for sighted users; AT
-          // users navigate via the listbox + aria-activedescendant.
-          <div className="lc-palette-cap">
-            Showing top {SOFT_CAP} of {results.length} matches
-          </div>
-        ) : null}
         <div
           className="lc-palette-list"
           ref={scrollRef}

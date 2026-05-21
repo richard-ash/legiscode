@@ -25,6 +25,18 @@
 // position penalty is small (1 point per char) so it refines order
 // within a field band without ever flipping a `prefix` win over a
 // `substring` win in a higher-weight field.
+//
+// Multi-term AND: whitespace splits the query into tokens. Every token
+// must match somewhere on the item (any scored field) or the item is
+// dropped — typing "133 planning" narrows to § 133s whose path mentions
+// "Planning", which is the disambiguation the user reaches for when
+// one number appears across multiple codes. The aggregate sort uses a
+// (max, sum) lex key: max preserves the per-token field hierarchy so
+// an exact numCanonical hit (1000) always outranks any combination of
+// prefix+other hits regardless of token count, and sum refines order
+// within a tier. A pure sum would let "133 planning" surface § 1330
+// named "Planning" (800+400=1200) above § 133 in Planning Code
+// (1000+50=1050) — the max-first key prevents that.
 
 import type { SectionId } from "@/types";
 
@@ -85,29 +97,58 @@ export function rank(
   q: string,
   mode: PaletteMode = "section",
 ): SearchableItem[] {
-  const qLowerRaw = q.trim().toLowerCase();
+  // Strip the section sigil up front so "§ 133 planning" tokenizes as
+  // ["133", "planning"] rather than ["§", "133", "planning"] (a bare
+  // "§" token would never match a text field and would drop every row).
+  const qNorm = q.trim().toLowerCase().replace(/§/g, " ").trim();
   // Mode is a hard filter on `kind` — section mode shows sections,
   // defined-term mode shows defined-terms. The plan's mode-aware
   // empty-state copy ("No sections match" vs "No defined terms match")
   // depends on the kind staying single-discriminator per mode.
   const wantKind: SearchableItem["kind"] = mode === "defined-term" ? "defined-term" : "section";
   const modeFiltered = items.filter((it) => it.kind === wantKind);
-  if (qLowerRaw.length === 0) return [...modeFiltered];
+  if (qNorm.length === 0) return [...modeFiltered];
 
-  const qCanonical = canonicalizeNum(qLowerRaw);
-  const scored: Array<{ item: SearchableItem; score: number; idx: number }> = [];
+  const tokens = qNorm.split(/\s+/);
+  const tokensCanonical = tokens.map(canonicalizeNum);
+
+  const scored: Array<{ item: SearchableItem; max: number; sum: number; idx: number }> = [];
   for (let i = 0; i < modeFiltered.length; i++) {
     const item = modeFiltered[i];
     if (!item) continue;
-    const score = scoreItem(item, qLowerRaw, qCanonical, mode);
-    // F7: filter score=0 BEFORE sort so the sort runs over matches only.
-    if (score <= 0) continue;
-    scored.push({ item, score, idx: i });
+    // AND: every token must score > 0 against some field on this item.
+    // Track BOTH the max single-token score and the sum across tokens.
+    // The max preserves the field-tier hierarchy (numCanonical exact
+    // 1000 > prefix 800 > name exact 400 > ...) under multi-token
+    // queries — without it, an exact §133 hit on token1 + a path 50
+    // on token2 (1050) could be outranked by a §1330 prefix on token1
+    // + a name exact 400 on token2 (1200), surfacing the wrong row
+    // for "133 planning". The sum is a tiebreaker between rows whose
+    // strongest token-match lands in the same tier.
+    let sum = 0;
+    let max = 0;
+    let allMatched = true;
+    for (let t = 0; t < tokens.length; t++) {
+      const tokenScore = scoreToken(item, tokens[t] ?? "", tokensCanonical[t] ?? "");
+      if (tokenScore <= 0) {
+        allMatched = false;
+        break;
+      }
+      sum += tokenScore;
+      if (tokenScore > max) max = tokenScore;
+    }
+    // F7: filter unmatched items BEFORE sort so the sort runs over
+    // matches only.
+    if (!allMatched || sum <= 0) continue;
+    scored.push({ item, max, sum, idx: i });
   }
-  // Stable sort: ties fall back to original idx so display order is
-  // deterministic across renders (and across runs of the perf test).
+  // Lex sort: (max desc, sum desc, idx asc). The max-first key keeps
+  // an exact canonical-num hit ranked above any combination of weaker
+  // hits across more tokens; sum then refines order within a tier;
+  // idx breaks ties for deterministic display.
   scored.sort((a, b) => {
-    if (a.score !== b.score) return b.score - a.score;
+    if (a.max !== b.max) return b.max - a.max;
+    if (a.sum !== b.sum) return b.sum - a.sum;
     return a.idx - b.idx;
   });
   return scored.map((s) => s.item);
@@ -124,12 +165,7 @@ export function canonicalizeNum(s: string): string {
   return s.toLowerCase().replace(/§/g, "").replace(/\s+/g, "");
 }
 
-function scoreItem(
-  item: SearchableItem,
-  qLower: string,
-  qCanonical: string,
-  _mode: PaletteMode,
-): number {
+function scoreToken(item: SearchableItem, qLower: string, qCanonical: string): number {
   // `rank()` already narrowed the input to a single kind via wantKind;
   // dispatch on the item's own discriminator so the scoring math is
   // colocated with its inputs and TypeScript narrows cleanly.

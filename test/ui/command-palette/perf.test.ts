@@ -70,14 +70,16 @@ describe("rank() — hermetic perf budget (T8, P7, D6)", () => {
   });
 
   it("rank() over 12k items: p95 < 8ms across 10 timed iterations", () => {
-    // Four queries cover the realistic envelope:
+    // Five queries cover the realistic envelope:
     //   - short numeric: cheap canonical lookup, lots of matches
     //   - long name: name field dominant, lots of substring scans
     //   - sort-stress: many low-score path-substring matches force
     //     the sort to actually do work (catches "filter-before-sort"
     //     regressions that would let sort cost grow with corpus size)
     //   - rare prefix: small match count, sort cost tiny
-    const queries = ["133", "habitable", "port", "zzz"];
+    //   - multi-token AND: every item runs N field scans per row;
+    //     guards the multi-term path from quadratic regressions
+    const queries = ["133", "habitable", "port", "zzz", "133 port"];
     // Warmup (3 iters, not counted) — knocks out JIT compile + first
     // hidden-class assignment.
     for (const q of queries) {
@@ -104,9 +106,9 @@ describe("rank() — hermetic perf budget (T8, P7, D6)", () => {
       `[palette perf] n=${items.length} samples=${timings.length} p95=${observedP95.toFixed(2)}ms hits=${observedNonZeroHits}`,
     );
     expect(observedP95).toBeLessThan(8);
-    // At minimum, "133", "habitable", and "port" should return
-    // matches every iteration (3 queries × 10 iters = 30). "zzz" is
-    // expected to be empty.
-    expect(observedNonZeroHits).toBeGreaterThanOrEqual(30);
+    // At minimum, "133", "habitable", "port", and "133 port" should
+    // return matches every iteration (4 queries × 10 iters = 40).
+    // "zzz" is expected to be empty.
+    expect(observedNonZeroHits).toBeGreaterThanOrEqual(40);
   });
 });

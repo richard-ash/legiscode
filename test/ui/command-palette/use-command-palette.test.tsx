@@ -160,6 +160,62 @@ describe("useCommandPalette — searchableItems memoization (C3)", () => {
   });
 });
 
+describe("useCommandPalette — empty-state cap", () => {
+  it("caps empty-q results at EMPTY_STATE_CAP (15) when corpus is large", () => {
+    // Synthesize a corpus with 20 sections so the cap actually fires.
+    // The 3-section fixture in this file is under the cap; this guards
+    // the cap behavior independently.
+    const big: CorpusModuleSummary = {
+      ...corpus,
+      sectionCount: 20,
+      tree: [
+        {
+          id: "sf-port",
+          code: "Port Code",
+          name: "San Francisco Port Code",
+          kind: "code",
+          kids: Array.from({ length: 20 }, (_, i) => ({
+            id: `sf-port::s${i}`,
+            code: `§ ${i + 1}`,
+            name: `Section ${i + 1}`,
+            kind: "section" as const,
+            ref: { moduleId: "sf-port", sectionId: `s${i}` },
+          })),
+        },
+      ],
+    };
+    const { result } = renderHook(() => useCommandPalette(big));
+    expect(result.current.results).toHaveLength(15);
+  });
+  it("releases the cap as soon as a token is typed", () => {
+    const big: CorpusModuleSummary = {
+      ...corpus,
+      sectionCount: 20,
+      tree: [
+        {
+          id: "sf-port",
+          code: "Port Code",
+          name: "San Francisco Port Code",
+          kind: "code",
+          kids: Array.from({ length: 20 }, (_, i) => ({
+            id: `sf-port::s${i}`,
+            code: `§ ${i + 1}`,
+            name: `Section ${i + 1}`,
+            kind: "section" as const,
+            ref: { moduleId: "sf-port", sectionId: `s${i}` },
+          })),
+        },
+      ],
+    };
+    const { result } = renderHook(() => useCommandPalette(big));
+    expect(result.current.results).toHaveLength(15);
+    // Typing "Section" matches every row by name prefix — cap releases,
+    // all 20 surface.
+    act(() => result.current.setQ("Section"));
+    expect(result.current.results).toHaveLength(20);
+  });
+});
+
 describe("useCommandPalette — isStale", () => {
   it("isStale is false when q is empty", () => {
     const { result } = renderHook(() => useCommandPalette(corpus));
