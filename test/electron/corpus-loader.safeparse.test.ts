@@ -51,6 +51,7 @@ async function buildModuleFixture(root: string, fixture: ModuleFixture): Promise
 const validSection = {
   kind: "section",
   id: "1.1",
+  display_label: "1.1",
   title: "Definitions",
   text: "Sample text.",
   citations: [],

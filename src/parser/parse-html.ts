@@ -65,6 +65,14 @@ export interface SpanRecord {
 
 export interface ParsedSection {
   id: string;
+  /**
+   * Human-readable identifier the renderer shows in headings, tab
+   * titles, and breadcrumbs ("109.0", "102A", "8.559"). Distinct from
+   * `id`, which is the canonical lowercase anchor used for navigation
+   * keys and on-disk filenames. Phase 5 splits identity from label so
+   * `id` stops doing double duty.
+   */
+  display_label: string;
   title: string;
   text: string;
   /** Positioned format runs in `text`. Empty for [Reserved.] / [Repealed.] /
@@ -756,6 +764,17 @@ function parseSectionElement(
     };
   }
 
+  // display_label is the human-readable section number — what readers
+  // see in headings, breadcrumbs, and tab labels ("109.0", "102A").
+  // Prefer the heading text's section number ("SECTION 109.0 ...") when
+  // available because AmLegal anchor titles often use a stripped form
+  // ("P109" without ".0"); fall back to the anchor's rawId when the
+  // heading doesn't expose one. The canonical id (used as the on-disk
+  // filename and the runtime anchor lookup key) stays as the
+  // lowercase JD_-stripped form derived below.
+  const headingDisplayMatch = headingText.match(HEADING_SEC_RE);
+  const displayLabel = headingDisplayMatch?.[1]?.trim() || rawId.trim();
+
   const id = normalizeSectionId(rawId);
   // Self-validate against the canonical regex before returning. Without
   // this, an id-extraction bug surfaces only via the downstream
@@ -843,6 +862,7 @@ function parseSectionElement(
 
   const section: ParsedSection = {
     id,
+    display_label: displayLabel,
     title: finalTitle,
     text: finalText,
     htmlSpans: finalSpans,

@@ -21,7 +21,7 @@ describe("SectionView — top-level render", () => {
         view={view}
         parentsLabel="Port Code · ARTICLE 1"
         error={null}
-        onActivate={vi.fn()}
+        navigate={vi.fn()}
       />,
     );
     expect(screen.getByText("§ 1.1")).toBeInTheDocument();
@@ -42,7 +42,7 @@ describe("SectionView — top-level render", () => {
         ],
       },
     });
-    render(<SectionView view={view} parentsLabel="" error={null} onActivate={vi.fn()} />);
+    render(<SectionView view={view} parentsLabel="" error={null} navigate={vi.fn()} />);
     expect(screen.getByText("First paragraph.")).toBeInTheDocument();
     expect(screen.getByText("Second paragraph.")).toBeInTheDocument();
     expect(screen.getByText("Third paragraph.")).toBeInTheDocument();
@@ -65,14 +65,14 @@ describe("SectionView — top-level render", () => {
         ],
       },
     });
-    render(<SectionView view={view} parentsLabel="" error={null} onActivate={vi.fn()} />);
+    render(<SectionView view={view} parentsLabel="" error={null} navigate={vi.fn()} />);
     // Both annotations land inside the section view.
     expect(document.querySelector(".lc-cite")).not.toBeNull();
     expect(document.querySelector(".lc-deftrm")).not.toBeNull();
   });
 
   it("renders the placeholder when view is null and no error", () => {
-    render(<SectionView view={null} parentsLabel="" error={null} onActivate={vi.fn()} />);
+    render(<SectionView view={null} parentsLabel="" error={null} navigate={vi.fn()} />);
     expect(screen.getByText("No section selected")).toBeInTheDocument();
   });
 });

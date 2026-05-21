@@ -3,71 +3,297 @@
 // consumers see the same { extractCitations } surface and migration is
 // invisible.
 //
-// Strategy: scan the section text with each pattern from
-// manifest.citation_patterns, then classify each match:
-//   - Match starts with "§" + section-id-shaped digits   -> internal
-//     (with optional subsection and optional range)
-//   - Match starts with "§" but the surrounding text contains a known
-//     external code marker ("Code", "Statutes", "U.S.C.", "C.F.R.")    -> external
-//   - Anything else: external (raw)
+// Strategy: scan section text in paragraph chunks. Within each paragraph
+// we track code-phrase occurrences (both external — California Vehicle
+// Code, U.S.C. — and jurisdiction-internal — sibling sf-* code titles
+// like "Building Code", "Police Code"). Each cite scopes to the
+// *nearest* phrase in the same paragraph, preceding or following: this
+// is the Phase 2 suffix-form fix for the canonical p109 failure
+//   "Section 110A, Table 1A-K ... of the Building Code"
+// where the code phrase sits ten words past the cite. Multi-code
+// paragraphs also resolve correctly because each cite picks its own
+// closest phrase, not the most-recent one. Cites with no phrase in
+// scope are internal. The active phrase set resets at every paragraph
+// boundary (\n in the section text per parse-html.ts's text contract).
 //
-// Cross-module and vague targets are explicitly NOT produced today; their
-// schema slots exist for the future structured pipeline.
+// classifyMatch branches on the cite's prefix word:
+//   §, §§, Section, Sec., Sections           → section-level
+//   Article, Chapter, Division, Title        → structural
+//   subsection, subdivision                  → intra-section (anchored
+//                                              to currentSectionId)
 //
-// Recall expectation: ~80% on real Chapter 10.04 text. Improvements ship
-// automatically on the next scheduled corpus refresh because the
-// extractor is encapsulated.
+// External-code phrase recognition is delegated to
+// src/citations/module-registry.ts; jurisdiction-internal phrases come
+// from the optional `jurisdictionModules` extract option. The
+// build-time binder (binder.ts) consumes the resulting targets and
+// rewrites them as section-refs where the anchor map says they bind.
 
+import { findAllPhraseOccurrences } from "@/citations/module-registry";
 import type { Citation, CitationTarget, ModuleConfig } from "@/types";
-import { SectionIdSchema } from "@/types";
-
-const SUBSECTION_PART = /^(?:\([a-z0-9]+\))+$/;
+import { type ModuleId, SectionIdSchema } from "@/types";
+import type { StructuralLevel } from "@/types/citation";
 
 function looksLikeSectionId(value: string): boolean {
   return SectionIdSchema.safeParse(value).success;
 }
 
-const EXTERNAL_CONTEXT_REGEX = /\bCode\b|\bStatutes?\b|\bU\.?S\.?C\.?\b|\bC\.?F\.?R\.?\b/i;
-const EXTERNAL_LOOKBACK_CHARS = 50;
+type SectionPrefix = "section";
+type StructuralPrefix = StructuralLevel; // "article" | "chapter" | "division" | "title"
+type SubsectionPrefix = "subsection";
 
-function hasExternalContext(text: string, matchIndex: number): boolean {
-  const start = Math.max(0, matchIndex - EXTERNAL_LOOKBACK_CHARS);
-  return EXTERNAL_CONTEXT_REGEX.test(text.slice(start, matchIndex));
+type PrefixKind = SectionPrefix | StructuralPrefix | SubsectionPrefix;
+
+interface PrefixSplit {
+  readonly kind: PrefixKind;
+  readonly numberText: string;
 }
 
-function classifyMatch(matched: string, fullText: string, matchIndex: number): CitationTarget {
-  // Range: §§ X-Y (with optional whitespace)
-  const rangeMatch = matched.match(/^§§\s*([a-z0-9._-]+)\s*-\s*([a-z0-9._-]+)$/);
+const STRUCTURAL_PREFIXES: ReadonlyArray<{ word: RegExp; kind: PrefixKind }> = [
+  { word: /^Articles?$/i, kind: "article" },
+  { word: /^Chapters?$/i, kind: "chapter" },
+  { word: /^Divisions?$/i, kind: "division" },
+  { word: /^Titles?$/i, kind: "title" },
+];
+
+function splitPrefix(matched: string): PrefixSplit | null {
+  const trimmed = matched.trim();
+
+  // §§ before §: avoid the §§ match being misclassified as a single §
+  if (trimmed.startsWith("§§")) {
+    return { kind: "section", numberText: trimmed.slice(2).trim() };
+  }
+  if (trimmed.startsWith("§")) {
+    return { kind: "section", numberText: trimmed.slice(1).trim() };
+  }
+
+  const wordMatch = trimmed.match(/^([A-Za-z]+)\.?\s+(.+)$/);
+  if (!wordMatch) return null;
+  const word = wordMatch[1];
+  const rest = wordMatch[2];
+  if (!word || !rest) return null;
+  const lower = word.toLowerCase();
+
+  if (lower === "sec" || lower === "section" || lower === "sections") {
+    return { kind: "section", numberText: rest };
+  }
+  if (
+    lower === "subsection" ||
+    lower === "subsections" ||
+    lower === "subdivision" ||
+    lower === "subdivisions"
+  ) {
+    return { kind: "subsection", numberText: rest };
+  }
+  for (const sp of STRUCTURAL_PREFIXES) {
+    if (sp.word.test(word)) return { kind: sp.kind, numberText: rest };
+  }
+  return null;
+}
+
+// Alpha suffix capture (Phase 2 — Bug B fix). AmLegal anchors for SF
+// Building chapter 1A series are spelled JD_B102A / JD_B110A with a
+// trailing capital letter; the cite text says "Section 102A". The old
+// regex `\d+(?:\.\d+)*` dropped the letter and produced section_id
+// "102", leaving "A" stranded in the next text segment. We capture the
+// letter inside the section_id so the binder's display-rules evaluator
+// can produce the correctly-shaped anchor candidate (e.g. "b102a"). The
+// captured letter is lowercased to satisfy SectionIdSchema.
+function classifySection(
+  numberText: string,
+  activeModuleId: ModuleId | null,
+): CitationTarget | null {
+  const rangeMatch = numberText.match(/^(\d+(?:\.\d+)*[a-z]?)\s*-\s*(\d+(?:\.\d+)*[a-z]?)$/i);
   if (rangeMatch?.[1] && rangeMatch[2]) {
-    const from = rangeMatch[1];
-    const to = rangeMatch[2];
-    if (looksLikeSectionId(from) && looksLikeSectionId(to)) {
-      if (hasExternalContext(fullText, matchIndex)) {
-        return { kind: "external", raw: matched };
-      }
-      return { kind: "internal", section_id: from, range: { from, to } };
+    const from = rangeMatch[1].toLowerCase();
+    const to = rangeMatch[2].toLowerCase();
+    if (!looksLikeSectionId(from) || !looksLikeSectionId(to)) return null;
+    if (activeModuleId) {
+      return {
+        kind: "cross_module",
+        module_id: activeModuleId,
+        section_id: from,
+        range: { from, to },
+      };
     }
-    return { kind: "external", raw: matched };
+    return { kind: "internal", section_id: from, range: { from, to } };
   }
 
-  // Single section: § X with optional (a)(2)
-  const singleMatch = matched.match(/^§\s*([a-z0-9._-]+)((?:\([a-z0-9]+\))*)$/);
+  const singleMatch = numberText.match(/^(\d+(?:\.\d+)*[a-z]?)((?:\([a-z0-9]+\))*)$/i);
   if (singleMatch?.[1]) {
-    const sectionId = singleMatch[1];
-    const subsectionPart = singleMatch[2];
-    if (!looksLikeSectionId(sectionId)) {
-      return { kind: "external", raw: matched };
+    const sectionId = singleMatch[1].toLowerCase();
+    const subsection = singleMatch[2];
+    if (!looksLikeSectionId(sectionId)) return null;
+    if (activeModuleId) {
+      return {
+        kind: "cross_module",
+        module_id: activeModuleId,
+        section_id: sectionId,
+        ...(subsection ? { subsection } : {}),
+      };
     }
-    if (hasExternalContext(fullText, matchIndex)) {
-      return { kind: "external", raw: matched };
-    }
-    if (subsectionPart && SUBSECTION_PART.test(subsectionPart)) {
-      return { kind: "internal", section_id: sectionId, subsection: subsectionPart };
-    }
-    return { kind: "internal", section_id: sectionId };
+    return {
+      kind: "internal",
+      section_id: sectionId,
+      ...(subsection ? { subsection } : {}),
+    };
   }
+  return null;
+}
 
-  return { kind: "external", raw: matched };
+function classifyStructural(level: StructuralLevel, numberText: string): CitationTarget | null {
+  const m = numberText.match(/^(\d+(?:\.\d+)*)\s*$/);
+  if (!m?.[1]) return null;
+  return { kind: "structural", level, number: m[1] };
+}
+
+function classifySubsection(
+  numberText: string,
+  currentSectionId: string | null,
+): CitationTarget | null {
+  if (!currentSectionId) return null;
+  const m = numberText.match(/^(\([a-z0-9]+\)(?:\([a-z0-9]+\))*)\s*$/);
+  if (!m?.[1]) return null;
+  if (!looksLikeSectionId(currentSectionId)) return null;
+  return { kind: "internal", section_id: currentSectionId, subsection: m[1] };
+}
+
+function classifyMatch(
+  matched: string,
+  activeModuleId: ModuleId | null,
+  currentSectionId: string | null,
+): CitationTarget | null {
+  const prefix = splitPrefix(matched);
+  if (!prefix) return null;
+  switch (prefix.kind) {
+    case "section":
+      return classifySection(prefix.numberText, activeModuleId);
+    case "article":
+    case "chapter":
+    case "division":
+    case "title":
+      return classifyStructural(prefix.kind, prefix.numberText);
+    case "subsection":
+      return classifySubsection(prefix.numberText, currentSectionId);
+  }
+}
+
+// Phase 2 — phrase-to-cite global assignment within a paragraph. Each
+// code phrase claims its single nearest unowned cite (before OR after),
+// not the other way round. Without this assignment direction the
+// canonical "See Section 109.0 herein and the procedures in Section 102
+// of the Building Code." paragraph wrongly attaches "Building Code" to
+// BOTH cites — but the phrase is only attached to one (the closer cite
+// 102, leaving 109.0 internal as the reader expects).
+//
+// This fixes:
+//   Bug A (suffix-form): "Section 110A of the Building Code" — the
+//          code phrase sits after the cite; old "last phrase before"
+//          logic returned null.
+//   Multi-code paragraph: "Section 102 of the Building Code and
+//          Section 50 of the Police Code" — each cite picks its own
+//          nearest, not the last-seen one.
+//   Spurious attachment: a stray code-phrase reference in the same
+//          paragraph doesn't drag an earlier internal cite cross-module.
+//
+// Iteration order: phrases left-to-right, each takes its nearest
+// unassigned cite. Distance is the gap between the phrase's nearest
+// edge and the cite's nearest edge; overlap (shouldn't happen with
+// deduped phrases) is skipped.
+//
+// Sentence-boundary guard for the preceding match: a phrase must be
+// connected to its claimed preceding cite by either an "of/in/from/
+// under (the)" connector at the phrase boundary, or by living in the
+// same sentence. Without this guard, text like "See Section 109.0
+// herein. The Building Code defines ..." would attach "Building Code"
+// to 109.0 across the period and silently turn an internal cite into
+// a cross-module cite.
+function isAttachableSpan(span: string): boolean {
+  // Connector right before the phrase: "of the X Code", "in the Y Code",
+  // "under the Z Code", "from the W Code". Trailing whitespace before
+  // the phrase counts as part of the span.
+  if (/\b(of|in|from|under)\s+(the\s+)?$/i.test(span)) return true;
+  // No connector: require same-sentence containment. A sentence
+  // terminator ([.!?;] followed by whitespace) or a blank line breaks
+  // the attachment. Require a lowercase letter before the terminator so
+  // legal abbreviation periods ("U.S.C.", "Cal.", "Sec.") that follow
+  // an uppercase letter aren't misread as sentence ends.
+  return !/(?:[a-z])[.!?;]\s|\n\s*\n/.test(span);
+}
+
+function assignPhrasesToCites(
+  paragraph: string,
+  phrases: readonly { start: number; end: number; module_id: ModuleId }[],
+  cites: readonly { start: number; end: number }[],
+): ReadonlyMap<number, ModuleId> {
+  const assignments = new Map<number, ModuleId>();
+  for (const p of phrases) {
+    // Two-stage preference: PRECEDING cite first (the standard
+    // "Section X of the Y Code" suffix-form pattern), then FOLLOWING
+    // cite as fallback (the "Cal. Veh. Code § X" prefix-form pattern,
+    // mostly external codes). The bias matches how legal English
+    // attaches code phrases to citations; without it, pure-distance
+    // assignment in "Section 102 of the Building Code and Section 50"
+    // would attach "Building Code" to the closer-by-chars cite (50)
+    // instead of the one it actually modifies (102).
+    let bestPreceding = -1;
+    let bestPrecedingDist = Number.POSITIVE_INFINITY;
+    let bestFollowing = -1;
+    let bestFollowingDist = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < cites.length; i++) {
+      if (assignments.has(i)) continue;
+      const c = cites[i];
+      if (!c) continue;
+      if (c.end <= p.start) {
+        if (!isAttachableSpan(paragraph.slice(c.end, p.start))) continue;
+        const distance = p.start - c.end;
+        if (distance < bestPrecedingDist) {
+          bestPrecedingDist = distance;
+          bestPreceding = i;
+        }
+      } else if (c.start >= p.end) {
+        if (!isAttachableSpan(paragraph.slice(p.end, c.start))) continue;
+        const distance = c.start - p.end;
+        if (distance < bestFollowingDist) {
+          bestFollowingDist = distance;
+          bestFollowing = i;
+        }
+      }
+    }
+    const winner = bestPreceding >= 0 ? bestPreceding : bestFollowing;
+    if (winner >= 0) assignments.set(winner, p.module_id);
+  }
+  return assignments;
+}
+
+// Phase 2 — jurisdiction-internal code-phrase tracker. Sister modules
+// inside the same AmLegal export ("Building Code", "Police Code") are
+// not in the external module registry (which covers CA + Federal); for
+// the binder to bind cross-module cites to sf-building/sf-police we
+// have to look up each sibling module's code_title in the paragraph
+// text. Phrase matching is word-boundary, case-insensitive, hits the
+// whole code_title verbatim. The citing module's own code_title is
+// excluded so an internal reference to "of the Plumbing Code" inside
+// sf-plumbing doesn't self-classify as cross_module.
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function findJurisdictionPhrases(
+  text: string,
+  citingModuleId: ModuleId,
+  modules: readonly ModuleConfig[],
+): { start: number; end: number; module_id: ModuleId }[] {
+  const out: { start: number; end: number; module_id: ModuleId }[] = [];
+  for (const m of modules) {
+    if (m.id === citingModuleId) continue;
+    if (!m.code_title) continue;
+    const re = new RegExp(`\\b${escapeRegExp(m.code_title)}\\b`, "gi");
+    for (const match of text.matchAll(re)) {
+      if (match.index === undefined) continue;
+      out.push({ start: match.index, end: match.index + match[0].length, module_id: m.id });
+    }
+  }
+  return out;
 }
 
 export class CitationPatternError extends Error {
@@ -93,16 +319,41 @@ export interface CitationMatch {
   end: number;
 }
 
-export function extractCitations(text: string, module: ModuleConfig): CitationMatch[] {
+export interface ExtractOptions {
+  /**
+   * Section ID of the section whose text is being extracted. Used to
+   * anchor bare subsection refs ("subsection (a)") to the citing section.
+   * Optional so call sites with no section context can still extract
+   * (non-section refs only).
+   */
+  readonly currentSectionId?: string;
+  /**
+   * Sibling modules in the citing module's jurisdiction. Each module's
+   * code_title becomes a phrase pattern the extractor searches for
+   * inside paragraph text — when "of the Building Code" appears near a
+   * cite, the cite scopes to sf-building. The citing module's own
+   * code_title is excluded inside findJurisdictionPhrases so self-
+   * references don't classify as cross_module. Optional so legacy
+   * callers (unit tests, sandboxed extraction) still work with the
+   * external CA + Federal registry alone.
+   */
+  readonly jurisdictionModules?: readonly ModuleConfig[];
+}
+
+export function extractCitations(
+  text: string,
+  module: ModuleConfig,
+  options: ExtractOptions = {},
+): CitationMatch[] {
   if (!text) return [];
 
-  const matches: CitationMatch[] = [];
-  const seen = new Set<string>();
-
+  // Compile module patterns once. The case-insensitive flag is fixed at
+  // this layer because manifest authors write `Sections?` and expect
+  // "Section" / "section" / "SECTION" all to match.
+  const regexes: RegExp[] = [];
   for (const patternStr of module.citation_patterns) {
-    let regex: RegExp;
     try {
-      regex = new RegExp(patternStr, "g");
+      regexes.push(new RegExp(patternStr, "gi"));
     } catch (cause) {
       throw new CitationPatternError(
         patternStr,
@@ -110,28 +361,80 @@ export function extractCitations(text: string, module: ModuleConfig): CitationMa
         { cause },
       );
     }
-
-    for (const match of text.matchAll(regex)) {
-      const display_text = match[0];
-      const matchIndex = match.index ?? 0;
-      const dedupeKey = `${matchIndex}:${display_text}`;
-      if (seen.has(dedupeKey)) continue;
-      seen.add(dedupeKey);
-
-      const target = classifyMatch(display_text, text, matchIndex);
-      matches.push({
-        citation: { display_text, target },
-        start: matchIndex,
-        end: matchIndex + display_text.length,
-      });
-    }
   }
 
-  // Sort by start so the body-segment builder can interleave with
-  // defined-term/format spans without re-sorting. Multiple patterns can
-  // produce matches at different offsets; the dedup above only catches
-  // identical (offset, text) pairs, so two patterns matching at different
-  // positions both stand.
+  const matches: CitationMatch[] = [];
+  const seen = new Set<string>();
+  const currentSectionId = options.currentSectionId ?? null;
+  const siblingModules = options.jurisdictionModules ?? [];
+
+  // Walk paragraph-by-paragraph so the code-phrase scope resets at
+  // paragraph boundaries (per the parse-html text contract: each \n
+  // demarcates a paragraph break).
+  let paragraphStart = 0;
+  for (const paragraph of text.split("\n")) {
+    if (paragraph.length === 0) {
+      paragraphStart += 1; // skip the \n we split on
+      continue;
+    }
+
+    // Merge external code phrases (CA/Federal registry) with sibling
+    // SF code titles. Both feed the same global phrase-to-cite
+    // assignment so each phrase claims its single nearest cite, not
+    // the other way round. Phrases are kept sorted by start offset for
+    // stable iteration.
+    const externalPhrases = findAllPhraseOccurrences(paragraph);
+    const internalPhrases = findJurisdictionPhrases(paragraph, module.id, siblingModules);
+    const codePhrases = [...externalPhrases, ...internalPhrases].sort((a, b) => a.start - b.start);
+
+    // Pass 1: locate every cite-shaped span in the paragraph so we can
+    // run phrase-to-cite assignment globally before classification.
+    interface RawCite {
+      display_text: string;
+      start: number;
+      end: number;
+    }
+    const rawCites: RawCite[] = [];
+    const localSeen = new Set<string>();
+    for (const regex of regexes) {
+      for (const m of paragraph.matchAll(regex)) {
+        const display_text = m[0];
+        const offsetInPara = m.index ?? 0;
+        const dedupeKey = `${offsetInPara}:${display_text}`;
+        if (localSeen.has(dedupeKey)) continue;
+        localSeen.add(dedupeKey);
+        rawCites.push({
+          display_text,
+          start: offsetInPara,
+          end: offsetInPara + display_text.length,
+        });
+      }
+    }
+    rawCites.sort((a, b) => a.start - b.start);
+
+    // Pass 2: assign phrases to cites globally, then classify each
+    // cite using its assigned phrase (if any).
+    const phraseAssignment = assignPhrasesToCites(paragraph, codePhrases, rawCites);
+    for (let i = 0; i < rawCites.length; i++) {
+      const cite = rawCites[i];
+      if (!cite) continue;
+      const offsetInText = paragraphStart + cite.start;
+      const dedupeKey = `${offsetInText}:${cite.display_text}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+      const activeModule = phraseAssignment.get(i) ?? null;
+      const target = classifyMatch(cite.display_text, activeModule, currentSectionId);
+      if (!target) continue;
+      matches.push({
+        citation: { display_text: cite.display_text, target },
+        start: offsetInText,
+        end: offsetInText + cite.display_text.length,
+      });
+    }
+
+    paragraphStart += paragraph.length + 1;
+  }
+
   matches.sort((a, b) => a.start - b.start);
   return matches;
 }

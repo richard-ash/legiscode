@@ -50,8 +50,8 @@ describe("DefinedTerm — synchronous hover tooltip", () => {
     expect(onJump).toHaveBeenCalledWith("5.05");
   });
 
-  it("inside SectionView: tooltip jump fires onActivate(new ref) with module preserved", () => {
-    const onActivate = vi.fn();
+  it("inside SectionView: tooltip jump fires navigate({section}, 'primary') with module preserved", () => {
+    const navigate = vi.fn();
     const view = buildCorpusSectionView({
       moduleId: "sf-port",
       section: {
@@ -61,13 +61,15 @@ describe("DefinedTerm — synchronous hover tooltip", () => {
       },
       definitions: { Person: [{ defined_in_section: "1.1" }] },
     });
-    render(<SectionView view={view} parentsLabel="" error={null} onActivate={onActivate} />);
+    render(<SectionView view={view} parentsLabel="" error={null} navigate={navigate} />);
     fireEvent.mouseEnter(document.querySelector(".lc-deftrm") as HTMLSpanElement);
     fireEvent.click(screen.getByRole("button", { name: /§ 1\.1/ }));
-    expect(onActivate).toHaveBeenCalledTimes(1);
-    const ref = onActivate.mock.calls[0]?.[0];
-    expect(ref.module).toBe("sf-port");
-    expect(ref.section).toBe("1.1");
+    expect(navigate).toHaveBeenCalledTimes(1);
+    const [item, intent] = navigate.mock.calls[0] ?? [];
+    expect(item.kind).toBe("section");
+    expect(item.ref.module).toBe("sf-port");
+    expect(item.ref.section).toBe("1.1");
+    expect(intent).toBe("primary");
   });
 
   it("no tooltip rendering when the term has no definitions entry", () => {
@@ -83,7 +85,7 @@ describe("DefinedTerm — synchronous hover tooltip", () => {
       // Empty definitions — terms not pre-resolved.
       definitions: {},
     });
-    render(<SectionView view={view} parentsLabel="" error={null} onActivate={vi.fn()} />);
+    render(<SectionView view={view} parentsLabel="" error={null} navigate={vi.fn()} />);
     fireEvent.mouseEnter(document.querySelector(".lc-deftrm") as HTMLSpanElement);
     expect(screen.queryByRole("tooltip")).toBeNull();
   });

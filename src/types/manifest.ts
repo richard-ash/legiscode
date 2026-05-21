@@ -63,6 +63,60 @@ const ParserStrategySchema = z
   .string()
   .regex(/^[a-z][a-z0-9-]*$/, "parser_strategy must be lowercase tokens with hyphens");
 
+// DisplayRules — minimum-shape DSL that lets the build-time binder turn
+// cite text ("Section 102A of the Building Code") into a candidate
+// anchor_id ("b102a") for the target module's anchor index. Four
+// first-class knobs plus an escape hatch per the locked principle in the
+// refoundation plan (~/.gstack/projects/legiscode/richardash-feat-
+// citation-resolution-pr25-refactor-plan-20260520.html § "Locked
+// decisions"):
+//
+//   prefix              — single-letter or short tag prepended to the
+//                         numeric section ref ("102A" with prefix "b"
+//                         becomes "b102a"). null means no prefix —
+//                         sf-charter's bare-numeric primary form.
+//   extra_prefixes      — additional prefixes the binder also tries
+//                         when `prefix` misses. Earns first-class
+//                         status because the pattern recurs across
+//                         sf-charter (appendix-A as "a", appendix-D
+//                         as "d"), sf-building (Green Building
+//                         Division 4-x as "g"), sf-park (chapter-11A
+//                         appendix as "11a"). Promote-by-evidence per
+//                         feedback_minimum_shapes.
+//   alpha_suffix        — when true, the regex captures a trailing
+//                         single letter on the section ref ("102A" not
+//                         "102"). Required for sf-building's chapter
+//                         1A series.
+//   strip_trailing_zero — when true, ".0" at the end of the section ref
+//                         is collapsed ("109.0" ↔ "109"). sf-plumbing's
+//                         AmLegal anchors drop the trailing zero
+//                         (JD_P109, not JD_P109.0).
+//   override_regex      — last-resort escape hatch. The DSL grows by
+//                         observed repetition (feedback_minimum_shapes):
+//                         a pattern living here that recurs across >1
+//                         module gets promoted to a first-class knob.
+//
+// The full set is optional so manifests that don't ship cross-module
+// citation traffic don't have to declare it. Without display_rules the
+// binder falls back to bare-numeric lookup.
+const DisplayRulesSchema = z
+  .object({
+    prefix: z
+      .string()
+      .regex(/^[a-z0-9]+$/, "prefix must be lowercase letters or digits only")
+      .nullable()
+      .default(null),
+    extra_prefixes: z
+      .array(z.string().regex(/^[a-z0-9]+$/, "extra_prefix must be lowercase letters or digits"))
+      .default([]),
+    alpha_suffix: z.boolean().default(false),
+    strip_trailing_zero: z.boolean().default(false),
+    override_regex: z.string().min(1).nullable().default(null),
+  })
+  .strict();
+
+export type DisplayRules = z.infer<typeof DisplayRulesSchema>;
+
 // ModuleConfig is the per-code subset of a JurisdictionManifest. The HTML
 // slicer locates each module's region by finding <a name="JD_${jd_anchor}">.
 // code_title is the depth-0 hierarchy label on every emitted SectionFile.
@@ -82,6 +136,7 @@ export const ModuleConfigSchema = z
     max_skip_count: z.number().int().nonnegative().default(0),
     citation_patterns: z.array(z.string().min(1)),
     defined_term_patterns: z.array(z.string().min(1)),
+    display_rules: DisplayRulesSchema.optional(),
   })
   .strict();
 
@@ -140,6 +195,7 @@ export const DistributedModuleManifestSchema = z
     min_section_count: z.number().int().positive().optional(),
     citation_patterns: z.array(z.string().min(1)),
     defined_term_patterns: z.array(z.string().min(1)),
+    display_rules: DisplayRulesSchema.optional(),
   })
   .strict();
 

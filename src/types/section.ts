@@ -247,10 +247,19 @@ export function bodyToText(segments: readonly BodySegment[]): string {
 // `--corpus-path` users with old `body`-less section JSON during the
 // two-commit migration). Flips to required after Phase 2 ships and every
 // fixture has been regenerated with populated body[].
+// Phase 5 collapse: section.id IS the canonical anchor (lowercase
+// JD_-stripped form like "p109" / "b102a" / "5.102"). display_label
+// carries the human-readable form readers see in headings, tabs, and
+// breadcrumbs ("109.0" / "102A" / "5.102"). Splitting these closes
+// the original-sin three-identifier confusion documented in the
+// refoundation plan; the Phase 1 `anchor_id` additive field is now
+// redundant (anchor_id was always equal to id post-normalize) and
+// removed.
 export const SectionFileSchema = z
   .object({
     kind: z.literal("section").default("section"),
     id: SectionIdSchema,
+    display_label: z.string().min(1),
     title: z.string(),
     text: z.string(),
     citations: z.array(CitationSchema),

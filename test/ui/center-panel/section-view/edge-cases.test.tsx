@@ -23,7 +23,7 @@ describe("SectionView — edge cases", () => {
     const view = buildCorpusSectionView({
       section: { text: "", body: [] },
     });
-    render(<SectionView view={view} parentsLabel="" error={null} onActivate={vi.fn()} />);
+    render(<SectionView view={view} parentsLabel="" error={null} navigate={vi.fn()} />);
     expect(document.querySelectorAll("p.lc-para")).toHaveLength(0);
     // Header still renders.
     expect(document.querySelector(".lc-section-id")).not.toBeNull();
@@ -31,7 +31,7 @@ describe("SectionView — edge cases", () => {
 
   it("empty parents kicker when parentsLabel is the empty string", () => {
     const view = buildCorpusSectionView();
-    render(<SectionView view={view} parentsLabel="" error={null} onActivate={vi.fn()} />);
+    render(<SectionView view={view} parentsLabel="" error={null} navigate={vi.fn()} />);
     // `.lc-doc-title` exists but contains nothing — render shouldn't crash.
     expect(document.querySelector(".lc-doc-title")?.textContent).toBe("");
   });
@@ -42,7 +42,7 @@ describe("SectionView — edge cases", () => {
       section: { text, body: [bodyText(text)] },
     });
     const { container } = render(
-      <SectionView view={view} parentsLabel="" error={null} onActivate={vi.fn()} />,
+      <SectionView view={view} parentsLabel="" error={null} navigate={vi.fn()} />,
     );
     expect(container.textContent).toContain("你好");
     expect(container.textContent).toContain("🎉");
@@ -56,7 +56,7 @@ describe("SectionView — edge cases", () => {
         body: [bodySubsectionLabel("(a)"), bodyText(" text-after-label")],
       },
     });
-    render(<SectionView view={view} parentsLabel="" error={null} onActivate={vi.fn()} />);
+    render(<SectionView view={view} parentsLabel="" error={null} navigate={vi.fn()} />);
     const label = document.querySelector(".lc-subsection-label");
     expect(label).not.toBeNull();
     expect(label?.textContent).toBe("(a)");
@@ -73,11 +73,11 @@ describe("SectionView — edge cases", () => {
         body: [bodyFormat("bold", [bodyCitation("§ 1.01", 0)])],
       },
     });
-    render(<SectionView view={view} parentsLabel="" error={null} onActivate={vi.fn()} />);
+    render(<SectionView view={view} parentsLabel="" error={null} navigate={vi.fn()} />);
     // <strong> wraps the citation; the citation still emits its data attrs.
     const strong = document.querySelector("strong");
     expect(strong).not.toBeNull();
-    expect(strong?.querySelector("a.lc-cite")?.getAttribute("data-cite-kind")).toBe("internal");
+    expect(strong?.querySelector("span.lc-cite")?.getAttribute("data-cite-kind")).toBe("internal");
   });
 
   it("citation with out-of-range citation_index renders raw text gracefully", () => {
@@ -92,10 +92,10 @@ describe("SectionView — edge cases", () => {
       },
     });
     const { container } = render(
-      <SectionView view={view} parentsLabel="" error={null} onActivate={vi.fn()} />,
+      <SectionView view={view} parentsLabel="" error={null} navigate={vi.fn()} />,
     );
     expect(container.textContent).toContain("§ 1.01");
-    expect(document.querySelector("a.lc-cite")).toBeNull();
+    expect(document.querySelector("span.lc-cite")).toBeNull();
   });
 
   it("consecutive paragraph_break segments collapse rather than rendering empty <p>", () => {
@@ -105,7 +105,7 @@ describe("SectionView — edge cases", () => {
         body: [bodyText("first"), bodyParaBreak(), bodyParaBreak(), bodyText("second")],
       },
     });
-    render(<SectionView view={view} parentsLabel="" error={null} onActivate={vi.fn()} />);
+    render(<SectionView view={view} parentsLabel="" error={null} navigate={vi.fn()} />);
     expect(document.querySelectorAll("p.lc-para")).toHaveLength(2);
   });
 
@@ -121,8 +121,8 @@ describe("SectionView — edge cases", () => {
         body: [bodyCitation("§ 1.01", 0), bodyText(" "), bodyDefinedTerm("Person")],
       },
     });
-    render(<SectionView view={view} parentsLabel="" error={null} onActivate={vi.fn()} />);
-    expect(document.querySelector("a.lc-cite")).not.toBeNull();
+    render(<SectionView view={view} parentsLabel="" error={null} navigate={vi.fn()} />);
+    expect(document.querySelector("span.lc-cite")).not.toBeNull();
     expect(document.querySelector(".lc-deftrm")).not.toBeNull();
   });
 });

@@ -51,6 +51,10 @@ export type {
   CorpusSectionView,
   CorpusTreeNode,
   Result,
+  ShellOpenExternalError,
+  ShellOpenExternalErrorKind,
+  ShellOpenExternalRequest,
+  ShellOpenExternalResult,
 } from "@/corpus/wire";
 
 import type {
@@ -58,6 +62,8 @@ import type {
   CorpusListResult,
   CorpusReadRequest,
   CorpusReadResult,
+  ShellOpenExternalRequest,
+  ShellOpenExternalResult,
 } from "@/corpus/wire";
 
 // ─── Channel registry ───────────────────────────────────────────────────────
@@ -76,6 +82,10 @@ export interface ChannelMap {
   "corpus:list": { request: void; response: CorpusListResult };
   "corpus:read": { request: CorpusReadRequest; response: CorpusReadResult };
   "app:ping": { request: void; response: AppPingResult };
+  "shell:openExternal": {
+    request: ShellOpenExternalRequest;
+    response: ShellOpenExternalResult;
+  };
 }
 
 export type Channel = keyof ChannelMap;
@@ -88,7 +98,7 @@ export type ChannelResponse<C extends Channel> = ChannelMap[C]["response"];
  * once per channel. Cross-checked against `ChannelMap` keys at compile time
  * — adding a channel to one without the other is a TypeScript error.
  */
-export const CHANNELS = ["corpus:list", "corpus:read", "app:ping"] as const;
+export const CHANNELS = ["corpus:list", "corpus:read", "app:ping", "shell:openExternal"] as const;
 
 // Compile-time cross-check: CHANNELS and ChannelMap must enumerate the same
 // set of channel names. Either side adding/removing without the other fires
@@ -122,6 +132,14 @@ export interface Api {
   };
   app: {
     ping: () => Promise<AppPingResult>;
+  };
+  shell: {
+    /** Hands an http(s) URL to the platform browser. Validates the
+     *  protocol main-side — non-http(s) URLs resolve as
+     *  `{ ok: false, error: { kind: "invalid_url" } }` without invoking
+     *  Electron's shell. Fire-and-forget at the call site; failures are
+     *  logged main-side, not surfaced as UI. */
+    openExternal: (request: ShellOpenExternalRequest) => Promise<ShellOpenExternalResult>;
   };
 }
 

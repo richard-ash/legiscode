@@ -8,6 +8,19 @@ Reconciled 2026-05-19: 9 of 18 plan branches merged (Phase 2 complete). Every it
 
 ---
 
+## Citation refoundation follow-ups (feat/citation-resolution 2026-05-20)
+
+- **CR-roman — Structural citations in Roman numerals not captured.** The widened regex only matches `\d+` so "Article V" / "Chapter XII" miss. SF Charter's articles are predominantly Roman, so a meaningful fraction of `Article N`-style citations slip past the parser. Fix: extend the structural-prefix pattern with a Roman alternation (`\b[IVXLCDM]+\b`) and add a Roman→Arabic normalizer to the `structural` target so the resolver can look up the chapter node consistently. Owner: unowned; queue for v1.1.
+- **CR-structural-lookup — `findStructuralRef` is best-effort.** Currently walks the corpus tree looking for chapter nodes whose `code` starts with `{LEVEL} {N}` (trying both arabic and Roman). Doesn't handle hyphenated identifiers, multi-segment numbers (e.g. "Chapter 12.4"), or cross-module structural references. Fix: build a structural index at corpus-load time keyed by `(module, level, number)` — same shape the renderer wants. Owner: unowned; queue for v1.1.
+- **CR-popover-content — Popover body is empty for resolved cites.** The popover renders header + footer correctly but doesn't yet fetch the target section's title or first-paragraph excerpt; the App-side `resolveCitation` returns only the verb-shaped `ResolutionResult`, not the section content. Fix: extend the existence oracle with a `lookupTitle(ref)` (and optional `lookupExcerpt(ref)`) so the popover can render the resolved title + body excerpt per the 2026-05-19 mockup. Owner: unowned; near-term polish, before the public Phase-3 demo.
+- **CR-unresolved-cross — RESOLVED in Phase 4 refoundation.** The 9,308 unresolved-cross bucket collapsed to 2,332, all of which are cites to external CA/US modules genuinely not in this build. The intra-unresolved gate now means "0" for real (binder reclassifies bindable-shape-but-actually-unbindable cites as `vague` rather than dumping to cross-unresolved). Cross-module slips moved into the binder's sibling-fallback pass. Owner: shipped via PR #25.
+- **CR-charter-appendix — RESOLVED in Phase 4 refoundation.** SF Charter appendix sections (`a8.559`, `d3.750`) and the `a`/`d` prefix fallback are now manifest-driven via the `display_rules.extra_prefixes` knob, applied uniformly through the binder. The hardcoded validate-corpus.ts hack was deleted. Owner: shipped via PR #25.
+- **CR-shell-openExternal-unused — `shell:openExternal` IPC is registered but has no caller.** The 2026-05-20 refoundation removed every renderer-side call site (popover ⌘-click on not-installed modules is a no-op by design). The handler stays for a future "Open at source →" affordance on the popover. Fix: either ship the affordance or remove the IPC. Owner: unowned.
+- **CR-popover-unit-tests — `citation-popover.tsx` (new file, 124 lines) has no dedicated unit test.** The four kind-discriminated body branches (module-not-installed, scroll-only, navigate-*, unresolvable→null) and footer rendering are only covered indirectly via App-level integration tests. Fix: add `test/ui/center-panel/section-view/citation-popover.test.tsx` exercising each branch with `render({ result, anchorRect })`. Owner: unowned; v1.1 polish.
+- **CR-hover-dispatch-tests — `section-view.tsx` hover dispatch has no test.** The 400ms show timer, 200ms hide timer, Escape-key handler, mouseover→resolveCitation→setHoverState wiring, and anchorRect positioning are unverified by unit or e2e tests. Fix: add a `section-view-hover.test.tsx` using `vi.useFakeTimers()` to assert the show/hide timing contract. Owner: unowned; v1.1 polish.
+
+---
+
 ## File-tree review deferrals (feat/file-tree round-1 review)
 
 Adversarial /review on `feat-file-tree` (2026-05-06) surfaced findings beyond
@@ -212,14 +225,17 @@ Windows 10 has no `titleBarOverlay` API (introduced in Windows 11). v1.0 falls b
 
 Modules are versioned independently (`sf-municipal@2026.04`, `ca-vehicle@2025.12`, `us-federal@2026.03`). When SF MC v2026.04 cites Cal. Veh. Code § 22358 and the user has CVC v2025.01 installed, what does the citation resolver do?
 
-- **What:** Define the cross-module citation resolution policy. Options: (a) resolve against any installed version of the cited module ("best effort"); (b) resolve only against the version the citing module was built against ("frozen"); (c) hybrid — resolve against installed if the cited section_id exists, else mark vague.
-- **Why:** Citation `target.kind === "cross_module"` is locked in `feat/corpus-parser`'s schema; the resolution code is `feat/citation-resolution`'s problem. Version skew is the realistic case (modules update independently).
-- **Pros (best-effort):** Maximizes resolution rate; closest to "links don't break." **Cons:** Silent semantic drift if the cited section was renumbered.
+**Status (2026-05-19, set by `feat/citation-resolution` /plan-eng-review D4):** v1 picks **best-effort** against the installed corpus — resolve when the (module_id, section_id) exists in the in-memory corpus tree, else mark unresolvable. No version-skew check. Acceptable because v1 ships all SF Municipal sub-modules as one bundle; version skew is theoretical until multi-jurisdiction is installable.
+
+Remaining work for the multi-jurisdiction era (post-v1):
+
+- **What:** Add a version-skew detection layer on top of the best-effort policy. Options still on the table: (b) frozen — pin each module's references.json to a `built_against: {module_id, version}` map; (c) hybrid — best-effort + AI agent surfaces "I followed this citation but the target section may have been renumbered." Both deferred until module-manager v1.1+ lets users install modules at different versions.
+- **Why:** v1's best-effort is correct *while* every module ships as one bundle. As soon as that breaks, silent semantic drift becomes a real failure mode.
 - **Pros (frozen):** Honest about what the citing module knew. **Cons:** Resolution rate drops as modules age.
-- **Pros (hybrid):** Best UX. **Cons:** Most complex.
-- **Context:** `feat/corpus-parser` round 1 codex review (2026-04-30) flagged that the schema accepts cross-module citations but no resolution semantics are specified yet.
-- **Depends on / Blocked by:** Need at least two modules installable to make the question concrete (i.e., `feat/module-manager` v1.1 is the natural trigger).
-- **Owner:** `feat/citation-resolution` (#9).
+- **Pros (hybrid):** Best UX. **Cons:** Most complex; depends on AI agent's verification flow being load-bearing.
+- **Context:** `feat/corpus-parser` round 1 codex review (2026-04-30) flagged the schema accepts cross-module citations but no resolution semantics. v1 policy locked 2026-05-19 in `feat/citation-resolution` /plan-eng-review.
+- **Depends on / Blocked by:** `feat/module-manager` v1.1 (the natural trigger).
+- **Owner:** `feat/module-manager` (#?) — version-skew handling is naturally co-located with the install/version-pin surface, not citation-resolution.
 
 ---
 
@@ -265,6 +281,48 @@ Code comments in `src/parser/parse-html.ts` and `src/parser/references.ts` refer
 - **Context:** Surfaced by `feat/file-tree` /plan-eng-review (2026-05-05) D10 + D12. Layer 0's mitigation against premature abstraction is "ship minimal, extend on demand."
 - **Depends on / Blocked by:** Each consumer branch lands separately.
 - **Owner:** Distributed across `feat/citation-resolution` (#9), `feat/sqlite-state` (#14), and future `feat/revision-compare`. This TODO is the cross-branch index.
+
+---
+
+## Live-fetch external citation content (v1.1)
+
+`feat/citation-resolution` v1 ships an external-viewer tab that renders the parsed citation (e.g. "Cal. Veh. Code § 22358") + an "Open at leginfo →" button when the URL synthesizer recognizes the code. v1 has no in-app content — clicking the button calls `shell.openExternal` and bounces the user to leginfo in their default browser.
+
+- **What:** Build a leginfo content fetcher + cache in the main process. External-viewer tab fetches and renders the section's text inline (still read-only, banner still shows "State law — open at leginfo for the canonical version"). HTTP client + on-disk cache with invalidation policy (TTL? content-hash? user-triggered refresh?).
+- **Why:** Closes the read loop. Today: user clicks external citation → external tab → external browser → context-switched. v1.1: user clicks → external tab with content → can read inline without leaving the IDE.
+- **Pros:** The "go to definition" metaphor extends to state law, not just municipal. Better reading flow for citation-heavy sections. Foundation for AI agent's "follow external citation" tool (which today has nothing to verify against).
+- **Cons:** Adds an HTTP client + cache invalidation surface. leginfo.legislature.ca.gov ToS — verify caching is permitted. U.S.C. fetcher is a separate effort (uscode.house.gov has different scraping characteristics).
+- **Context:** Originally listed in the 2026-04-28 design doc's "Open questions"; deferred to v1.1 to keep `feat/citation-resolution` scope tight. Locked as v1.1 candidate by /plan-eng-review on 2026-05-19.
+- **Depends on / Blocked by:** Nothing — can start any time after `feat/citation-resolution` lands. CSP `connect-src` extension already separately TODO'd for `feat/ai-agent`; same change covers leginfo.
+- **Owner:** `feat/citation-resolution-v1.1` or post-v1 polish branch (TBD).
+
+---
+
+## Inline citation preview popover (v1.1)
+
+Hover over a citation link → small floating panel shows the cited section's title + first sentence + "click to open" button. Lets users scan citation-heavy sections without click-and-back navigation churn.
+
+- **What:** Floating-UI-positioned popover triggered by hover on `[data-cite-kind]` elements in section-view. Reads the cited section via `corpus.read({moduleId, sectionId})` on hover-intent (delay 200-300ms to avoid fetch storms on accidental hovers). Keyboard equivalent: focus the link + press a hotkey (suggest `?` per VS Code's quick-info convention).
+- **Why:** Reading a paragraph with 8 citations today is "click-back, click-back" × 8. Preview popover collapses that to hover-glance × 8 — closer to how lawyers actually read referenced statutes.
+- **Pros:** Low-friction "is this the right ref?" check. Builds on `feat/citation-resolution`'s resolver primitive (preview popover is just another consumer that calls `resolve()` and reads the navigate result).
+- **Cons:** Floating-element positioning is finicky (viewport-edge clipping, scroll detachment). Accessibility — screen reader equivalent for hover (already need the keyboard hotkey). Hover-intent debounce calibration.
+- **Context:** Originally listed in the 2026-04-28 design doc's "NOT in scope" with "v1.1 candidate" annotation. Locked as v1.1 candidate by /plan-eng-review on 2026-05-19.
+- **Depends on / Blocked by:** `feat/citation-resolution` (#9) — needs the resolver primitive.
+- **Owner:** TBD (v1.1 polish branch).
+
+---
+
+## Subsection-id collision strategy for v1.1 (conditional)
+
+`feat/citation-resolution` v1 ships subsection scroll anchors with **first-occurrence wins** semantics: section-view emits `id="lc-sub-{label}"` on the first subsection_label with a given label; duplicates render as plain spans. This handles real legal sections (which rarely have ambiguous duplicate top-level labels) but breaks down for sections like `§X(a)(1)` + `§X(b)(1)` where the same "(1)" appears under different parents.
+
+- **What:** Upgrade subsection id strategy to compose ids from the parent chain — e.g., `id="lc-sub-a-1"` for "(a)(1)", `id="lc-sub-b-1"` for "(b)(1)". Requires section-view to track render-time parent context (which subsection_label's children are being rendered). Plus a parser-level decision: does the parser annotate subsection_label segments with their full path, or does the renderer infer it from sibling order?
+- **Why:** Defense-in-depth against legal sections with nested duplicate labels. v1's first-occurrence-wins lands the scroll at a wrong-but-not-broken position; v1.1 fixes the wrong-position case.
+- **Pros:** Eliminates a class of "back button took me to the wrong (1)" subtle bugs. Cleaner id structure for future per-subsection annotations (`feat/sqlite-state` annotations) and per-subsection diffs (`feat/diff`).
+- **Cons:** Speculative until a real corpus surfaces a collision. Premature picks the wrong parent-tracking shape. ~15-30 LOC + test fixtures.
+- **Context:** Locked as v1 first-occurrence-wins by /plan-eng-review D14 on 2026-05-19. v1.1 upgrade path captured here.
+- **Depends on / Blocked by:** Real corpus collision (sf-municipal or any v1.1 jurisdiction). Re-test the test plan's "duplicate subsection_label" edge case against post-v1 corpora.
+- **Owner:** `feat/citation-resolution-v1.1` or whichever branch first encounters a real collision report.
 
 ---
 

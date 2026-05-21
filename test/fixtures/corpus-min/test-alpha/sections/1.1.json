@@ -1,16 +1,53 @@
 {
   "kind": "section",
   "id": "1.1",
+  "display_label": "1.1",
   "title": "Test Section 1.1",
-  "text": "Hermetic fixture content for section 1.1.",
-  "citations": [],
+  "text": "Hermetic fixture content for section 1.1. See \u00a7 1.2 and Cal. Veh. Code \u00a7 21.",
+  "citations": [
+    {
+      "display_text": "\u00a7 1.2",
+      "target": {
+        "kind": "internal",
+        "section_id": "1.2"
+      }
+    },
+    {
+      "display_text": "Cal. Veh. Code \u00a7 21",
+      "target": {
+        "kind": "cross_module",
+        "module_id": "ca-vehicle",
+        "section_id": "21"
+      }
+    }
+  ],
   "defined_terms": [],
-  "hierarchy": ["Alpha"],
+  "hierarchy": [
+    "Alpha"
+  ],
   "editorial_status": "active",
   "body": [
     {
       "type": "text",
-      "text": "Hermetic fixture content for section 1.1."
+      "text": "Hermetic fixture content for section 1.1. See "
+    },
+    {
+      "type": "citation",
+      "raw": "\u00a7 1.2",
+      "citation_index": 0
+    },
+    {
+      "type": "text",
+      "text": " and "
+    },
+    {
+      "type": "citation",
+      "raw": "Cal. Veh. Code \u00a7 21",
+      "citation_index": 1
+    },
+    {
+      "type": "text",
+      "text": "."
     }
   ]
 }

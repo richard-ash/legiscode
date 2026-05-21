@@ -2,8 +2,8 @@
 /// <reference lib="dom" />
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "../../src/app/api";
 import type { Api } from "../../electron/ipc/contract";
+import { api } from "../../src/app/api";
 
 declare global {
   interface Window {
@@ -47,6 +47,9 @@ const stubApi: Api = {
   },
   app: {
     ping: vi.fn().mockResolvedValue({ pong: 1 }),
+  },
+  shell: {
+    openExternal: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
   },
 };
 

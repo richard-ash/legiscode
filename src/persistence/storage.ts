@@ -40,11 +40,22 @@ const PersistedRefSchema = z.object({
   section: z.string().min(1),
 });
 
-const PersistedOpenItemSchema = z.object({
+const PersistedSectionItemSchema = z.object({
   kind: z.literal("section"),
   ref: PersistedRefSchema,
 });
 
+// Discriminated union of one today. The `kind` discriminator stays so
+// future tab kinds (chat) plug in additively, and so legacy stored
+// payloads carrying a removed kind drop cleanly on read.
+const PersistedOpenItemSchema = z.discriminatedUnion("kind", [PersistedSectionItemSchema]);
+
+// Strict per-item items array — the post-drop, post-remap shape that
+// callers consume. Tolerant per-item parsing happens in
+// parseOpenItemsJson, which drops unknown / malformed items individually
+// AND remaps activeIndex through the survivor map so the user's active
+// tab is preserved across schema drift instead of getting stranded on
+// an index that no longer points anywhere.
 export const PersistedOpenItemsSchema = z.object({
   items: z.array(PersistedOpenItemSchema),
   activeIndex: z.number().int().nullable(),
@@ -223,14 +234,60 @@ function parseOpenItemsJson(raw: string): PersistedOpenItems | null {
     console.warn(`[persistence] discarding corrupt openItems JSON`);
     return null;
   }
-  const parsed = PersistedOpenItemsSchema.safeParse(json);
-  if (!parsed.success) {
+  // Validate the envelope (top-level shape) but keep items as raw unknowns
+  // so the per-item tolerant drop can run below.
+  const envelope = z
+    .object({
+      items: z.array(z.unknown()),
+      activeIndex: z.number().int().nullable(),
+    })
+    .safeParse(json);
+  if (!envelope.success) {
     console.warn(
-      `[persistence] discarding openItems with schema mismatch: ${parsed.error.message}`,
+      `[persistence] discarding openItems with schema mismatch: ${envelope.error.message}`,
     );
     return null;
   }
-  return parsed.data;
+
+  // Drop unparseable items individually (future-kind entries, single
+  // corrupt rows) AND track each survivor's original index so the active
+  // tab can be remapped. Without the remap, dropping any item before the
+  // active tab leaves activeIndex pointing past the end of the surviving
+  // list, and fromPersisted opens the session with tabs present but no
+  // active tab — the failure mode this layer's per-item tolerance was
+  // supposed to prevent.
+  const survivingItems: PersistedOpenItem[] = [];
+  const survivingOriginalIndices: number[] = [];
+  for (let i = 0; i < envelope.data.items.length; i++) {
+    const parsed = PersistedOpenItemSchema.safeParse(envelope.data.items[i]);
+    if (parsed.success) {
+      survivingItems.push(parsed.data);
+      survivingOriginalIndices.push(i);
+    }
+  }
+
+  // Remap activeIndex through the survivor map. Exact-hit wins; if the
+  // original active was itself dropped, fall back to the nearest surviving
+  // item at-or-before the original (preserves "the active tab was about
+  // here" semantics); if no items survive, null.
+  let remappedActive: number | null = null;
+  const origActive = envelope.data.activeIndex;
+  if (origActive !== null && survivingItems.length > 0) {
+    const exact = survivingOriginalIndices.indexOf(origActive);
+    if (exact >= 0) {
+      remappedActive = exact;
+    } else {
+      let best = 0;
+      for (let i = 0; i < survivingOriginalIndices.length; i++) {
+        const orig = survivingOriginalIndices[i];
+        if (orig !== undefined && orig <= origActive) best = i;
+        else break;
+      }
+      remappedActive = best;
+    }
+  }
+
+  return { items: survivingItems, activeIndex: remappedActive };
 }
 
 function tryMigrateLegacyActiveSection(backend: Storage): PersistedOpenItems | null {

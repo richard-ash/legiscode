@@ -1,27 +1,27 @@
 // @vitest-environment jsdom
 //
-// Locks the D2 contract: per-kind data attributes the
-// `feat/citation-resolution` (#9) branch will read off `el.dataset.*`. The
-// parser today only emits `internal` and `external` kinds (citations.ts
-// comment); the cross_module / vague / internal_appendix entries here are
-// synthetic fixtures that prove the renderer's data-attr emission, not
-// pipeline-side coverage.
+// Locks the rendering contract for CitationLink. The element is a
+// `<span>` with `role="link"` + `tabIndex={0}` so plain text selection
+// works across citation boundaries (VS Code semantics); ⌘/Ctrl-click
+// dispatches navigation via the section-view body's delegated handler.
+// Styling is driven by `data-cite-kind` (CSS attribute selectors), not
+// by kind-suffix class names.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { CitationLink } from "@/ui/center-panel/section-view/citation-link";
 import {
   citationCrossModule,
-  citationExternal,
   citationInternal,
   citationInternalAppendix,
+  citationStructural,
   citationVague,
 } from "./fixtures";
 
-function getLink(): HTMLAnchorElement {
-  const link = document.querySelector("a.lc-cite");
-  if (!link) throw new Error("expected an .lc-cite anchor");
-  return link as HTMLAnchorElement;
+function getLink(): HTMLSpanElement {
+  const link = document.querySelector("span.lc-cite");
+  if (!link) throw new Error("expected a .lc-cite span");
+  return link as HTMLSpanElement;
 }
 
 describe("CitationLink — 5 citation kinds", () => {
@@ -35,7 +35,7 @@ describe("CitationLink — 5 citation kinds", () => {
         range: { from: "1.01", to: "1.05" },
       },
     };
-    render(<CitationLink raw="§ 1.01(a)–1.05" citation={citation} />);
+    render(<CitationLink raw="§ 1.01(a)–1.05" citation={citation} citation_index={0} />);
     const link = getLink();
     expect(link.dataset.citeKind).toBe("internal");
     expect(link.dataset.sectionId).toBe("1.01");
@@ -43,11 +43,16 @@ describe("CitationLink — 5 citation kinds", () => {
     expect(link.dataset.rangeFrom).toBe("1.01");
     expect(link.dataset.rangeTo).toBe("1.05");
     expect(link.dataset.raw).toBe("§ 1.01(a)–1.05");
-    expect(link.classList.contains("lc-cite-internal")).toBe(true);
   });
 
   it("internal: omits subsection/range when not on the citation target", () => {
-    render(<CitationLink raw="§ 1.01" citation={citationInternal("§ 1.01", "1.01")} />);
+    render(
+      <CitationLink
+        raw="§ 1.01"
+        citation={citationInternal("§ 1.01", "1.01")}
+        citation_index={0}
+      />,
+    );
     const link = getLink();
     expect(link.dataset.citeKind).toBe("internal");
     expect(link.dataset.sectionId).toBe("1.01");
@@ -55,52 +60,88 @@ describe("CitationLink — 5 citation kinds", () => {
     expect(link.dataset.rangeFrom).toBeUndefined();
   });
 
-  it("cross_module: emits module-id + section-id; shares lc-cite-internal styling", () => {
+  it("cross_module: emits module-id + section-id", () => {
     render(
       <CitationLink
         raw="SF Health § 12.05"
         citation={citationCrossModule("SF Health § 12.05", "sf-health", "12.05")}
+        citation_index={0}
       />,
     );
     const link = getLink();
     expect(link.dataset.citeKind).toBe("cross_module");
     expect(link.dataset.moduleId).toBe("sf-health");
     expect(link.dataset.sectionId).toBe("12.05");
-    expect(link.classList.contains("lc-cite-internal")).toBe(true);
   });
 
-  it("external: emits raw, no section/module IDs; uses lc-cite-external styling", () => {
+  it("structural: emits level + number", () => {
     render(
       <CitationLink
-        raw="Cal. Veh. Code § 21"
-        citation={citationExternal("Cal. Veh. Code § 21", "Cal. Veh. Code § 21")}
+        raw="Article 5"
+        citation={citationStructural("Article 5", "article", "5")}
+        citation_index={0}
       />,
     );
     const link = getLink();
-    expect(link.dataset.citeKind).toBe("external");
-    expect(link.dataset.sectionId).toBeUndefined();
-    expect(link.dataset.moduleId).toBeUndefined();
-    expect(link.classList.contains("lc-cite-external")).toBe(true);
+    expect(link.dataset.citeKind).toBe("structural");
+    expect(link.dataset.structuralLevel).toBe("article");
+    expect(link.dataset.structuralNumber).toBe("5");
   });
 
-  it("vague: emits only raw + kind discriminator; uses lc-cite-vague styling", () => {
-    render(<CitationLink raw="this Code" citation={citationVague("this Code", "this Code")} />);
+  it("vague: emits only raw + kind discriminator", () => {
+    render(
+      <CitationLink
+        raw="this Code"
+        citation={citationVague("this Code", "this Code")}
+        citation_index={0}
+      />,
+    );
     const link = getLink();
     expect(link.dataset.citeKind).toBe("vague");
     expect(link.dataset.sectionId).toBeUndefined();
-    expect(link.classList.contains("lc-cite-vague")).toBe(true);
   });
 
-  it("internal_appendix: emits appendix-id + kind; shares lc-cite-internal styling", () => {
+  it("internal_appendix: emits appendix-id + kind", () => {
     render(
       <CitationLink
         raw="see Appendix M"
         citation={citationInternalAppendix("see Appendix M", "article-1-appendix-m")}
+        citation_index={0}
       />,
     );
     const link = getLink();
     expect(link.dataset.citeKind).toBe("internal_appendix");
     expect(link.dataset.appendixId).toBe("article-1-appendix-m");
-    expect(link.classList.contains("lc-cite-internal")).toBe(true);
+  });
+
+  it("emits data-citation-index so the delegated click can recover the citation", () => {
+    render(
+      <CitationLink
+        raw="§ 1.01"
+        citation={citationInternal("§ 1.01", "1.01")}
+        citation_index={7}
+      />,
+    );
+    const link = getLink();
+    expect(link.dataset.citationIndex).toBe("7");
+  });
+
+  it("renders as a span with role='link' + tabIndex so text selection works yet keyboard tab still lands here", () => {
+    // VS Code semantics: plain click is selection, ⌘-click is open. A
+    // <span> with role="link" + tabIndex={0} keeps the cite keyboard-
+    // reachable without consuming text-selection drags.
+    render(
+      <CitationLink
+        raw="§ 1.01"
+        citation={citationInternal("§ 1.01", "1.01")}
+        citation_index={0}
+      />,
+    );
+    const link = getLink();
+    expect(link.tagName).toBe("SPAN");
+    expect(link.getAttribute("role")).toBe("link");
+    expect(link.tabIndex).toBe(0);
+    link.focus();
+    expect(document.activeElement).toBe(link);
   });
 });

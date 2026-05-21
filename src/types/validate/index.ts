@@ -20,8 +20,6 @@ import type { DistributedModuleManifest, JurisdictionManifest } from "../manifes
 import { DistributedModuleManifestSchema, JurisdictionManifestSchema } from "../manifest";
 import type { OrdinanceFile } from "../ordinance";
 import { OrdinanceFileSchema } from "../ordinance";
-import type { ReferencesFile } from "../references";
-import { ReferencesFileSchema } from "../references";
 import type { SectionFile } from "../section";
 import { SectionFileSchema } from "../section";
 import { formatZodError } from "./format-error";
@@ -79,9 +77,6 @@ export const readJurisdictionManifest = (path: string): Promise<JurisdictionMani
 
 export const readDistributedModuleManifest = (path: string): Promise<DistributedModuleManifest> =>
   parseFile(path, DistributedModuleManifestSchema);
-
-export const readReferences = (path: string): Promise<ReferencesFile> =>
-  parseFile(path, ReferencesFileSchema);
 
 export const readDefinitions = (path: string): Promise<DefinitionsFile> =>
   parseFile(path, DefinitionsFileSchema);

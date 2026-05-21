@@ -6,7 +6,13 @@ import { type CorpusRef, parse as corpusRefParse } from "@/corpus/refs";
 import type { CorpusTreeNode } from "@/corpus/wire";
 import { buildTitleMap, TabStrip } from "@/ui/tabs/tab-strip";
 import { useTabs } from "@/ui/tabs/use-tabs";
-import { emptyOpenItems, type OpenItemsState, openItem } from "@/workbench/open-items";
+import type { NavigationIntent } from "@/workbench/navigate";
+import {
+  emptyOpenItems,
+  type OpenItem,
+  type OpenItemsState,
+  openItem,
+} from "@/workbench/open-items";
 
 export const refA = corpusRefParse({ module: "m", section: "10.04.020" });
 export const refB = corpusRefParse({ module: "m", section: "10.04.040" });
@@ -70,7 +76,14 @@ export function TabHost({ initial, onState }: TabHostProps) {
     },
     [onState],
   );
-  const { close } = useTabs({ openItems: state, setOpenItems });
+  const navigate = useCallback(
+    (item: OpenItem, _intent: NavigationIntent) => {
+      if (item.kind !== "section") return;
+      setOpenItems((prev) => openItem(prev, item.ref));
+    },
+    [setOpenItems],
+  );
+  const { close } = useTabs({ openItems: state, setOpenItems, navigate });
   if (state.items.length === 0) return null;
   return (
     <TabStrip openItems={state} setOpenItems={setOpenItems} titleMap={TITLE_MAP} closeAt={close} />

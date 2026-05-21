@@ -80,6 +80,7 @@ describe("readers — happy path", () => {
       path,
       JSON.stringify({
         id: "10.04.020",
+        display_label: "10.04.020",
         title: "Definitions",
         text: "...",
         citations: [],

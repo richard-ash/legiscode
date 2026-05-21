@@ -35,6 +35,23 @@ export interface CorpusTreeNode {
    * without re-deriving from the tree id.
    */
   ref?: { moduleId: string; sectionId: string };
+  /**
+   * Short body excerpt for the citation hover popover — only set on
+   * `kind: "section"` leaves. Pre-baked at corpus-load time so the
+   * popover renders synchronously, matching the DefinedTerm tooltip
+   * pattern (no IPC, no flicker). Bounded length keeps the tree blob
+   * small enough to ship over IPC at startup.
+   */
+  preview?: string;
+  /**
+   * Subsection-keyed excerpts for cites whose target carries a
+   * `subsection` field (e.g. "Subsection (a)"). Keyed by the
+   * subsection_label string emitted by the parser ("(a)", "(1)"); the
+   * citation target's `subsection` field uses the same string format.
+   * Pre-baked alongside `preview` so the popover stays synchronous.
+   * Omitted when the section has no subsection_label segments.
+   */
+  subsectionPreviews?: Record<string, string>;
   /** Children — only present for non-section nodes. */
   kids?: CorpusTreeNode[];
 }
@@ -106,3 +123,23 @@ export interface AppPingResult {
   /** Monotonic ms timestamp from the main process. */
   pong: number;
 }
+
+// ─── shell:openExternal ─────────────────────────────────────────────────────
+
+export interface ShellOpenExternalRequest {
+  /** URL to hand to the platform browser. Main-side validates the
+   *  protocol is http(s) — anything else (file://, javascript:, custom
+   *  schemes) is rejected to prevent shell.openExternal from being a
+   *  privilege-escalation primitive for a future XSS in the renderer. */
+  url: string;
+}
+
+export type ShellOpenExternalErrorKind = "invalid_url" | "platform_error";
+
+export interface ShellOpenExternalError {
+  kind: ShellOpenExternalErrorKind;
+  /** Human-readable detail; safe to log but not surfaced as UI today. */
+  detail: string;
+}
+
+export type ShellOpenExternalResult = Result<undefined, ShellOpenExternalError>;

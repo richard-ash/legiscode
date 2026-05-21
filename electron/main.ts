@@ -8,12 +8,13 @@
 // Anything renderer-facing crosses through electron/preload.ts; this file
 // never imports from src/ except types.
 
-import { app, BrowserWindow, screen, session } from "electron";
-import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { app, BrowserWindow, screen, session, shell } from "electron";
+import { listCorpus, loadCorpus, readSection, resolveCorpusPath } from "./corpus-loader";
 import { buildDevCsp, buildProdCsp } from "./csp";
-import { loadCorpus, listCorpus, readSection, resolveCorpusPath } from "./corpus-loader";
 import { assertAllChannelsRegistered, type Handlers, registerHandlers } from "./ipc/main-handlers";
+import { handleShellOpenExternal } from "./shell-handler";
 
 const isDev = !app.isPackaged;
 // electron-vite sets ELECTRON_RENDERER_URL when its dev server is the active
@@ -196,6 +197,8 @@ function registerIpcHandlers(): void {
       return readSection(req);
     },
     "app:ping": () => ({ pong: Date.now() }),
+    "shell:openExternal": (req) =>
+      handleShellOpenExternal(req, { openExternal: (url) => shell.openExternal(url) }),
   };
   registerHandlers(handlers);
 }
@@ -241,6 +244,7 @@ function buildSyntheticLongSection(
       section: {
         kind: "section",
         id: req.sectionId,
+        display_label: req.sectionId,
         title: "E2E Long Section",
         text,
         citations: [],

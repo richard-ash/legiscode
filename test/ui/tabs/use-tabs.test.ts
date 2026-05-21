@@ -5,8 +5,10 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parse as corpusRefParse } from "@/corpus/refs";
 import { useTabs } from "@/ui/tabs/use-tabs";
+import type { NavigationIntent } from "@/workbench/navigate";
 import {
   emptyOpenItems,
+  type OpenItem,
   type OpenItemsState,
   openItem,
   closeItem as workbenchCloseItem,
@@ -37,11 +39,26 @@ function makeHost(initial = makeStateWithRefs()): HostHandle {
   };
 }
 
+/** Test stand-in for the useNavigation `navigate` primitive. Routes
+ *  section items through `openItem` on the host's state — sufficient to
+ *  exercise `reopenLast`, which only ever issues `navigate(item, "primary")`. */
+function makeFakeNavigate(host: HostHandle) {
+  return (item: OpenItem, _intent: NavigationIntent) => {
+    if (item.kind === "section") {
+      host.setState((prev) => openItem(prev, item.ref));
+      return;
+    }
+    // chat tabs aren't produced today; the production navigate will route
+    // them when feat/ai-agent lands.
+  };
+}
+
 describe("useTabs — recentlyClosed buffer mutation", () => {
   it("close() pushes the closed ref onto the head of the buffer (LIFO)", () => {
     const host = makeHost();
     const { result, rerender } = renderHook(
-      ({ openItems }) => useTabs({ openItems, setOpenItems: host.setState }),
+      ({ openItems }) =>
+        useTabs({ openItems, setOpenItems: host.setState, navigate: makeFakeNavigate(host) }),
       { initialProps: { openItems: host.getState() } },
     );
     act(() => result.current.close(0));
@@ -54,7 +71,8 @@ describe("useTabs — recentlyClosed buffer mutation", () => {
   it("LIFO cap drops the oldest entry past 10", () => {
     const host = makeHost();
     const { result, rerender } = renderHook(
-      ({ openItems }) => useTabs({ openItems, setOpenItems: host.setState }),
+      ({ openItems }) =>
+        useTabs({ openItems, setOpenItems: host.setState, navigate: makeFakeNavigate(host) }),
       { initialProps: { openItems: host.getState() } },
     );
     // Mock-push 12 distinct refs directly via the hook's close() — easier
@@ -75,7 +93,8 @@ describe("useTabs — recentlyClosed buffer mutation", () => {
   it("no dedup on push — same ref closed twice appears twice in the buffer", () => {
     const host = makeHost(makeStateWithRefs([refA]));
     const { result, rerender } = renderHook(
-      ({ openItems }) => useTabs({ openItems, setOpenItems: host.setState }),
+      ({ openItems }) =>
+        useTabs({ openItems, setOpenItems: host.setState, navigate: makeFakeNavigate(host) }),
       { initialProps: { openItems: host.getState() } },
     );
     act(() => result.current.close(0));
@@ -91,7 +110,8 @@ describe("useTabs — recentlyClosed buffer mutation", () => {
   it("dedup on pop — buffer head pointing at a currently-open ref is skipped", () => {
     const host = makeHost(makeStateWithRefs([refA, refB]));
     const { result, rerender } = renderHook(
-      ({ openItems }) => useTabs({ openItems, setOpenItems: host.setState }),
+      ({ openItems }) =>
+        useTabs({ openItems, setOpenItems: host.setState, navigate: makeFakeNavigate(host) }),
       { initialProps: { openItems: host.getState() } },
     );
     // Close A (push onto buffer), then reopen A manually (not through the hook).
@@ -111,7 +131,11 @@ describe("useTabs — reopenLast", () => {
   it("empty buffer → no-op", () => {
     const host = makeHost();
     const { result } = renderHook(() =>
-      useTabs({ openItems: host.getState(), setOpenItems: host.setState }),
+      useTabs({
+        openItems: host.getState(),
+        setOpenItems: host.setState,
+        navigate: makeFakeNavigate(host),
+      }),
     );
     act(() => result.current.reopenLast());
     expect(result.current.recentlyClosed).toHaveLength(0);
@@ -120,7 +144,8 @@ describe("useTabs — reopenLast", () => {
   it("basic — pop head + append + activate", () => {
     const host = makeHost(makeStateWithRefs([refA, refB]));
     const { result, rerender } = renderHook(
-      ({ openItems }) => useTabs({ openItems, setOpenItems: host.setState }),
+      ({ openItems }) =>
+        useTabs({ openItems, setOpenItems: host.setState, navigate: makeFakeNavigate(host) }),
       { initialProps: { openItems: host.getState() } },
     );
     // Close refA (index 0). Now buffer = [refA], items = [refB].
@@ -136,7 +161,8 @@ describe("useTabs — reopenLast", () => {
   it("recurse-on-stale — skips stale entries to land on the first non-open ref", () => {
     const host = makeHost(makeStateWithRefs([refA, refB, refC]));
     const { result, rerender } = renderHook(
-      ({ openItems }) => useTabs({ openItems, setOpenItems: host.setState }),
+      ({ openItems }) =>
+        useTabs({ openItems, setOpenItems: host.setState, navigate: makeFakeNavigate(host) }),
       { initialProps: { openItems: host.getState() } },
     );
     // Close C, then close B. Buffer = [refB, refC]. Items = [refA].
@@ -158,6 +184,11 @@ describe("useTabs — reopenLast", () => {
   });
 });
 
+// external-citation OpenItem variant was removed in
+// feat/citation-resolution; popover handles cross-module-not-installed
+// cites without opening a separate tab. The buffer participation tests
+// for that variant came out with it.
+
 describe("useTabs — scroll position", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -169,7 +200,11 @@ describe("useTabs — scroll position", () => {
   it("saveScroll(ref, y) is debounced ~100ms before commit", () => {
     const host = makeHost();
     const { result } = renderHook(() =>
-      useTabs({ openItems: host.getState(), setOpenItems: host.setState }),
+      useTabs({
+        openItems: host.getState(),
+        setOpenItems: host.setState,
+        navigate: makeFakeNavigate(host),
+      }),
     );
     act(() => result.current.saveScroll(refA, 250));
     // Synchronous read before the debounce expires returns 0 (default).
@@ -183,7 +218,11 @@ describe("useTabs — scroll position", () => {
   it("saveScroll re-call within debounce window collapses to the last value", () => {
     const host = makeHost();
     const { result } = renderHook(() =>
-      useTabs({ openItems: host.getState(), setOpenItems: host.setState }),
+      useTabs({
+        openItems: host.getState(),
+        setOpenItems: host.setState,
+        navigate: makeFakeNavigate(host),
+      }),
     );
     act(() => result.current.saveScroll(refA, 100));
     act(() => {
@@ -199,7 +238,11 @@ describe("useTabs — scroll position", () => {
   it("getScroll for a never-saved ref returns 0", () => {
     const host = makeHost();
     const { result } = renderHook(() =>
-      useTabs({ openItems: host.getState(), setOpenItems: host.setState }),
+      useTabs({
+        openItems: host.getState(),
+        setOpenItems: host.setState,
+        navigate: makeFakeNavigate(host),
+      }),
     );
     expect(result.current.getScroll(refB)).toBe(0);
   });
@@ -224,6 +267,7 @@ describe("useTabs — useRestoreScroll (codex review #3 — scroll restoration w
         const tabs = useTabs({
           openItems: host.getState(),
           setOpenItems: host.setState,
+          navigate: makeFakeNavigate(host),
         });
         tabs.useRestoreScroll(activeRef, container, sectionKey);
         return tabs;
@@ -251,6 +295,7 @@ describe("useTabs — useRestoreScroll (codex review #3 — scroll restoration w
         const tabs = useTabs({
           openItems: host.getState(),
           setOpenItems: host.setState,
+          navigate: makeFakeNavigate(host),
         });
         tabs.useRestoreScroll(activeRef, container, sectionKey);
         return tabs;
@@ -276,7 +321,8 @@ describe("useTabs / workbench contract", () => {
   it("close(index) mirrors closeItem(state, index) on the canonical state", () => {
     const host = makeHost(makeStateWithRefs([refA, refB]));
     const { result, rerender } = renderHook(
-      ({ openItems }) => useTabs({ openItems, setOpenItems: host.setState }),
+      ({ openItems }) =>
+        useTabs({ openItems, setOpenItems: host.setState, navigate: makeFakeNavigate(host) }),
       { initialProps: { openItems: host.getState() } },
     );
     act(() => result.current.close(0));

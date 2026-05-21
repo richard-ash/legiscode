@@ -115,12 +115,15 @@ a queryable section?" The latter is what `parsed.sections` answers.
 
 - **Cross-jurisdiction citations.** A citation to `§ 95075` of the
   California Public Resources Code looks identical to an internal
-  citation. The parser's bare-integer demotion heuristic
-  classifies these as `cross-unresolved` (informational, not gated)
-  rather than producing false-positive intra-module gate failures.
-  A future PR with context-aware extraction (looking for "California",
-  "Federal", code names, etc.) can promote them to typed `external`
-  citations.
+  citation when written bare. The `feat/citation-resolution`
+  refoundation (2026-05-20) added a paragraph-scope code-prefix
+  tracker driven by `src/citations/module-registry.ts` (31 external
+  code modules: 29 named California codes, US Code, CFR): when a
+  phrase like "Cal. Veh. Code" appears earlier in the paragraph,
+  every subsequent `§` in that paragraph classifies as `cross_module`
+  with a stable `module_id`. Bare citations without a recognized
+  prefix still demote to `cross-unresolved` (informational, not
+  gated). The `external` Citation kind was removed.
 
 - **Inner ordinance / resolution items.** Each `OrdinanceHistory` /
   `ResolutionHistory` entry currently emits with `items: []`. Per-item

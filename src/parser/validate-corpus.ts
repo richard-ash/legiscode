@@ -71,7 +71,8 @@ export interface CorpusValidationResult {
 }
 
 export function validateCorpus(modules: readonly ParsedModule[]): CorpusValidationResult {
-  const perModule = modules.map((m) => validateModule(m, modules));
+  const universe = buildModuleUniverse(modules);
+  const perModule = modules.map((m) => validateModule(m, modules, universe));
 
   const coverage: TocCoverageReport = {
     total: perModule.reduce((sum, m) => sum + m.coverage.total, 0),
@@ -87,14 +88,33 @@ export function validateCorpus(modules: readonly ParsedModule[]): CorpusValidati
   return { coverage, citations, perModule };
 }
 
+// Per-module anchor universe — parsed sections ∪ raw tocAnchors
+// (lowercased). Mirrors what binder.ts:buildAnchorIndex emits so the
+// validator never disagrees with the binder about whether a target
+// anchor exists. Built once per validateCorpus call and re-keyed by
+// module id for the cross-module lookup path.
+type ModuleAnchorUniverse = Map<ModuleId, ReadonlySet<string>>;
+
+function buildModuleUniverse(allModules: readonly ParsedModule[]): ModuleAnchorUniverse {
+  const out = new Map<ModuleId, ReadonlySet<string>>();
+  for (const m of allModules) {
+    const set = new Set<string>();
+    for (const s of m.sections) set.add(s.id);
+    for (const a of m.tocAnchors) set.add(a.toLowerCase());
+    out.set(m.module.id, set);
+  }
+  return out;
+}
+
 function validateModule(
   parsed: ParsedModule,
   allModules: readonly ParsedModule[],
+  universe: ModuleAnchorUniverse,
 ): PerModuleValidation {
   return {
     moduleId: parsed.module.id,
     coverage: computeCoverage(parsed),
-    citations: computeCitationReport(parsed, allModules),
+    citations: computeCitationReport(parsed, allModules, universe),
   };
 }
 
@@ -138,18 +158,32 @@ function collectSkippedSectionIds(skipped: readonly SkippedEntry[]): SectionId[]
 function computeCitationReport(
   parsed: ParsedModule,
   allModules: readonly ParsedModule[],
+  universe: ModuleAnchorUniverse,
 ): CitationReport {
   const ownSectionIds = new Set<SectionId>(parsed.sections.map((s) => s.id));
   // Source TOC anchors (every <a name="JD_X"> in the module's bound)
   // include the cases the parser doesn't promote: deletion stubs, Note
   // sub-elements, paragraph subscripts. Citations to those count as
   // resolved because the cited content IS documented in the source —
-  // it just isn't a queryable top-level section.
-  const ownTocAnchors = new Set<string>(parsed.tocAnchors);
-  const otherModulesById = new Map<ModuleId, Set<SectionId>>();
+  // it just isn't a queryable top-level section. Lowercased so the
+  // case-mixed source anchors ("906E", "JD_B102A") line up with the
+  // post-binder lowercase anchor_id values that flow through the gate.
+  const ownTocAnchors = new Set<string>(parsed.tocAnchors.map((a) => a.toLowerCase()));
+  // Raw (case-preserving) anchor set kept as belt-and-braces guard
+  // against case-sensitivity drift between binder and validator. Phase
+  // 6's accuracy fixture verifies this redundancy adds no real hits;
+  // remove it then.
+  const ownTocAnchorsRaw = new Set<string>(parsed.tocAnchors);
+  // Sibling lookup uses the corpus-wide anchor universe so the
+  // validator sees the same anchor set the binder did when binding
+  // cross-module cites. Mismatched indices = validator/binder
+  // disagreement, which was the root cause of 90 false-positive
+  // intra-unresolved cites in the production corpus.
+  const otherModulesById = new Map<ModuleId, ReadonlySet<string>>();
   for (const m of allModules) {
     if (m.module.id === parsed.module.id) continue;
-    otherModulesById.set(m.module.id, new Set(m.sections.map((s) => s.id)));
+    const set = universe.get(m.module.id);
+    if (set) otherModulesById.set(m.module.id, set);
   }
 
   let total = 0;
@@ -166,6 +200,7 @@ function computeCitationReport(
         ownSectionIds,
         ownTocAnchors,
         otherModulesById,
+        ownTocAnchorsRaw,
       );
       if (verdict.kind === "resolved") {
         resolved += 1;
@@ -195,84 +230,89 @@ type CitationVerdict =
   | { kind: "intra-unresolved"; targetId: string }
   | { kind: "cross-unresolved"; targetId: string; reason: string };
 
+// Phase 4 — validator now dry-runs the binder. The legacy hierarchy
+// walk + "a"-prefix hack + cross-module slip demotion in
+// validate-corpus.ts:207-278 are deleted. Every section-ref must hit
+// a real anchor (the build-time binder guarantees this for shipped
+// cites); every leftover internal / cross_module target with an
+// installed target module is the binder having failed and the build
+// refuses to ship it. Cites to modules NOT in this build stay as
+// cross_module and report cross-unresolved (install-time concern,
+// not gated). vague / structural / internal_appendix pass through;
+// the runtime resolver handles them, the build doesn't gate on them.
 function classifyCitation(
-  source: SectionFile,
+  _source: SectionFile,
   citation: SectionFile["citations"][number],
   ownSectionIds: ReadonlySet<SectionId>,
   ownTocAnchors: ReadonlySet<string>,
-  otherModulesById: ReadonlyMap<ModuleId, ReadonlySet<SectionId>>,
+  otherModulesById: ReadonlyMap<ModuleId, ReadonlySet<string>>,
+  ownTocAnchorsRaw: ReadonlySet<string>,
 ): CitationVerdict {
   const target = citation.target;
   switch (target.kind) {
-    case "internal": {
-      // Resolution order — first hit wins:
-      //   1. Self-citation (trivially exists)
-      //   2. Hierarchy walk on parsed section ids ("261.1.5" → "261.1")
-      //   3. Source TOC anchor lookup (catches deletion stubs / Note
-      //      sub-elements that exist as <a name="JD_X"> in source but
-      //      aren't promoted to queryable sections)
-      // Only "." segments are walked; "-" / "_" stay literal because they
-      // delimit non-hierarchy ids (e.g., "1075.1-art-16" is a single
-      // section, not section "1075.1" with sub "art-16").
-      if (target.section_id === source.id) return { kind: "resolved" };
-      let candidate: string = target.section_id;
-      while (true) {
-        if (ownSectionIds.has(candidate as SectionId)) return { kind: "resolved" };
-        if (ownTocAnchors.has(candidate)) return { kind: "resolved" };
-        const idx = candidate.lastIndexOf(".");
-        if (idx < 0) break;
-        candidate = candidate.slice(0, idx);
-      }
-      // The citation extractor's regex matches "§\s*\d+(?:\.\d+)*" and
-      // emits every hit as `internal`. Bare-integer cites with no
-      // hierarchy and no source-anchor backing are almost certainly
-      // external code references the extractor mis-classified
-      // (CA Public Resources § 95075, US Code § 5270, etc.). Demote to
-      // cross-unresolved (informational, not gated) to avoid blocking
-      // the PR on extractor false positives. A future PR with
-      // context-aware extraction can promote these back to typed external.
-      if (/^\d+$/.test(target.section_id)) {
+    case "section-ref": {
+      const sibling = otherModulesById.get(target.module_id);
+      if (sibling) {
+        if (sibling.has(target.anchor_id)) return { kind: "resolved" };
         return {
-          kind: "cross-unresolved",
-          targetId: target.section_id,
-          reason:
-            "bare-integer citation with no source anchor — likely external code reference mis-extracted as internal",
+          kind: "intra-unresolved",
+          targetId: `${target.module_id}/${target.anchor_id}`,
         };
       }
-      return { kind: "intra-unresolved", targetId: target.section_id };
+      // Citing module's own ref. Anchor exists in parsed sections OR
+      // in source TOC anchors (deletion stubs / Note sub-elements).
+      if (ownSectionIds.has(target.anchor_id as SectionId)) return { kind: "resolved" };
+      if (ownTocAnchors.has(target.anchor_id)) return { kind: "resolved" };
+      // Defense in depth: ownTocAnchorsRaw kept the case-mixed source
+      // form for legacy compat in earlier phases — Phase 2 lowercased
+      // the canonical set, but the raw fallback catches a regression
+      // path where a binder change drifts from the validator. Drop in
+      // Phase 6 if the accuracy fixture confirms no real hit.
+      if (ownTocAnchorsRaw.has(target.anchor_id)) return { kind: "resolved" };
+      return { kind: "intra-unresolved", targetId: target.anchor_id };
     }
-    case "internal_appendix":
-      // Appendix targets aren't tracked in the section-id index; report
-      // as cross-style unresolved (informational, not gated). A future
-      // round can promote to a typed report if/when we resolve appendices.
+    case "internal":
+      // Phase 4 — the binder always rewrites bindable internals to
+      // section-ref and reclassifies unbindable ones as vague. An
+      // internal target on disk means the binder pass didn't run on
+      // this section, which is a regression worth gating.
       return {
-        kind: "cross-unresolved",
-        targetId: target.appendix_id,
-        reason: "appendix target — not tracked by intra-module section gate",
+        kind: "intra-unresolved",
+        targetId: target.section_id,
       };
     case "cross_module": {
       const targetModule = otherModulesById.get(target.module_id);
       if (!targetModule) {
+        // Foreign code not in this build (typical ca-* / us-* cite).
+        // Install-time concern, reported but not gated.
         return {
           kind: "cross-unresolved",
           targetId: `${target.module_id}/${target.section_id}`,
           reason: `target module "${target.module_id}" not in this build`,
         };
       }
-      if (!targetModule.has(target.section_id)) {
-        return {
-          kind: "cross-unresolved",
-          targetId: `${target.module_id}/${target.section_id}`,
-          reason: "target section not in cross-module section set",
-        };
-      }
-      return { kind: "resolved" };
+      // Target module IS in build but the binder didn't rewrite the
+      // cite. Same regression signature as internal above — gate it.
+      return {
+        kind: "intra-unresolved",
+        targetId: `${target.module_id}/${target.section_id}`,
+      };
     }
-    case "external":
+    case "internal_appendix":
+      // Appendix targets render in the appendix viewer (v1.1 surface);
+      // not section-id-shaped. Reported as cross-unresolved for
+      // bookkeeping, not gated.
+      return {
+        kind: "cross-unresolved",
+        targetId: target.appendix_id,
+        reason: "appendix target — appendix viewer (v1.1) covers navigation",
+      };
+    case "structural":
     case "vague":
-      // Out of scope for this gate — by definition unresolvable
-      // structurally. Counted as "resolved" for total/resolved math
-      // because they're not failures.
+      // Out of scope for this gate. Structural references resolve
+      // against the corpus tree at runtime. vague is the binder's
+      // dump bucket for stale / external / no-anchor cites — they
+      // render as citation chrome but don't navigate.
       return { kind: "resolved" };
   }
 }

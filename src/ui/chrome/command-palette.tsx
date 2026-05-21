@@ -16,21 +16,24 @@
 // "Command palette virtualization + debounce".
 
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { type CorpusRef, corpusRefFromWire } from "@/corpus/refs";
+import { corpusRefFromWire } from "@/corpus/refs";
 import type { CorpusModuleSummary, CorpusTreeNode } from "@/corpus/wire";
 import { Icons } from "@/ui/icons";
+import type { OpenItem } from "@/workbench";
+import type { NavigationIntent } from "@/workbench/navigate";
 
 export interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
   corpus: CorpusModuleSummary;
   /**
-   * Receives the branded `CorpusRef` form. The palette keeps the wire
-   * shape (`moduleId`/`sectionId`) on its internal `PaletteItem` for
-   * ergonomics — selection wraps the wire ref into `CorpusRef` at the
-   * boundary so call sites operate on the canonical type.
+   * Tab-dispatch primitive. Picking a section fires
+   * `navigate({kind:"section", ref}, "primary")` — the palette doesn't
+   * support background opens today (no Cmd+Enter accelerator). The wire
+   * shape on the internal `PaletteItem` is wrapped into the branded
+   * `CorpusRef` at the navigate boundary.
    */
-  onSelect: (ref: CorpusRef) => void;
+  navigate: (item: OpenItem, intent: NavigationIntent) => void;
 }
 
 interface PaletteItem {
@@ -42,7 +45,7 @@ interface PaletteItem {
   path: string;
 }
 
-export function CommandPalette({ open, onClose, corpus, onSelect }: CommandPaletteProps) {
+export function CommandPalette({ open, onClose, corpus, navigate }: CommandPaletteProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
@@ -87,7 +90,7 @@ export function CommandPalette({ open, onClose, corpus, onSelect }: CommandPalet
         // PaletteItem already exposes the wire-shape fields the helper
         // expects — pass through directly so the grep gate sees no
         // ad-hoc `{ moduleId, sectionId }` literal at this boundary.
-        onSelect(corpusRefFromWire(picked));
+        navigate({ kind: "section", ref: corpusRefFromWire(picked) }, "primary");
       }
       onClose();
     }
@@ -129,7 +132,7 @@ export function CommandPalette({ open, onClose, corpus, onSelect }: CommandPalet
                 onMouseEnter={() => setSel(i)}
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  onSelect(corpusRefFromWire(s));
+                  navigate({ kind: "section", ref: corpusRefFromWire(s) }, "primary");
                   onClose();
                 }}
               >

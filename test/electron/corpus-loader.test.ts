@@ -17,6 +17,8 @@ interface FixtureSection {
   hierarchy?: string[];
   body?: unknown[];
   defined_terms?: string[];
+  /** Human-readable label. Defaults to `id` when omitted. */
+  displayLabel?: string;
 }
 
 async function buildFixtureCorpus(
@@ -63,6 +65,7 @@ async function buildFixtureCorpus(
         JSON.stringify({
           kind: "section",
           id: s.id,
+          display_label: s.displayLabel ?? s.id,
           title: s.title,
           text: sectionText,
           citations: [],
@@ -172,6 +175,285 @@ describe("loadCorpus + listCorpus + readSection", () => {
     expect(result.value.tree).toHaveLength(2);
     expect(result.value.tree[0]?.kind).toBe("code");
     expect(result.value.defaultRef).toEqual({ moduleId: "sf-fire", sectionId: "1" });
+  });
+
+  it("section tree node.code carries display_label, not section.id", async () => {
+    // Codex-flagged [P2]: post-refoundation, anchor ids ("p109",
+    // "b102a") can differ from the human label readers see ("109.0",
+    // "102A"). The file tree, command palette, and inactive-tab titles
+    // all render `node.code`, so the loader must surface display_label
+    // there. The canonical anchor stays in `ref.sectionId` for routing.
+    await buildFixtureCorpus(dir, [
+      {
+        id: "sf-plumbing",
+        name: "San Francisco Plumbing Code",
+        codeTitle: "Plumbing Code",
+        moduleVersion: "2026.05.20",
+        jurisdiction: "City and County of San Francisco",
+        sections: [
+          {
+            id: "p109",
+            displayLabel: "109.0",
+            title: "Investigation Fees",
+            hierarchy: ["Plumbing Code", "Chapter 1"],
+          },
+        ],
+      },
+    ]);
+    await loadCorpus(dir);
+    const result = listCorpus();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const codeNode = result.value.tree[0];
+    const chapterNode = codeNode?.kids?.[0];
+    const sectionNode = chapterNode?.kids?.[0];
+    expect(sectionNode?.kind).toBe("section");
+    expect(sectionNode?.code).toBe("§ 109.0");
+    expect(sectionNode?.code).not.toContain("p109");
+    // The canonical anchor still flows through ref for routing.
+    expect(sectionNode?.ref).toEqual({ moduleId: "sf-plumbing", sectionId: "p109" });
+  });
+
+  it("section tree node carries a preview baked from section text (for hover popover)", async () => {
+    // Pre-baking the excerpt on the tree blob lets the citation hover
+    // popover render synchronously, matching the DefinedTerm tooltip
+    // pattern (no IPC, no flicker).
+    const longText =
+      "Notwithstanding any other provision of this Chapter, the Traffic Engineer may establish a prima facie speed limit lower than that otherwise applicable upon finding that the lower limit is reasonable.";
+    await buildFixtureCorpus(dir, [
+      {
+        id: "sf-traffic",
+        name: "San Francisco Traffic Code",
+        codeTitle: "Traffic Code",
+        moduleVersion: "2026.05.20",
+        jurisdiction: "City and County of San Francisco",
+        sections: [
+          {
+            id: "10.04.040",
+            displayLabel: "10.04.040",
+            title: "Prima Facie Limits",
+            hierarchy: ["Traffic Code", "Chapter 10"],
+            text: longText,
+          },
+        ],
+      },
+    ]);
+    await loadCorpus(dir);
+    const result = listCorpus();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0];
+    expect(sectionNode?.preview).toBeTruthy();
+    expect(sectionNode?.preview?.startsWith("Notwithstanding any other provision")).toBe(true);
+    expect(sectionNode?.preview?.endsWith("…")).toBe(true);
+    // Trailing token before the ellipsis must be a complete word from the
+    // source — i.e. the source has whitespace immediately after where we
+    // cut. Catches naive `slice(0, N)` regressions that truncate
+    // mid-word.
+    const trailingWord = sectionNode?.preview?.match(/(\S+)…$/)?.[1];
+    expect(trailingWord).toBeTruthy();
+    expect(longText).toContain(`${trailingWord} `);
+  });
+
+  it("section tree preview omits the field when section text is empty", async () => {
+    await buildFixtureCorpus(dir, [
+      {
+        id: "sf-empty",
+        name: "Empty Code",
+        codeTitle: "Empty Code",
+        moduleVersion: "2026.05.20",
+        jurisdiction: "City and County of San Francisco",
+        sections: [
+          {
+            id: "1",
+            title: "Empty",
+            hierarchy: ["Empty Code", "Chapter 1"],
+            text: "",
+            body: [],
+          },
+        ],
+      },
+    ]);
+    await loadCorpus(dir);
+    const result = listCorpus();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0];
+    expect(sectionNode?.preview).toBeUndefined();
+  });
+
+  it("section tree node carries subsectionPreviews keyed by subsection_label", async () => {
+    // The popover shows subsection-specific text when a cite targets a
+    // subsection (e.g. "Subsection (a)"). Pre-baked at corpus-load time,
+    // keyed by the subsection_label string emitted by the parser ("(a)",
+    // "(1)"), and matched against the citation target's `subsection` field
+    // (same string format).
+    await buildFixtureCorpus(dir, [
+      {
+        id: "sf-planning",
+        name: "Planning Code",
+        codeTitle: "Planning Code",
+        moduleVersion: "2026.05.20",
+        jurisdiction: "City and County of San Francisco",
+        sections: [
+          {
+            id: "133",
+            title: "Side Yards",
+            hierarchy: ["Planning Code", "Article 1.2"],
+            text: "Intro text.\n(a) Minimum side yards shall be provided as follows:\n(b) Where height does not exceed 25 feet…",
+            body: [
+              { type: "text", text: "Intro text." },
+              { type: "paragraph_break" },
+              { type: "subsection_label", label: "(a)" },
+              { type: "text", text: " Minimum side yards shall be provided as follows:" },
+              { type: "paragraph_break" },
+              { type: "subsection_label", label: "(b)" },
+              { type: "text", text: " Where height does not exceed 25 feet…" },
+            ],
+          },
+        ],
+      },
+    ]);
+    await loadCorpus(dir);
+    const result = listCorpus();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0];
+    expect(sectionNode?.subsectionPreviews).toBeDefined();
+    expect(sectionNode?.subsectionPreviews?.["(a)"]).toBe(
+      "Minimum side yards shall be provided as follows:",
+    );
+    expect(sectionNode?.subsectionPreviews?.["(b)"]).toBe("Where height does not exceed 25 feet…");
+  });
+
+  it("subsectionPreviews omits the field when no subsection_labels exist", async () => {
+    await buildFixtureCorpus(dir, [
+      {
+        id: "sf-flat",
+        name: "Flat",
+        codeTitle: "Flat",
+        moduleVersion: "2026.05.20",
+        jurisdiction: "City and County of San Francisco",
+        sections: [
+          {
+            id: "1",
+            title: "Flat",
+            hierarchy: ["Flat", "Chapter 1"],
+            text: "No subsections here.",
+            body: [{ type: "text", text: "No subsections here." }],
+          },
+        ],
+      },
+    ]);
+    await loadCorpus(dir);
+    const result = listCorpus();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0];
+    expect(sectionNode?.subsectionPreviews).toBeUndefined();
+  });
+
+  it("subsectionPreviews truncates long subsections with an ellipsis", async () => {
+    const longText = "A".repeat(220);
+    await buildFixtureCorpus(dir, [
+      {
+        id: "sf-long",
+        name: "Long",
+        codeTitle: "Long",
+        moduleVersion: "2026.05.20",
+        jurisdiction: "City and County of San Francisco",
+        sections: [
+          {
+            id: "1",
+            title: "Long",
+            hierarchy: ["Long", "Chapter 1"],
+            text: `(a) ${longText}`,
+            body: [
+              { type: "subsection_label", label: "(a)" },
+              { type: "text", text: ` ${longText}` },
+            ],
+          },
+        ],
+      },
+    ]);
+    await loadCorpus(dir);
+    const result = listCorpus();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0];
+    expect(sectionNode?.subsectionPreviews?.["(a)"]?.endsWith("…")).toBe(true);
+    expect(sectionNode?.subsectionPreviews?.["(a)"]?.length).toBeLessThanOrEqual(181);
+  });
+
+  it("subsectionPreviews recurses into nested format children (list/listItem)", async () => {
+    // Subsection labels can live inside list / listItem wrappers; the
+    // extractor must descend so e.g. (a) under <ul><li> still gets a preview.
+    await buildFixtureCorpus(dir, [
+      {
+        id: "sf-nested",
+        name: "Nested",
+        codeTitle: "Nested",
+        moduleVersion: "2026.05.20",
+        jurisdiction: "City and County of San Francisco",
+        sections: [
+          {
+            id: "1",
+            title: "Nested",
+            hierarchy: ["Nested", "Chapter 1"],
+            text: "(a) Inside list",
+            body: [
+              {
+                type: "format",
+                style: "list",
+                children: [
+                  {
+                    type: "format",
+                    style: "listItem",
+                    children: [
+                      { type: "subsection_label", label: "(a)" },
+                      { type: "text", text: " Inside list" },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    await loadCorpus(dir);
+    const result = listCorpus();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0];
+    expect(sectionNode?.subsectionPreviews?.["(a)"]).toBe("Inside list");
+  });
+
+  it("section tree preview is the full text (no ellipsis) when text fits within the limit", async () => {
+    const shortText = "Short section text.";
+    await buildFixtureCorpus(dir, [
+      {
+        id: "sf-short",
+        name: "Short Code",
+        codeTitle: "Short Code",
+        moduleVersion: "2026.05.20",
+        jurisdiction: "City and County of San Francisco",
+        sections: [
+          {
+            id: "1",
+            title: "Short",
+            hierarchy: ["Short Code", "Chapter 1"],
+            text: shortText,
+          },
+        ],
+      },
+    ]);
+    await loadCorpus(dir);
+    const result = listCorpus();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0];
+    expect(sectionNode?.preview).toBe(shortText);
   });
 
   it("returns a not_loaded error when corpus directory is missing", async () => {

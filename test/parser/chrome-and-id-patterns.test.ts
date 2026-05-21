@@ -264,15 +264,26 @@ describe("Positive controls — parser produces expected structure", () => {
     expect(validation.citations.unresolvedIntra).toEqual([]);
   });
 
-  it("citation gate flags genuinely unresolved intra-module citations", () => {
+  it("internal cites without an in-corpus anchor reclassify as vague (Phase 4)", () => {
+    // Phase 4: the build-time binder reclassifies bindable-shape-but-
+    // actually-unbindable cites as vague (renderer shows citation
+    // chrome, ⌘-click is a no-op, no build failure). Replaces the
+    // legacy demotion-to-cross-unresolved pattern that the gate
+    // quietly leaned on. The gate now means "0 intra-unresolved" for
+    // real.
     const buffer = html(
       root("Test", "TEST CODE"),
       section("a", "1.1", "SOLE SECTION.", "See § 99.99 for fictional reference."),
     );
     const result = parseSingleModule(buffer);
     const validation = validateCorpus([result]);
-    expect(validation.citations.unresolvedIntra).toHaveLength(1);
-    expect(validation.citations.unresolvedIntra[0]?.rawText).toBe("99.99");
+    expect(validation.citations.unresolvedIntra).toEqual([]);
+    // Inspect the bound cite directly — the validator's report doesn't
+    // surface vague cites by design (they're not unresolved, just
+    // unnavigable).
+    const sec = result.sections.find((s) => s.id === "1.1");
+    const vague = sec?.citations.find((c) => c.target.kind === "vague");
+    expect(vague?.target).toEqual({ kind: "vague", raw: expect.stringContaining("99.99") });
   });
 
   it("source-anchor TOC resolution: cite to deletion-stub anchor resolves", () => {
@@ -290,9 +301,11 @@ describe("Positive controls — parser produces expected structure", () => {
     expect(validation.citations.unresolvedIntra).toEqual([]);
   });
 
-  it("bare-integer citation with no source anchor demotes to unresolvedCross", () => {
+  it("bare-integer citation with no source anchor reclassifies as vague (Phase 4)", () => {
     // § 5270 is almost certainly an external code reference (CA Public
-    // Resources, etc.); the gate doesn't fail on these.
+    // Resources, etc.) without a phrase prefix the registry could pick
+    // up. Phase 4: binder reclassifies as vague rather than dumping
+    // into unresolvedCross. Gate stays green.
     const buffer = html(
       root("Test", "TEST CODE"),
       section("a", "1.1", "ACTIVE SECTION.", "See § 5270 for external context."),
@@ -300,8 +313,10 @@ describe("Positive controls — parser produces expected structure", () => {
     const result = parseSingleModule(buffer);
     const validation = validateCorpus([result]);
     expect(validation.citations.unresolvedIntra).toEqual([]);
-    expect(validation.citations.unresolvedCross).toHaveLength(1);
-    expect(validation.citations.unresolvedCross[0]?.rawText).toBe("5270");
+    expect(validation.citations.unresolvedCross).toEqual([]);
+    const sec = result.sections.find((s) => s.id === "1.1");
+    const vague = sec?.citations.find((c) => c.target.kind === "vague");
+    expect(vague?.target).toEqual({ kind: "vague", raw: expect.stringContaining("5270") });
   });
 });
 

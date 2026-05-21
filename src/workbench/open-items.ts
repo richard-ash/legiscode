@@ -17,10 +17,33 @@
 // canonical "what's open right now" shape — see plan A5.
 
 import type { CorpusRef } from "@/corpus/refs";
-import { parse as parseRef, equals as refsEqual } from "@/corpus/refs";
+import { parse as parseRef, hash as refHash, equals as refsEqual } from "@/corpus/refs";
 import type { PersistedOpenItems } from "@/persistence";
 
 export type OpenItem = { kind: "section"; ref: CorpusRef } | { kind: "chat"; chatId: string };
+
+/**
+ * Stable identity key for an OpenItem — used by sibling state (history,
+ * scroll position) to associate per-item data without storing it on
+ * OpenItemsState itself.
+ *
+ * Limitation accepted for v1: two tabs pointing at the same section share
+ * one identity, so they share history. A stable per-tab UUID would lift
+ * this but adds a parallel array through every state mutation; v1.1 work.
+ */
+export function itemIdentity(item: OpenItem): string {
+  switch (item.kind) {
+    case "section":
+      return `section::${refHash(item.ref)}`;
+    case "chat":
+      return `chat::${item.chatId}`;
+  }
+}
+
+/** True when `a` and `b` refer to the same tab content (same identity). */
+export function itemsEqual(a: OpenItem, b: OpenItem): boolean {
+  return itemIdentity(a) === itemIdentity(b);
+}
 
 export interface OpenItemsState {
   readonly items: readonly OpenItem[];
@@ -32,28 +55,45 @@ export function emptyOpenItems(): OpenItemsState {
   return { items: [], activeIndex: null };
 }
 
+function toOpenItem(target: OpenItem | CorpusRef): OpenItem {
+  return "kind" in target ? target : { kind: "section", ref: target };
+}
+
 /**
- * Open a section ref. If it's already present, switch to that index;
- * otherwise append + activate.
+ * Open a section ref or OpenItem. If an item with the same identity is
+ * already present, switch to that index; otherwise append + activate.
+ *
+ * Section call sites pass a `CorpusRef` (legacy ergonomic). Chat call
+ * sites pass a fully-constructed OpenItem.
  */
-export function openItem(state: OpenItemsState, ref: CorpusRef): OpenItemsState {
-  const existingIdx = findSectionIndex(state.items, ref);
+export function openItem(state: OpenItemsState, ref: CorpusRef): OpenItemsState;
+export function openItem(state: OpenItemsState, item: OpenItem): OpenItemsState;
+export function openItem(state: OpenItemsState, target: OpenItem | CorpusRef): OpenItemsState {
+  const item = toOpenItem(target);
+  const existingIdx = findItemIndex(state.items, item);
   if (existingIdx >= 0) {
     if (state.activeIndex === existingIdx) return state;
     return { items: state.items, activeIndex: existingIdx };
   }
-  const items = [...state.items, { kind: "section" as const, ref }];
+  const items = [...state.items, item];
   return { items, activeIndex: items.length - 1 };
 }
 
 /**
- * Append a section ref without changing `activeIndex`. If the ref is
- * already in the list, returns state unchanged. Used by Cmd/Ctrl+click
- * and Cmd/Ctrl+Enter to "open in background".
+ * Append a section ref or OpenItem without changing `activeIndex`. If an
+ * item with the same identity is already in the list, returns state
+ * unchanged. Used by Cmd/Ctrl+click and Cmd/Ctrl+Enter to "open in
+ * background".
  */
-export function openItemWithoutSwitching(state: OpenItemsState, ref: CorpusRef): OpenItemsState {
-  if (findSectionIndex(state.items, ref) >= 0) return state;
-  const items = [...state.items, { kind: "section" as const, ref }];
+export function openItemWithoutSwitching(state: OpenItemsState, ref: CorpusRef): OpenItemsState;
+export function openItemWithoutSwitching(state: OpenItemsState, item: OpenItem): OpenItemsState;
+export function openItemWithoutSwitching(
+  state: OpenItemsState,
+  target: OpenItem | CorpusRef,
+): OpenItemsState {
+  const item = toOpenItem(target);
+  if (findItemIndex(state.items, item) >= 0) return state;
+  const items = [...state.items, item];
   return { items, activeIndex: state.activeIndex };
 }
 
@@ -155,20 +195,27 @@ export function validateAgainstCorpus(
 }
 
 /**
- * Drop refs from a recently-closed buffer whose targets no longer exist
+ * Drop items from a recently-closed buffer whose targets no longer exist
  * in the loaded corpus. Used by the use-tabs hook on cold-start so a
  * ⌘shift+T reopen can't resurrect a section the corpus upgrade removed.
- * Pure helper — the LIFO buffer itself lives in the hook.
+ *
+ * Section items run through `isValidRef`; non-section items (external
+ * citations, future chat tabs) don't depend on corpus state and always
+ * survive. Pure helper — the LIFO buffer itself lives in the hook.
  */
 export function validateRecentlyClosed(
-  buffer: readonly CorpusRef[],
+  buffer: readonly OpenItem[],
   isValidRef: (ref: CorpusRef) => boolean,
-): readonly CorpusRef[] {
-  const out: CorpusRef[] = [];
+): readonly OpenItem[] {
+  const out: OpenItem[] = [];
   let changed = false;
-  for (const ref of buffer) {
-    if (isValidRef(ref)) out.push(ref);
-    else changed = true;
+  for (const item of buffer) {
+    if (item.kind === "section") {
+      if (isValidRef(item.ref)) out.push(item);
+      else changed = true;
+    } else {
+      out.push(item);
+    }
   }
   return changed ? out : buffer;
 }
@@ -198,6 +245,15 @@ export function findSectionIndex(items: readonly OpenItem[], ref: CorpusRef): nu
   return -1;
 }
 
+export function findItemIndex(items: readonly OpenItem[], target: OpenItem): number {
+  const id = itemIdentity(target);
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (it && itemIdentity(it) === id) return i;
+  }
+  return -1;
+}
+
 // ─── Persistence interop ────────────────────────────────────────────────────
 
 export function fromPersisted(persisted: PersistedOpenItems): OpenItemsState {
@@ -206,12 +262,16 @@ export function fromPersisted(persisted: PersistedOpenItems): OpenItemsState {
   for (let i = 0; i < persisted.items.length; i++) {
     const p = persisted.items[i];
     if (!p) continue;
-    try {
-      items.push({ kind: "section", ref: parseRef(p.ref) });
-      surviving.push(i);
-    } catch {
-      // Drop invalid persisted ref — caller falls back to empty/default state.
+    if (p.kind === "section") {
+      try {
+        items.push({ kind: "section", ref: parseRef(p.ref) });
+        surviving.push(i);
+      } catch {
+        // Drop invalid persisted ref — section was renumbered or schema drift.
+      }
     }
+    // Future kinds: chat is feat/ai-agent's problem; unknown kinds drop
+    // here AND at the schema layer (item-wise tolerant parsing in storage.ts).
   }
   let active: number | null = null;
   if (persisted.activeIndex !== null) {
@@ -227,11 +287,15 @@ export function toPersisted(state: OpenItemsState): PersistedOpenItems {
   for (let i = 0; i < state.items.length; i++) {
     const it = state.items[i];
     if (!it) continue;
-    if (it.kind !== "section") continue; // chat persistence is feat/ai-agent's problem
-    items.push({
-      kind: "section",
-      ref: { module: it.ref.module, section: it.ref.section },
-    });
+    if (it.kind === "section") {
+      items.push({
+        kind: "section",
+        ref: { module: it.ref.module, section: it.ref.section },
+      });
+    } else {
+      // chat persistence is feat/ai-agent's problem
+      continue;
+    }
     survivingOriginalIdx.push(i);
   }
   let active: number | null = null;

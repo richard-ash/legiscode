@@ -6,6 +6,7 @@ import { SectionFileSchema, bodyToText } from "@/types";
 // Tests that exercise non-empty body[] override both fields together.
 const validSection = {
   id: "10.04.020",
+  display_label: "10.04.020",
   title: "Definitions",
   text: "",
   citations: [],
@@ -108,6 +109,29 @@ describe("SectionFileSchema", () => {
 
   it("defaults body to [] when omitted (CT7 — old --corpus-path JSON compat)", () => {
     expect(SectionFileSchema.parse(validSection).body).toEqual([]);
+  });
+
+  // Phase 5 — section.id IS the anchor; display_label carries the
+  // human-readable form. The Phase 1 anchor_id field collapsed into
+  // section.id during this commit; legacy fixtures with anchor_id are
+  // rejected by strict() so callers update.
+  it("requires display_label", () => {
+    const { display_label: _drop, ...withoutLabel } = validSection;
+    const result = SectionFileSchema.safeParse(withoutLabel);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.path[0]).toBe("display_label");
+    }
+  });
+
+  it("rejects an empty display_label", () => {
+    const result = SectionFileSchema.safeParse({ ...validSection, display_label: "" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects the legacy anchor_id field (collapsed in Phase 5)", () => {
+    const result = SectionFileSchema.safeParse({ ...validSection, anchor_id: "p109" });
+    expect(result.success).toBe(false);
   });
 });
 

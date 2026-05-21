@@ -2,15 +2,15 @@ import { describe, expect, it } from "vitest";
 import { extractCitations } from "@/parser/citations";
 import type { ModuleConfig } from "@/types";
 
+const SF_PATTERN =
+  "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*(?:-\\d+(?:\\.\\d+)*)?|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)";
+
 const manifest: ModuleConfig = {
   id: "sf-municipal",
   name: "SF",
   code_title: "Municipal Code",
   module_version: "2026.04.30",
-  citation_patterns: [
-    "(?<!§)§\\s*\\d+(?:\\.\\d+)*(?:\\([a-z0-9]+\\))*",
-    "§§\\s*\\d+(?:\\.\\d+)*\\s*-\\s*\\d+(?:\\.\\d+)*",
-  ],
+  citation_patterns: [SF_PATTERN],
   max_skip_count: 0,
   defined_term_patterns: ['"([^"]+)"\\s+means'],
 };
@@ -41,8 +41,13 @@ describe("extractCitations — internal subsection", () => {
     expect(cites[0]?.citation.target).toEqual({ kind: "internal", section_id: "10.04.020" });
   });
 
-  it("classifies external Code citations even when a subsection is present", () => {
+  it("classifies cross_module Code citations even when a subsection is present", () => {
     const cites = extractCitations("Per Cal. Veh. Code § 22358(b), ...", manifest);
-    expect(cites[0]?.citation.target.kind).toBe("external");
+    expect(cites[0]?.citation.target).toEqual({
+      kind: "cross_module",
+      module_id: "ca-vehicle",
+      section_id: "22358",
+      subsection: "(b)",
+    });
   });
 });

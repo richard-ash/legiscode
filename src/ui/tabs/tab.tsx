@@ -10,9 +10,8 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { type CSSProperties, type KeyboardEvent, type MouseEvent, memo, useCallback } from "react";
-import { hash as refHash } from "@/corpus/refs";
 import { Icons } from "@/ui/icons";
-import type { OpenItem } from "@/workbench/open-items";
+import { itemIdentity, type OpenItem } from "@/workbench/open-items";
 
 export interface TabProps {
   item: OpenItem;
@@ -135,9 +134,8 @@ function TabImpl({
 
 export const Tab = memo(TabImpl);
 
-/** Stable sortable id from an OpenItem. Section refs hash to
- *  `module::section`; chat (future) hashes by chatId. */
+/** Stable sortable id from an OpenItem. Uses the centralized identity
+ *  helper so a new OpenItem variant only requires one edit. */
 export function tabSortableId(item: OpenItem): string {
-  if (item.kind === "section") return `section:${refHash(item.ref)}`;
-  return `chat:${item.chatId}`;
+  return itemIdentity(item);
 }

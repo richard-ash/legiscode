@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DefinitionsFileSchema, ReferencesFileSchema } from "@/types";
+import { DefinitionsFileSchema } from "@/types";
 
 describe("DefinitionsFileSchema", () => {
   it("accepts a single-section term (array length 1)", () => {
@@ -60,14 +60,5 @@ describe("DefinitionsFileSchema", () => {
       "10.04.020": [{ defined_in_section: "10.04.020" }],
     });
     expect(Object.keys(result)).toEqual(["10.04.020"]);
-  });
-});
-
-describe("ReferencesFileSchema vs DefinitionsFileSchema (key validators)", () => {
-  it("references rejects term-shaped keys (uses SectionIdSchema)", () => {
-    const result = ReferencesFileSchema.safeParse({
-      "Director of Transportation": { citations: [], cited_by: [] },
-    });
-    expect(result.success).toBe(false);
   });
 });

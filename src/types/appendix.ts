@@ -50,3 +50,4 @@ export const AppendixSchema = z
   .strict();
 
 export type Appendix = z.infer<typeof AppendixSchema>;
+export type AppendixId = z.infer<typeof AppendixIdSchema>;

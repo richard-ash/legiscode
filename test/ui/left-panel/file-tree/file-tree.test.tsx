@@ -7,10 +7,14 @@ import { __resetVisibleRowsCache } from "@/corpus-nav";
 import { FileTree } from "@/ui/left-panel/file-tree/file-tree";
 import {
   emptyOpenItems,
+  type OpenItem,
   type OpenItemsState,
   openItem,
   openItemWithoutSwitching,
 } from "@/workbench";
+import type { NavigationIntent } from "@/workbench/navigate";
+
+type NavigateMock = ReturnType<typeof vi.fn<(item: OpenItem, intent: NavigationIntent) => void>>;
 
 const tree: CorpusTreeNode[] = [
   {
@@ -59,21 +63,12 @@ afterEach(() => {
 function setup(
   openItems: OpenItemsState = emptyOpenItems(),
   overrides?: Partial<{
-    onActivate: (ref: ReturnType<typeof parseRef>) => void;
-    onOpenWithoutSwitching: (ref: ReturnType<typeof parseRef>) => void;
+    navigate: NavigateMock;
   }>,
 ) {
-  const onActivate = overrides?.onActivate ?? vi.fn();
-  const onOpenWithoutSwitching = overrides?.onOpenWithoutSwitching ?? vi.fn();
-  render(
-    <FileTree
-      tree={tree}
-      openItems={openItems}
-      onActivate={onActivate}
-      onOpenWithoutSwitching={onOpenWithoutSwitching}
-    />,
-  );
-  return { onActivate, onOpenWithoutSwitching };
+  const navigate: NavigateMock = overrides?.navigate ?? vi.fn();
+  render(<FileTree tree={tree} openItems={openItems} navigate={navigate} />);
+  return { navigate };
 }
 
 describe("FileTree — render", () => {
@@ -92,14 +87,7 @@ describe("FileTree — render", () => {
   });
 
   it("renders the empty-state caption when the tree is empty", () => {
-    render(
-      <FileTree
-        tree={[]}
-        openItems={emptyOpenItems()}
-        onActivate={vi.fn()}
-        onOpenWithoutSwitching={vi.fn()}
-      />,
-    );
+    render(<FileTree tree={[]} openItems={emptyOpenItems()} navigate={vi.fn()} />);
     expect(screen.getByRole("tree")).toBeInTheDocument();
     expect(screen.getByText("No sections to display")).toBeInTheDocument();
   });
@@ -160,12 +148,7 @@ describe("FileTree — sticky header stack absence (direct-render branch)", () =
   // branches, which would produce duplicate aria nodes.
   it("does not render a sticky stack wrapper", () => {
     const { container } = render(
-      <FileTree
-        tree={tree}
-        openItems={emptyOpenItems()}
-        onActivate={vi.fn()}
-        onOpenWithoutSwitching={vi.fn()}
-      />,
+      <FileTree tree={tree} openItems={emptyOpenItems()} navigate={vi.fn()} />,
     );
     expect(container.querySelector(".lc-tree-sticky-stack")).toBeNull();
   });
@@ -202,41 +185,62 @@ describe("FileTree — roving tabindex", () => {
 });
 
 describe("FileTree — click semantics", () => {
-  it("clicking a section row calls onActivate with the branded ref", () => {
-    const onActivate = vi.fn();
-    setup(emptyOpenItems(), { onActivate });
+  it("clicking a section row calls navigate({section}, 'primary') with the branded ref", () => {
+    const navigate = vi.fn();
+    setup(emptyOpenItems(), { navigate });
     fireEvent.click(screen.getByTestId("tree-row-sf-port::1.1"));
-    expect(onActivate).toHaveBeenCalledTimes(1);
-    const ref = onActivate.mock.calls[0]?.[0];
-    expect(ref?.module).toBe("sf-port");
-    expect(ref?.section).toBe("1.1");
+    expect(navigate).toHaveBeenCalledTimes(1);
+    const [item, intent] = navigate.mock.calls[0] ?? [];
+    expect(item.kind).toBe("section");
+    expect(item.ref.module).toBe("sf-port");
+    expect(item.ref.section).toBe("1.1");
+    expect(intent).toBe("primary");
   });
 
-  it("Cmd+click calls onOpenWithoutSwitching instead of onActivate", () => {
-    const onActivate = vi.fn();
-    const onOpenWithoutSwitching = vi.fn();
-    setup(emptyOpenItems(), { onActivate, onOpenWithoutSwitching });
+  it("Cmd+click fires intent='background' (open without switching)", () => {
+    const navigate = vi.fn();
+    setup(emptyOpenItems(), { navigate });
     fireEvent.click(screen.getByTestId("tree-row-sf-port::1.1"), { metaKey: true });
-    expect(onActivate).not.toHaveBeenCalled();
-    expect(onOpenWithoutSwitching).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledTimes(1);
+    const [item, intent] = navigate.mock.calls[0] ?? [];
+    expect(item.kind).toBe("section");
+    expect(intent).toBe("background");
   });
 
-  it("Ctrl+click calls onOpenWithoutSwitching (cross-platform)", () => {
-    const onActivate = vi.fn();
-    const onOpenWithoutSwitching = vi.fn();
-    setup(emptyOpenItems(), { onActivate, onOpenWithoutSwitching });
+  it("Ctrl+click also fires intent='background' (cross-platform)", () => {
+    const navigate = vi.fn();
+    setup(emptyOpenItems(), { navigate });
     fireEvent.click(screen.getByTestId("tree-row-sf-port::1.1"), { ctrlKey: true });
-    expect(onOpenWithoutSwitching).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate.mock.calls[0]?.[1]).toBe("background");
   });
 
-  it("clicking a parent row toggles its expand state (no onActivate)", () => {
-    const onActivate = vi.fn();
-    setup(emptyOpenItems(), { onActivate });
+  it("clicking a parent row toggles its expand state (no navigate dispatch)", () => {
+    const navigate = vi.fn();
+    setup(emptyOpenItems(), { navigate });
     const article = screen.getByTestId("tree-row-sf-port::ART1");
     expect(article).toHaveAttribute("aria-expanded", "true");
     fireEvent.click(article);
     expect(article).toHaveAttribute("aria-expanded", "false");
-    expect(onActivate).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+describe("FileTree — tree-follows-active-tab", () => {
+  it("does not re-expand an ancestor that the user just collapsed (UF8c)", () => {
+    // Active section sits under ART1. The reveal effect expands the
+    // ancestor chain on first mount. After that, the user collapses ART1
+    // (sticky-header chevron in the live app; clicking the parent row
+    // here, since both go through setExpansion and flip rowIndexById
+    // identity). The effect must NOT fire a second reveal — activeRef is
+    // unchanged, so the user's collapse must stick.
+    const ref = parseRef({ module: "sf-port", section: "1.1" });
+    const state = openItem(emptyOpenItems(), ref);
+    setup(state);
+    const article = screen.getByTestId("tree-row-sf-port::ART1");
+    expect(article).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(article);
+    expect(article).toHaveAttribute("aria-expanded", "false");
   });
 });
 
@@ -250,27 +254,29 @@ describe("FileTree — keyboard navigation", () => {
     expect(art1).toHaveAttribute("tabindex", "0");
   });
 
-  it("Enter on a section calls onActivate", () => {
-    const onActivate = vi.fn();
-    setup(emptyOpenItems(), { onActivate });
+  it("Enter on a section fires navigate({section}, 'primary')", () => {
+    const navigate = vi.fn();
+    setup(emptyOpenItems(), { navigate });
     const tree = screen.getByRole("tree");
     fireEvent.keyDown(tree, { key: "ArrowDown" });
     fireEvent.keyDown(tree, { key: "ArrowDown" });
     fireEvent.keyDown(tree, { key: "Enter" });
-    expect(onActivate).toHaveBeenCalledTimes(1);
-    expect(onActivate.mock.calls[0]?.[0]?.section).toBe("1.1");
+    expect(navigate).toHaveBeenCalledTimes(1);
+    const [item, intent] = navigate.mock.calls[0] ?? [];
+    expect(item.kind).toBe("section");
+    expect(item.ref.section).toBe("1.1");
+    expect(intent).toBe("primary");
   });
 
-  it("Cmd+Enter on a section calls onOpenWithoutSwitching", () => {
-    const onActivate = vi.fn();
-    const onOpenWithoutSwitching = vi.fn();
-    setup(emptyOpenItems(), { onActivate, onOpenWithoutSwitching });
+  it("Cmd+Enter on a section fires intent='background'", () => {
+    const navigate = vi.fn();
+    setup(emptyOpenItems(), { navigate });
     const tree = screen.getByRole("tree");
     fireEvent.keyDown(tree, { key: "ArrowDown" });
     fireEvent.keyDown(tree, { key: "ArrowDown" });
     fireEvent.keyDown(tree, { key: "Enter", metaKey: true });
-    expect(onActivate).not.toHaveBeenCalled();
-    expect(onOpenWithoutSwitching).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate.mock.calls[0]?.[1]).toBe("background");
   });
 
   it("ArrowLeft on an expanded parent collapses it", () => {

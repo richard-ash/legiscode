@@ -63,14 +63,14 @@ const corpus: CorpusModuleSummary = {
 
 describe("CommandPalette", () => {
   it("renders all sections when search is empty", () => {
-    render(<CommandPalette open onClose={() => {}} corpus={corpus} onSelect={() => {}} />);
+    render(<CommandPalette open onClose={() => {}} corpus={corpus} navigate={() => {}} />);
     expect(screen.getByText("Definitions")).toBeInTheDocument();
     expect(screen.getByText("Commission")).toBeInTheDocument();
     expect(screen.getByText("Scope")).toBeInTheDocument();
   });
 
   it("filters sections by section number", async () => {
-    render(<CommandPalette open onClose={() => {}} corpus={corpus} onSelect={() => {}} />);
+    render(<CommandPalette open onClose={() => {}} corpus={corpus} navigate={() => {}} />);
     await userEvent.type(screen.getByPlaceholderText(/Go to section/), "1.2");
     expect(screen.getByText("Commission")).toBeInTheDocument();
     expect(screen.queryByText("Definitions")).not.toBeInTheDocument();
@@ -78,43 +78,45 @@ describe("CommandPalette", () => {
   });
 
   it("filters sections by name keyword", async () => {
-    render(<CommandPalette open onClose={() => {}} corpus={corpus} onSelect={() => {}} />);
+    render(<CommandPalette open onClose={() => {}} corpus={corpus} navigate={() => {}} />);
     await userEvent.type(screen.getByPlaceholderText(/Go to section/), "scope");
     expect(screen.getByText("Scope")).toBeInTheDocument();
     expect(screen.queryByText("Commission")).not.toBeInTheDocument();
   });
 
   it('shows "no sections match" empty state', async () => {
-    render(<CommandPalette open onClose={() => {}} corpus={corpus} onSelect={() => {}} />);
+    render(<CommandPalette open onClose={() => {}} corpus={corpus} navigate={() => {}} />);
     await userEvent.type(screen.getByPlaceholderText(/Go to section/), "zzzzzz");
     expect(screen.getByText(/No sections match/)).toBeInTheDocument();
   });
 
-  it("Enter selects the highlighted section and closes (emits a branded CorpusRef, not the wire shape)", async () => {
-    const onSelect = vi.fn();
+  it("Enter selects the highlighted section and closes (navigates with a branded CorpusRef)", async () => {
+    const navigate = vi.fn();
     const onClose = vi.fn();
-    render(<CommandPalette open onClose={onClose} corpus={corpus} onSelect={onSelect} />);
+    render(<CommandPalette open onClose={onClose} corpus={corpus} navigate={navigate} />);
     await userEvent.type(screen.getByPlaceholderText(/Go to section/), "Commission");
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Enter" });
-    expect(onSelect).toHaveBeenCalledTimes(1);
-    const ref = onSelect.mock.calls[0]?.[0];
-    expect(ref?.module).toBe("sf-port");
-    expect(ref?.section).toBe("1.2");
+    expect(navigate).toHaveBeenCalledTimes(1);
+    const [item, intent] = navigate.mock.calls[0] ?? [];
+    expect(item.kind).toBe("section");
+    expect(item.ref.module).toBe("sf-port");
+    expect(item.ref.section).toBe("1.2");
+    expect(intent).toBe("primary");
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("Escape closes without selecting", () => {
-    const onSelect = vi.fn();
+  it("Escape closes without navigating", () => {
+    const navigate = vi.fn();
     const onClose = vi.fn();
-    render(<CommandPalette open onClose={onClose} corpus={corpus} onSelect={onSelect} />);
+    render(<CommandPalette open onClose={onClose} corpus={corpus} navigate={navigate} />);
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    expect(onSelect).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
   });
 
   it("renders nothing when open is false", () => {
     const { container } = render(
-      <CommandPalette open={false} onClose={() => {}} corpus={corpus} onSelect={() => {}} />,
+      <CommandPalette open={false} onClose={() => {}} corpus={corpus} navigate={() => {}} />,
     );
     expect(container.firstChild).toBeNull();
   });

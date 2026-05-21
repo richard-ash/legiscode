@@ -14,7 +14,6 @@ import type {
   DefinitionsFile,
   ModuleConfig,
   ParsedModule,
-  ReferencesFile,
   SectionFile,
   SkippedEntry,
 } from "@/types";
@@ -36,6 +35,7 @@ function makeSection(id: string): SectionFile {
   return {
     kind: "section",
     id,
+    display_label: id,
     title: "Test",
     text: "Test body",
     citations: [],
@@ -52,10 +52,6 @@ function makeParsedModule(overrides: Partial<ParsedModule> = {}): ParsedModule {
   for (const s of sections) {
     sectionPaths[s.id] = [];
   }
-  const references: ReferencesFile = {};
-  for (const s of sections) {
-    references[s.id] = { citations: [], cited_by: [] };
-  }
   const definitions: DefinitionsFile = {};
   return {
     module: moduleConfig,
@@ -64,7 +60,6 @@ function makeParsedModule(overrides: Partial<ParsedModule> = {}): ParsedModule {
     ordinanceHistories: [],
     resolutionHistories: [],
     definitions,
-    references,
     skipped: [],
     warnings: [],
     corpusEntryKinds: ["section"],

@@ -38,27 +38,23 @@ const CrossModuleTargetSchema = z
     path: ["section_id"],
   });
 
-const ExternalParsedSchema = z
-  .object({
-    jurisdiction: z.string().min(1),
-    code: z.string().min(1),
-    section: z.string().min(1),
-    subsection: SubsectionSchema.optional(),
-  })
-  .strict();
-
-const ExternalTargetSchema = z
-  .object({
-    kind: z.literal("external"),
-    raw: z.string().min(1),
-    parsed: ExternalParsedSchema.optional(),
-  })
-  .strict();
-
 const VagueTargetSchema = z
   .object({
     kind: z.literal("vague"),
     raw: z.string().min(1),
+  })
+  .strict();
+
+// Article / Chapter / Division / Title citations route to a structural node
+// in the corpus tree, not a section page. Level mirrors the prefix word;
+// number is the cited identifier as written (e.g. "5", "2.4", "II").
+const StructuralLevelSchema = z.enum(["article", "chapter", "division", "title"]);
+
+const StructuralTargetSchema = z
+  .object({
+    kind: z.literal("structural"),
+    level: StructuralLevelSchema,
+    number: z.string().min(1),
   })
   .strict();
 
@@ -73,13 +69,37 @@ const InternalAppendixTargetSchema = z
   })
   .strict();
 
+// SectionRef carries the anchor-bound citation target produced by the
+// build-time binder. anchor_id is the lowercase, JD_-stripped section
+// anchor; module names the module that owns it (same module the citing
+// section lives in for intra-module cites, a sibling module for cross-
+// module). Phase 5 collapses this with the legacy internal / cross_module
+// variants — after the rename, every section-ref's anchor_id equals the
+// target section's id, and the resolver is one titleMap lookup.
+const SectionRefTargetSchema = z
+  .object({
+    kind: z.literal("section-ref"),
+    anchor_id: SectionIdSchema,
+    module_id: ModuleIdSchema,
+    subsection: SubsectionSchema.optional(),
+    range: RangeSchema.optional(),
+  })
+  .strict()
+  .refine((target) => !target.range || target.range.from === target.anchor_id, {
+    message: "anchor_id must equal range.from when range is set",
+    path: ["anchor_id"],
+  });
+
 export const CitationTargetSchema = z.discriminatedUnion("kind", [
   InternalTargetSchema,
   CrossModuleTargetSchema,
-  ExternalTargetSchema,
+  StructuralTargetSchema,
   VagueTargetSchema,
   InternalAppendixTargetSchema,
+  SectionRefTargetSchema,
 ]);
+
+export type StructuralLevel = z.infer<typeof StructuralLevelSchema>;
 
 export const CitationSchema = z
   .object({

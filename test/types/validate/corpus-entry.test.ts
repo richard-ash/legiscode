@@ -4,6 +4,7 @@ import { CorpusEntrySchema } from "@/types";
 const sectionEntry = {
   kind: "section" as const,
   id: "1.234",
+  display_label: "1.234",
   title: "Definitions",
   text: "",
   citations: [],

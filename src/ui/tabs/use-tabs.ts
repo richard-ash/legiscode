@@ -1,24 +1,28 @@
 // Tab UI orchestration hook. Owns the pieces of tab state that don't
 // belong on the canonical `OpenItemsState`:
 //
-//   • `recentlyClosed` — LIFO buffer of refs closed during this session,
-//     consumed by ⌘shift+T. Capped at 10, deduped on pop so a ref that's
-//     currently open never resurrects from a stale buffer entry. Plan A5.
+//   • `recentlyClosed` — LIFO buffer of OpenItems closed during this
+//     session, consumed by ⌘shift+T. Capped at 10, deduped on pop so an
+//     item that's currently open never resurrects from a stale buffer
+//     entry. External-citation items participate alongside sections; the
+//     dedup key is `itemIdentity`. Plan A5 + T8.
 //   • `sectionScroll` — per-section vertical scroll offsets so switching
 //     tabs restores the user's read position. CQ8 (~100ms debounce, restore
 //     after section state updates via useLayoutEffect).
 //
 // `close()` wraps `closeItem` so the buffer write and the items mutation
 // land in the same render via React 18 batching. `reopenLast()` recurses
-// past stale entries (refs that are already open) so a single ⌘shift+T
-// always lands on a fresh section.
+// past stale entries (items that are already open) so a single ⌘shift+T
+// always lands on a fresh tab.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { type CorpusRef, hash as refHash } from "@/corpus/refs";
+import type { NavigationIntent } from "@/workbench/navigate";
 import {
   closeItem,
+  itemIdentity,
+  type OpenItem,
   type OpenItemsState,
-  openItem,
   validateRecentlyClosed,
 } from "@/workbench/open-items";
 
@@ -31,12 +35,16 @@ export interface UseTabsParams {
   /** Predicate used to drop stale entries from `recentlyClosed` (e.g. on
    *  cold-start after a corpus upgrade that renumbered sections). */
   isValidRef?: (ref: CorpusRef) => boolean;
+  /** Tab-dispatch primitive. Used by `reopenLast` so reopens go through
+   *  the same navigate seam as every other tab open (per C5: reopen
+   *  starts a fresh history, matching browser ⌘shift+T). */
+  navigate: (item: OpenItem, intent: NavigationIntent) => void;
 }
 
 export interface UseTabsResult {
-  /** Current LIFO buffer of recently-closed refs (newest first). */
-  readonly recentlyClosed: readonly CorpusRef[];
-  /** Close the tab at `index`. Pushes its ref onto `recentlyClosed`. */
+  /** Current LIFO buffer of recently-closed items (newest first). */
+  readonly recentlyClosed: readonly OpenItem[];
+  /** Close the tab at `index`. Pushes its OpenItem onto `recentlyClosed`. */
   close: (index: number) => void;
   /** Pop the head of `recentlyClosed` and reopen it. No-op if empty. */
   reopenLast: () => void;
@@ -55,8 +63,13 @@ export interface UseTabsResult {
   ) => void;
 }
 
-export function useTabs({ openItems, setOpenItems, isValidRef }: UseTabsParams): UseTabsResult {
-  const [recentlyClosed, setRecentlyClosed] = useState<readonly CorpusRef[]>([]);
+export function useTabs({
+  openItems,
+  setOpenItems,
+  isValidRef,
+  navigate,
+}: UseTabsParams): UseTabsResult {
+  const [recentlyClosed, setRecentlyClosed] = useState<readonly OpenItem[]>([]);
   const scrollMapRef = useRef<Map<string, number>>(new Map());
   const scrollDebounceRef = useRef<number | null>(null);
   const pendingScrollRef = useRef<{ key: string; y: number } | null>(null);
@@ -77,15 +90,16 @@ export function useTabs({ openItems, setOpenItems, isValidRef }: UseTabsParams):
     (index: number) => {
       setOpenItems((prev) => {
         const target = prev.items[index];
-        if (target && target.kind === "section") {
+        if (target) {
           // React 18 batches these into the same render; the closeItem
-          // result and recentlyClosed push commit together.
-          const ref = target.ref;
+          // result and recentlyClosed push commit together. External-
+          // citation tabs participate alongside sections (T8) — the buffer
+          // holds the full OpenItem so reopen restores the same kind.
           setRecentlyClosed((buf) => {
-            // No dedup on push — the same section can be opened, closed,
+            // No dedup on push — the same item can be opened, closed,
             // reopened, closed again; that's two distinct recent-closes.
             // Dedup happens on pop (reopenLast).
-            const next = [ref, ...buf];
+            const next = [target, ...buf];
             return next.length > RECENTLY_CLOSED_CAP ? next.slice(0, RECENTLY_CLOSED_CAP) : next;
           });
         }
@@ -96,14 +110,13 @@ export function useTabs({ openItems, setOpenItems, isValidRef }: UseTabsParams):
   );
 
   const reopenLast = useCallback(() => {
-    // Pop + dedup loop: skip any buffer head whose ref is already open
-    // (Chrome semantic — the user's intent is "give me back something I
-    // closed," not "duplicate something I already have").
+    // Pop + dedup loop: skip any buffer head whose identity is already
+    // open (Chrome semantic — the user's intent is "give me back something
+    // I closed," not "duplicate something I already have"). Reopens route
+    // through `navigate(item, "primary")` so the reopened tab starts a
+    // fresh navigation history (C5 — matches browser ⌘shift+T).
     setRecentlyClosed((buf) => {
       if (buf.length === 0) return buf;
-      // Walk the buffer from the head; pick the first ref not currently
-      // open. Drop everything skipped on the way (stale buffer entries
-      // would otherwise pile up at the head forever).
       let i = 0;
       while (i < buf.length) {
         const candidate = buf[i];
@@ -111,10 +124,9 @@ export function useTabs({ openItems, setOpenItems, isValidRef }: UseTabsParams):
           i++;
           continue;
         }
-        const alreadyOpen = isRefOpen(openItems, candidate);
+        const alreadyOpen = isItemOpen(openItems, candidate);
         if (!alreadyOpen) {
-          // Reopen + drop the head through this position.
-          setOpenItems((prev) => openItem(prev, candidate));
+          navigate(candidate, "primary");
           return buf.slice(i + 1);
         }
         i++;
@@ -122,7 +134,7 @@ export function useTabs({ openItems, setOpenItems, isValidRef }: UseTabsParams):
       // All entries were stale — buffer empties.
       return [];
     });
-  }, [openItems, setOpenItems]);
+  }, [openItems, navigate]);
 
   const saveScroll = useCallback((ref: CorpusRef, scrollY: number) => {
     const key = refHash(ref);
@@ -185,9 +197,10 @@ export function useTabs({ openItems, setOpenItems, isValidRef }: UseTabsParams):
   return { recentlyClosed, close, reopenLast, saveScroll, getScroll, useRestoreScroll };
 }
 
-function isRefOpen(state: OpenItemsState, ref: CorpusRef): boolean {
+function isItemOpen(state: OpenItemsState, target: OpenItem): boolean {
+  const id = itemIdentity(target);
   for (const item of state.items) {
-    if (item.kind === "section" && refHash(item.ref) === refHash(ref)) return true;
+    if (itemIdentity(item) === id) return true;
   }
   return false;
 }
