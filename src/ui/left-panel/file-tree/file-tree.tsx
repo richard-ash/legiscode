@@ -24,11 +24,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { type CorpusRef, equals as refsEqual, hash as refHash } from "@/corpus/refs";
+import { type CorpusRef, hash as refHash, equals as refsEqual } from "@/corpus/refs";
 import type { CorpusTreeNode } from "@/corpus/wire";
 import { collapse, expand, keyboardAction, prefixMatch, type Row, toggle } from "@/corpus-nav";
 import { shouldHandleGlobalShortcut } from "@/ui/tabs/should-handle-shortcut";
-import { activeSectionRef, type OpenItemsState } from "@/workbench";
+import { activeSectionRef, type OpenItem, type OpenItemsState } from "@/workbench";
+import type { NavigationIntent } from "@/workbench/navigate";
 import { StickyHeaderStack } from "./sticky-header-stack";
 import { TreeNode } from "./tree-node";
 import { useCorpusTree } from "./use-corpus-tree";
@@ -45,11 +46,12 @@ import { useTypeahead } from "./use-typeahead";
 export interface FileTreeProps {
   tree: readonly CorpusTreeNode[];
   openItems: OpenItemsState;
-  onActivate: (ref: CorpusRef) => void;
-  onOpenWithoutSwitching: (ref: CorpusRef) => void;
+  /** Tab-dispatch primitive. Plain click / Enter → "primary"; Cmd/Ctrl
+   *  click + Cmd/Ctrl+Enter → "background" (open without switching). */
+  navigate: (item: OpenItem, intent: NavigationIntent) => void;
 }
 
-export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }: FileTreeProps) {
+export function FileTree({ tree, openItems, navigate }: FileTreeProps) {
   const { setExpansion, rows, rowIndexById } = useCorpusTree(tree);
   // Pull stable functions out of useTypeahead. The hook returns a fresh
   // object literal each render, so depending on `typeahead` itself in any
@@ -115,13 +117,12 @@ export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }
       if (row.hasKids) {
         setExpansion((prev) => toggle(prev, row.id));
       } else if (row.ref !== null) {
-        if (openMod) onOpenWithoutSwitching(row.ref);
-        else onActivate(row.ref);
+        navigate({ kind: "section", ref: row.ref }, openMod ? "background" : "primary");
       }
       setFocusedRowId(row.id);
       resetTypeahead();
     },
-    [setExpansion, setFocusedRowId, onActivate, onOpenWithoutSwitching, resetTypeahead],
+    [setExpansion, setFocusedRowId, navigate, resetTypeahead],
   );
 
   const onKeyDown = useCallback(
@@ -177,10 +178,10 @@ export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }
           setExpansion((prev) => collapse(prev, action.rowId));
           break;
         case "activate":
-          onActivate(action.ref);
+          navigate({ kind: "section", ref: action.ref }, "primary");
           break;
         case "open-without-switch":
-          onOpenWithoutSwitching(action.ref);
+          navigate({ kind: "section", ref: action.ref }, "background");
           break;
       }
       e.preventDefault();
@@ -191,8 +192,7 @@ export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }
       focusedRowId,
       setExpansion,
       setFocusedRowId,
-      onActivate,
-      onOpenWithoutSwitching,
+      navigate,
       typeaheadAppendChar,
       requestFocus,
     ],
@@ -208,6 +208,62 @@ export function FileTree({ tree, openItems, onActivate, onOpenWithoutSwitching }
     }
     return { activeRef: active, openSectionIds: openIds };
   }, [openItems]);
+
+  // Tree-follows-active-tab: when the active tab changes (citation click,
+  // ⌘⌥←/→, palette nav), expand the ancestor chain so the active section
+  // is in the visible rows, then scroll the virtualizer to it. The
+  // ancestor walk is cheap (single tree traversal). Scroll uses
+  // `align: "center"` so a deeply nested target settles in the middle of
+  // the viewport.
+  //
+  // Re-fire guard: the dep array includes rowIndexById, which is derived
+  // from expansion state — so a user collapse of a sticky-header chevron
+  // would re-fire the effect and immediately re-expand the ancestor. Gate
+  // the body on "activeRef differs from what we last revealed" via a ref;
+  // manual collapses are then sticky until the active section actually
+  // changes. (D15 split-click contract.)
+  const lastRevealedRef = useRef<CorpusRef | null>(null);
+  useEffect(() => {
+    if (!activeRef) return;
+    if (lastRevealedRef.current && refsEqual(lastRevealedRef.current, activeRef)) return;
+    const ancestorIds = findAncestorIdsForRef(tree, activeRef);
+    if (ancestorIds.length > 0) {
+      setExpansion((prev) => {
+        let next = prev;
+        let mutated = false;
+        for (const id of ancestorIds) {
+          if (!next.has(id)) {
+            if (!mutated) {
+              next = new Set(prev);
+              mutated = true;
+            }
+            (next as Set<string>).add(id);
+          }
+        }
+        return mutated ? next : prev;
+      });
+    }
+    // CorpusTreeNode section ids are bare refHash ("module::section"),
+    // not "section::<hash>" — that prefix belongs to OpenItem identity,
+    // not tree node id. With the prefix this lookup was a never-hit, so
+    // the scroll-to-index silently never fired for any active section.
+    const targetId = refHash(activeRef);
+    const idx = rowIndexById.get(targetId);
+    if (idx !== undefined) {
+      // Mark revealed only once the target row is in `rows` (idx is
+      // defined). If activeRef sits inside a collapsed ancestor on this
+      // pass, idx is undefined until setExpansion settles and
+      // rowIndexById rebuilds — leaving the ref unset lets the next pass
+      // see the deeper row and only then mark. Otherwise the second pass
+      // early-returns and the active section expands but never scrolls
+      // into view. The scroll itself is optional (jsdom virtualizer has
+      // no scrollToIndex); the user-visible promise is locatability.
+      if (virtualizer.scrollToIndex) {
+        virtualizer.scrollToIndex(idx, { align: "center" });
+      }
+      lastRevealedRef.current = activeRef;
+    }
+  }, [activeRef, tree, rowIndexById, setExpansion, virtualizer]);
 
   // Drop the typeahead buffer when focus leaves the tree subtree; without
   // this, returning to the tree within timeoutMs reuses the stale prefix
@@ -365,4 +421,29 @@ function isActiveRow(row: Row, activeRef: CorpusRef | null): boolean {
 function isOpenRowFromIds(row: Row, openIds: ReadonlySet<string>): boolean {
   if (row.ref === null) return false;
   return openIds.has(refHash(row.ref));
+}
+
+/** Walk the tree and collect the chain of chapter/code node IDs that must
+ *  be expanded to make the section at `ref` visible. Returns [] when the
+ *  section is not present in this tree (e.g. activeRef belongs to a
+ *  module not in the current jurisdiction snapshot). */
+function findAncestorIdsForRef(tree: readonly CorpusTreeNode[], ref: CorpusRef): readonly string[] {
+  function walk(nodes: readonly CorpusTreeNode[], chain: string[]): string[] | null {
+    for (const node of nodes) {
+      if (
+        node.kind === "section" &&
+        node.ref &&
+        node.ref.moduleId === ref.module &&
+        node.ref.sectionId === ref.section
+      ) {
+        return chain;
+      }
+      if (node.kids && node.kids.length > 0) {
+        const found = walk(node.kids, [...chain, node.id]);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+  return walk(tree, []) ?? [];
 }

@@ -90,9 +90,11 @@ Electron primitives — the layering catches mistakes that would otherwise
 surface as silent preload failures.
 
 **Channel-name convention**: `<namespace>:<verb>`, lowercase, hyphenated for
-multi-word namespaces. Phase 1 surface: `corpus:list`, `corpus:read`,
-`app:ping`. Renderer code imports types only via `import type` from
-`contract.ts`; never the runtime allowlist.
+multi-word namespaces. Current surface: `corpus:list`, `corpus:read`,
+`app:ping`, `shell:openExternal` (registered for a future "Open at source →"
+affordance on cross-module popovers; protocol-gated to http(s) main-side,
+currently unused by the renderer). Renderer code imports types only via
+`import type` from `contract.ts`; never the runtime allowlist.
 
 **Error model**: plumbing errors (unknown channel, renderer disconnect,
 handler throw) reject the renderer-side promise. Domain failures (corpus
@@ -295,8 +297,10 @@ layer (additive) or as a new symbol behind an existing barrel (extension).
 │   src/ui/App.tsx (orchestration)                                   │
 ├────────────────────────────────────────────────────────────────────┤
 │ LAYER 4  Workbench — what is the user "looking at"                 │
-│   src/workbench/  open-items.ts (kind: "section" today;            │
-│                   "chat" by Phase 5)                               │
+│   src/workbench/  open-items.ts (kind: "section"; "chat" lands     │
+│                                   with feat/ai-agent)              │
+│                   navigate.ts   (NavigationIntent only, no history)│
+│   src/citations/  resolver.ts + module-registry.ts (pure)          │
 ├────────────────────────────────────────────────────────────────────┤
 │ LAYER 3  Navigation — tree model + filters + keyboard, pure        │
 │   src/corpus-nav/  tree-model.ts, visible-rows.ts,                 │
@@ -348,36 +352,180 @@ separated from React: `tree-model.ts` (immutable expansion state),
 (WAI-ARIA tree spec MUST set + Cmd/Ctrl+Enter "open without switch").
 No jsdom dependency in tests — pure-Node units cover ~80% of behavior.
 
-**Layer 4 — `src/workbench/open-items.ts`.** Carries the
-`kind: "section" | "chat"` discriminator from day one; `feat/ai-agent`
-(Phase 5) adds chat tabs as an additive case rather than a state
-rewrite. Functions are pure: `openItem`, `openItemWithoutSwitching`,
-`closeItem`, `setActiveIndex`, `validateAgainstCorpus` (drops vanished
-refs on cold-start), plus persistence interop (`fromPersisted` /
-`toPersisted`).
+**Layer 4 — `src/workbench/`.** `open-items.ts` carries the tab-state
+discriminator (`section` today; `chat` lands with `feat/ai-agent`).
+Functions are pure: `openItem`, `openItemWithoutSwitching`, `closeItem`,
+`setActiveIndex`, `validateAgainstCorpus` (drops vanished refs on
+cold-start), plus persistence interop (`fromPersisted` / `toPersisted`).
+Per-item persistence is tolerant — a single corrupt tab is dropped while
+siblings survive, so a schema bump to one kind never wipes the whole
+strip.
 
-**Layer 5 — `src/ui/left-panel/file-tree/`.** Container + single-row
-component + four adapter hooks (`use-corpus-tree` for expansion +
-visible-row derivation, `use-typeahead` for the prefix buffer,
-`use-roving-focus` for the WAI-ARIA roving-tabindex pattern, and
-`use-tree-virtualizer` for the `@tanstack/react-virtual` wiring with a
-JSDOM guard). Roving tabindex implements the WAI-ARIA pattern (D6 b);
-`data-open` is reserved for the eventual tab-strip styling slot. The
-container is intentionally thin — keyboard, filter, expansion logic
-all dispatch through Layer 3.
+`navigate.ts` shrunk to a single type export (`NavigationIntent =
+"primary" | "background"`) in `feat/citation-resolution` (2026-05-20).
+The pre-refoundation per-tab `HistoryMap` and its mutators were ripped
+in favor of VS Code tab semantics: ⌘-click opens a new foreground tab,
+⌘⌥← / ⌘⌥→ switches between open tabs (wraps at boundaries). To
+revisit a section the user brings its tab forward.
+
+**Layer 4a — `src/citations/`.** Sits alongside the workbench; consumed
+by it. `resolver.ts` is a pure function from a parsed `Citation` and an
+existence oracle (built once per corpus snapshot from the tree's
+section keys + the active section ref) to a verb-shaped
+`ResolutionResult`: `navigate-section` | `navigate-appendix` |
+`navigate-structural` | `module-not-installed` | `scroll-only` |
+`unresolvable`. Consumers switch on `result.kind`, not on the citation's
+`target.kind` — the branch lives once. `module-registry.ts` is the
+static index of every external code module — all 29 named California
+codes plus US Code and CFR (31 entries). It exposes `findModuleByPhrase`
+(text → `module_id`, used by the parser's paragraph-scope code-prefix
+tracker) and `getModule` (`module_id` → display name, used by the
+resolver to format the "Not downloaded" popover label).
+
+**Layer 5 — `src/ui/`.** Container components + adapter hooks that bind
+the pure layers below to React. `left-panel/file-tree/` is the tree
+container plus four hooks (`use-corpus-tree`, `use-typeahead`,
+`use-roving-focus`, `use-tree-virtualizer`); a tree-follows-active-tab
+effect auto-expands the ancestor chain and scrolls the active section
+into view whenever the active tab changes. `center-panel/section-view/`
+renders body[] segments and emits each citation as a `<span>` so plain
+text selection works across boundaries; a single delegated
+`onClick` on the section's content root dispatches resolve() →
+navigate() ONLY when ⌘/Ctrl is held. A hover popover
+(`citation-popover.tsx`) shows after 400ms with the resolved title +
+"⌘-click to open" footer, hides 200ms after the cursor leaves, and
+dismisses on ESC. `tabs/tab-content.tsx` switches on the active item's
+`kind` to pick a renderer. `use-navigation.ts` owns the navigate
+primitive + ⌘⌥←/→ global shortcuts; it shouldn't be confused with
+`corpus-nav/` (Layer 3, tree keyboard actions).
 
 **Foundation invariants** (asserted by `test/baseline.test.ts`):
 1. No `fs.watch` calls in src/ or electron/ (deferred-watcher gate).
 2. No direct `localStorage` access in src/ outside Layer 1 + the
    FOUC carve-out.
 3. No ad-hoc `{ moduleId, sectionId }` literals outside the boundary
-   helpers (`refs.ts`, `contract.ts`, `corpus-loader.ts`,
-   `storage.ts`'s legacy schema, `command-palette.tsx`'s internal
-   `PaletteItem`).
+   helpers (`refs.ts`, `corpus/wire.ts`, `contract.ts`,
+   `corpus-loader.ts`, `storage.ts`'s legacy schema,
+   `command-palette.tsx`'s internal `PaletteItem`).
 
 ## Notes
 
 Append-only log of architectural observations. Newest at the top.
+
+### 2026-05-20 — citation refoundation (VS Code interaction + module-aware resolution)
+
+Manual QA against the live corpus surfaced six findings that collapsed
+into a coherent refoundation of the citation system. The earlier
+2026-05-19 architecture (described below in the second part of this
+entry, kept for history) made citations clickable; this iteration
+rewrites the parser, the resolver, and the interaction model.
+
+**Architectural moves:**
+
+1. **External citations go away.** The `external` `Citation` kind is
+   removed. Every cite is now `internal | cross_module | structural |
+   vague | internal_appendix`. Cross-module references carry a stable
+   `module_id` (e.g. `ca-vehicle`, `us-code`) even when the bundle isn't
+   installed — which collapses "dead clicks" into a typed user-facing
+   outcome (`module-not-installed` popover) instead of silent failure.
+
+2. **`src/citations/module-registry.ts`** is the static registry of every
+   external code module identity — all 29 named California codes plus US
+   Code and CFR (31 entries today). It exposes:
+   - `findModuleByPhrase(text)` — text → `ModuleRegistryEntry`. The parser
+     uses this for paragraph-scope code-prefix tracking: when a phrase
+     like "Cal. Veh. Code" appears, every § cite that follows in the same
+     paragraph classifies as `cross_module` with `module_id: "ca-vehicle"`.
+   - `getModule(moduleId)` — id → display name. The resolver uses this
+     to format the "Not downloaded" popover label.
+   - `allModules()` — used by tests + diagnostic surfaces.
+
+3. **Parser widening (`src/parser/citations.ts`).** The manifest pattern
+   was widened to match `§`, `§§`, `Section(s)`, `Sec.`, `Article(s)`,
+   `Chapter(s)`, `Division(s)`, `Title(s)`, `subsection(s)`,
+   `subdivision(s)` + a number-or-subsection-paren tail. The parser now
+   runs paragraph-by-paragraph (splits on `\n`) so the active code-prefix
+   resets at paragraph boundaries — replacing the previous 50-char
+   `EXTERNAL_LOOKBACK_CHARS` heuristic. `classifyMatch` branches on the
+   prefix word: `§`/`Section`/`Sec.` → section-level; `Article`/`Chapter`/
+   `Division`/`Title` → `structural` (level + number); `subsection`/
+   `subdivision` → `internal` anchored to the current section.
+   Capture rose from ~5,965 citations to ~43,427 (7.3×) on the SF corpus.
+
+4. **Resolver (`src/citations/resolver.ts`).** The result union changed
+   shape: `navigate-section` and `navigate-appendix` stay; `open-external`
+   is gone; three new kinds add `navigate-structural` (corpus-tree lookup
+   yields a `CorpusRef`), `module-not-installed` (carries `moduleId`,
+   `displayName`, `label` for the popover), and `scroll-only` (carries a
+   subsection label — used when an internal cite anchors back to its own
+   active section, so dispatch scrolls within the active tab instead of
+   opening a duplicate). The existence oracle (`CorpusExistence`) gained
+   `activeSection` + `findStructural` so the resolver can make those two
+   new decisions without re-discriminating in the renderer.
+
+5. **VS Code interaction model.** Plain click on a citation is *text
+   selection only* — the body container's `onClick` handler exits early
+   unless ⌘/Ctrl is held. ⌘/Ctrl-click opens the resolved target in a
+   new foreground tab (`navigate(item, "primary")`). ⌘⌥← / ⌘⌥→ switches
+   between open tabs and wraps at the boundaries. Per-tab back/forward
+   history was deleted entirely from `src/workbench/navigate.ts` and
+   `src/ui/use-navigation.ts`; `HistoryMap`, `recordEntry`, `initHistory`,
+   `back`, `forward`, `canGoBack`, `canGoForward` and the ⌘[ / ⌘]
+   shortcuts are gone. `NavigationIntent` shrunk to `"primary" |
+   "background"`. The `OpenItem` `external-citation` variant is gone too,
+   along with `src/ui/external-viewer/` and `src/citations/external-url.ts`.
+
+6. **Hover popover** (`src/ui/center-panel/section-view/citation-popover.tsx`).
+   The section view tracks `mouseover`/`mouseout` on `[data-cite-kind]`
+   spans; after a 400 ms delay it resolves the citation and renders a
+   popover with the kind-discriminated body. Hover-out delays 200 ms
+   before dismissing (so the cursor can travel into the popover for the
+   future "Go to definition →" affordance); ESC dismisses immediately.
+   `module-not-installed` results render a body that says
+   "{displayName} not downloaded" with no action footer — ⌘-click on a
+   not-installed module is a no-op by design.
+
+7. **Tree-follows-active-tab** (`src/ui/left-panel/file-tree/file-tree.tsx`).
+   A `useEffect` on `activeRef` walks the corpus tree to find the
+   ancestor chain of the active section, adds those node IDs to the
+   expansion set, and calls `virtualizer.scrollToIndex(..., {align:
+   "center"})`. Roman / Arabic ambiguity (SF Articles are Roman, Chapters
+   are Arabic) is handled by `findStructuralRef` in App.tsx via a small
+   `toRoman()` converter; the lookup tries both forms.
+
+8. **Validate-corpus demotion** (`src/parser/validate-corpus.ts`). With
+   the wider parser, internal-shaped cites that don't resolve in the
+   citing module are now demoted to `cross-unresolved` (informational)
+   rather than failing the gate. The demoter checks (in order):
+   self-citation; own section index with dot-truncation hierarchy walk;
+   `a`-prefix variant (SF Charter appendix sections store as `a8.559`
+   but are cited as `Section 8.559`); sibling-module section index
+   (catches cross-module slips like "Section 8.509" in sf-administrative
+   pointing at sf-charter); generic fallback for stale or off-corpus
+   references. The gate still requires zero `unresolvedIntra`; demotion
+   preserves the spirit of `project_legal_corpus_zero_skip` without
+   blocking the build on legitimately-stale references in the underlying
+   legal text.
+
+**Carry-forward from 2026-05-19:** the delegated-click + existence-oracle
+pattern remains the dispatcher; only the result shape and the click-
+semantics-gate changed. Citations remain rendered as `<span
+class="lc-cite">` with `data-cite-kind` driving CSS styling (amber
+section citations, blue structural labels, green defined terms — the
+three load-bearing colors).
+
+### 2026-05-19 — citation resolution becomes a renderer-side primitive (superseded)
+
+Before this branch, every `Citation` rendered by the section view was
+visually styled as a link but inert — clicking did nothing. The
+2026-05-19 work introduced a resolver + an `external` `OpenItem` tab
+kind + a `shell:openExternal` IPC channel for "Open at source →"
+affordances. The 2026-05-20 refoundation (above) supersedes this:
+external citations no longer exist as a top-level kind; cross-module
+references with stable `module_id`s replace the URL-synthesis pathway;
+the external viewer was removed. The `shell:openExternal` IPC handler
+stays registered for a future "Open at <source>" affordance on the
+cross-module popover but is unused by the renderer today.
 
 ### 2026-05-07 — body[] becomes the canonical section representation
 

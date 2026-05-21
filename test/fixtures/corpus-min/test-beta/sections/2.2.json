@@ -1,11 +1,14 @@
 {
   "kind": "section",
   "id": "2.2",
+  "display_label": "2.2",
   "title": "Test Section 2.2",
   "text": "Hermetic fixture content for section 2.2.",
   "citations": [],
   "defined_terms": [],
-  "hierarchy": ["Beta"],
+  "hierarchy": [
+    "Beta"
+  ],
   "editorial_status": "active",
   "body": [
     {

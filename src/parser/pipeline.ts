@@ -10,9 +10,12 @@
 
 import type {
   Appendix,
+  Citation,
   CorpusEntryKind,
+  DisplayRules,
   JurisdictionManifest,
   ModuleConfig,
+  ModuleId,
   OrdinanceHistory,
   ParsedModule,
   ResolutionHistory,
@@ -27,12 +30,12 @@ import {
   SectionFileSchema,
   SectionIdSchema,
 } from "@/types";
+import { type AnchorIndex, type BindContext, bindCitation, buildAnchorIndex } from "./binder";
 import { buildBodySegments } from "./build-body-segments";
 import { type CitationMatch, extractCitations } from "./citations";
 import { extractDefinedTerms } from "./defined-terms";
 import { computeDefinitions } from "./definitions";
 import { ParseAbortError, parseExport as parseExportRaw, type SpanRecord } from "./parse-html";
-import { computeReferences } from "./references";
 
 // Known raw-parser strategies. Adding a new jurisdiction adds a token here
 // and a case below; unknown tokens fail closed via ParseAbortError so a
@@ -59,7 +62,51 @@ const KNOWN_STRATEGIES = ["sf-amlegal"] as const;
  */
 export function parseExport(buffer: Buffer, manifest: JurisdictionManifest): ParsedModule[] {
   const rawResults = parseRawByStrategy(buffer, manifest);
-  return rawResults.map((raw) => buildParsedModule(raw.module, raw.result));
+  const built = rawResults.map((raw) => buildParsedModule(raw.module, raw.result, manifest));
+  return runBinderPass(built);
+}
+
+// Phase 2 — second pass over the parsed corpus that walks every section's
+// citations and rewrites bindable targets as section-refs. Runs after
+// every module is built so the binder sees a complete anchor index for
+// every sibling. Modules without display_rules contribute their anchors
+// (sections still bind via bare lookup); modules with display_rules
+// contribute their candidate-generation knobs.
+//
+// Citations that don't bind keep their legacy internal / cross_module
+// shape until the Phase 4 gate refuses to promote them. structural /
+// vague / internal_appendix targets pass through unchanged because the
+// binder has nothing to bind to.
+function runBinderPass(modules: ParsedModule[]): ParsedModule[] {
+  if (modules.length === 0) return modules;
+  const anchorsByModule = new Map<ModuleId, AnchorIndex>();
+  const rulesByModule = new Map<ModuleId, DisplayRules | undefined>();
+  for (const m of modules) {
+    anchorsByModule.set(m.module.id, buildAnchorIndex(m.sections, m.tocAnchors));
+    rulesByModule.set(m.module.id, m.module.display_rules);
+  }
+
+  return modules.map((m) => {
+    const ctx: BindContext = {
+      citingModuleId: m.module.id,
+      anchorsByModule,
+      rulesByModule,
+    };
+    const sections = m.sections.map((section): SectionFile => {
+      // Skip sections with no citations to avoid pointless reallocation.
+      if (section.citations.length === 0) return section;
+      const rewritten: Citation[] = section.citations.map((c) => bindCitation(c, ctx));
+      const changed = rewritten.some((c, i) => c !== section.citations[i]);
+      if (!changed) return section;
+      // Citations[] is re-validated through the schema so a malformed
+      // section-ref (e.g. range-bound rewriting that lost its from-to
+      // equality) fails closed at the trust boundary.
+      const candidate = { ...section, citations: rewritten };
+      const validated = SectionFileSchema.safeParse(candidate);
+      return validated.success ? validated.data : section;
+    });
+    return { ...m, sections };
+  });
 }
 
 // Dispatch on `manifest.parser_strategy` to pick the raw rbox walker. Today
@@ -83,6 +130,7 @@ function parseRawByStrategy(
 function buildParsedModule(
   module: ModuleConfig,
   raw: ReturnType<typeof parseExportRaw>[number]["result"],
+  manifest: JurisdictionManifest,
 ): ParsedModule {
   const skipped: SkippedEntry[] = [...raw.skipped];
   const sections: SectionFile[] = [];
@@ -120,11 +168,23 @@ function buildParsedModule(
 
   // Pass 1
   for (const ps of raw.sections) {
-    const citationMatches = extractCitations(ps.text, module);
+    // Pass the citing section's id so bare `subsection (a)` / `subdivision
+    // (b)` refs anchor to it. Without this, those cites classify as null
+    // and silently drop from the generated corpus, even though the direct
+    // extractor tests pass the option and look green.
+    // Pass the citing section's id so bare `subsection (a)` / `subdivision
+    // (b)` refs anchor to it. Without this, those cites classify as null
+    // and silently drop from the generated corpus, even though the direct
+    // extractor tests pass the option and look green.
+    const citationMatches = extractCitations(ps.text, module, {
+      currentSectionId: ps.id,
+      jurisdictionModules: manifest.modules,
+    });
     const definedTermMatches = extractDefinedTerms(ps.text, module);
     const candidate: SectionFile = {
       kind: "section",
       id: ps.id,
+      display_label: ps.display_label,
       title: ps.title,
       text: ps.text,
       hierarchy: ps.hierarchy,
@@ -293,7 +353,6 @@ function buildParsedModule(
     // defined-term from the map even though the surviving sections' body[]
     // already references it.
     definitions: localDefinitions,
-    references: computeReferences(sections, module.id),
     skipped,
     // Warnings: the parse-html-level InterCodeLink resolver returns these,
     // but it isn't yet wired into parseExport's per-module slice. Empty for

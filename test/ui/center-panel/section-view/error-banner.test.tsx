@@ -17,7 +17,7 @@ describe("SectionView — error banner (D8)", () => {
         view={null}
         parentsLabel=""
         error={{ kind: "not_found", detail: "Section 9.9 not found" }}
-        onActivate={vi.fn()}
+        navigate={vi.fn()}
       />,
     );
     expect(screen.getByRole("alert")).toBeInTheDocument();
@@ -40,7 +40,7 @@ describe("SectionView — error banner (D8)", () => {
         view={view}
         parentsLabel="Port Code"
         error={{ kind: "corrupt", detail: "Schema parse failed" }}
-        onActivate={vi.fn()}
+        navigate={vi.fn()}
       />,
     );
     expect(screen.getByRole("alert")).toBeInTheDocument();
@@ -48,7 +48,7 @@ describe("SectionView — error banner (D8)", () => {
   });
 
   it("does not render the banner when error is null", () => {
-    render(<SectionView view={null} parentsLabel="" error={null} onActivate={vi.fn()} />);
+    render(<SectionView view={null} parentsLabel="" error={null} navigate={vi.fn()} />);
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });

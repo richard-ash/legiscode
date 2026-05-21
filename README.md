@@ -18,6 +18,6 @@ Full setup (mise + Node + pnpm install): see [`docs/development/setup.md`](./doc
 
 `mise.toml` owns tasks; `Makefile` is a thin wrapper. `package.json` has no `scripts`.
 
-## Phase 0 status
+## Status
 
-This branch (`feat/repo-baseline`) ships dev infrastructure only — no business logic. Type stubs in `src/types/` are intentionally empty; `feat/corpus-parser` (Phase 1) fills them from real AmLegal HTML and ships runtime validators alongside.
+Phase 1 (v1.0 wedge) is in flight. The build pipeline parses AmLegal HTML into validated per-section JSON; the Electron app renders the corpus tree, reads sections via typed IPC, manages tabs (VS Code-style: plain click selects, ⌘-click opens in a new tab, ⌘⌥←/→ switches tabs), and resolves citations against the full corpus on ⌘-click — including cross-module references to known external codes (California's 29 codes + US Code + CFR) that surface "not downloaded" popovers when their bundles aren't installed. Roadmap and deferrals live in [`TODOS.md`](./TODOS.md).

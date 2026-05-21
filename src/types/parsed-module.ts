@@ -5,22 +5,20 @@
 // doesn't rebuild. Decoupling.
 
 import type { Appendix } from "./appendix";
-import type { CorpusEntryKind } from "./corpus-meta";
+import type { CorpusEntryKind, SkippedEntry } from "./corpus-meta";
 import type { DefinitionsFile } from "./definitions";
 import type { SectionId } from "./identifiers";
 import type { ModuleConfig } from "./manifest";
 import type { OrdinanceHistory } from "./ordinance-history";
-import type { ReferencesFile } from "./references";
 import type { ResolutionHistory } from "./resolution-history";
 import type { SectionFile } from "./section";
-import type { SkippedEntry } from "./corpus-meta";
 
 /**
  * The fully-validated, enriched output of parsing one module out of a
  * jurisdiction source export. Everything a downstream writer needs is
- * here: validated entries by kind, the computed definitions and references
- * graphs, the skipped-entry log (parser-time and validator-time), and
- * which entry kinds appeared.
+ * here: validated entries by kind, the computed definitions graph, the
+ * skipped-entry log (parser-time and validator-time), and which entry
+ * kinds appeared.
  *
  * Intended downstream: hand the whole object to `writeModule()` from
  * `@/storage`. Do not destructure for orchestration — that is a sign the
@@ -39,8 +37,6 @@ export interface ParsedModule {
   resolutionHistories: ResolutionHistory[];
   /** definitions.json content for this module. */
   definitions: DefinitionsFile;
-  /** references.json content for this module. */
-  references: ReferencesFile;
   /**
    * Entries the parser or validator could not promote. Contributes to the
    * 0%-skip-rate gate. The gate itself lives in storage; this list is the

@@ -19,8 +19,8 @@ import type {
 import {
   AtomicWriteError,
   acquireLock,
-  ensureCleanNew,
   ExitCodes,
+  ensureCleanNew,
   promote,
   recover,
   releaseLock,
@@ -96,7 +96,6 @@ export async function writeModule(parsed: ParsedModule, opts: WriteModuleOptions
       join(newDir, "manifest.json"),
       toDistributedManifest(opts.jurisdiction, parsed.module),
     );
-    await writeJson(join(newDir, "references.json"), parsed.references);
     await writeJson(join(newDir, "definitions.json"), parsed.definitions);
 
     const meta = await composeCorpusMeta({

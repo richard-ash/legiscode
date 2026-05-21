@@ -29,7 +29,7 @@ describe("SectionView — long-section (matches sf-publicworks 184.12 worst case
       section: { text: textLines.join(""), body: segments },
     });
     const { unmount } = render(
-      <SectionView view={view} parentsLabel="" error={null} onActivate={vi.fn()} />,
+      <SectionView view={view} parentsLabel="" error={null} navigate={vi.fn()} />,
     );
     // 200 paragraphs → 200 <p> elements.
     expect(document.querySelectorAll("p.lc-para")).toHaveLength(200);

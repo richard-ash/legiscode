@@ -1,0 +1,200 @@
+{
+  "description": "Phase 6 binding accuracy fixture. Each triple is (cite text, citing module, expected section-ref target). Spans the 4 affected modules (sf-plumbing, sf-building, sf-housing, sf-charter) plus 5 unaffected control modules (sf-administrative, sf-business, sf-elections, sf-police, sf-port). Patterns covered: intra-module, cross-module suffix-form, cross-module prefix-form (CA codes), multi-code paragraph, structural references, alpha-suffix, strip-trailing-zero, sibling-fallback, vague reclassification. Tests against the live binder via test/parser/binding-accuracy.test.ts; targets the binder layer per feedback_test_each_path_once.",
+  "schema_version": "1.0.0",
+  "fixtures": [
+    {
+      "name": "p109-cite-2-intra-strip-trailing-zero",
+      "context": "sf-plumbing p109 cites its own section 109.0 — strip_trailing_zero should bind to p109",
+      "citing_module_id": "sf-plumbing",
+      "citing_section_id": "p109",
+      "text": "Cost of work pursuant to this Section 109.0 shall be assessed.",
+      "expected_cite": "Section 109.0",
+      "expected_target": {
+        "kind": "section-ref",
+        "anchor_id": "p109",
+        "module_id": "sf-plumbing"
+      }
+    },
+    {
+      "name": "p109-cite-1-suffix-form-alpha-suffix",
+      "context": "sf-plumbing p109 cites sf-building 102A via suffix-form code phrase + alpha suffix",
+      "citing_module_id": "sf-plumbing",
+      "citing_section_id": "p109",
+      "text": "abate the condition in accordance with Section 102A of the Building Code.",
+      "expected_cite": "Section 102A",
+      "expected_target": {
+        "kind": "section-ref",
+        "anchor_id": "b102a",
+        "module_id": "sf-building"
+      }
+    },
+    {
+      "name": "p109-cite-4-intervening-clauses",
+      "context": "sf-plumbing p109 cites sf-building 110A through em-dash clauses — the hardest p109 case",
+      "citing_module_id": "sf-plumbing",
+      "citing_section_id": "p109",
+      "text": "See Section 110A, Table 1A-K - Penalties, Hearings - of the Building Code for the applicable fee.",
+      "expected_cite": "Section 110A",
+      "expected_target": {
+        "kind": "section-ref",
+        "anchor_id": "b110a",
+        "module_id": "sf-building"
+      }
+    },
+    {
+      "name": "multi-code-paragraph-building",
+      "context": "two cross-module cites in one sentence — first cite binds to Building Code via b-prefix + alpha-suffix",
+      "citing_module_id": "sf-plumbing",
+      "citing_section_id": "p109",
+      "text": "Per Section 102A of the Building Code and Section 50 of the Police Code.",
+      "expected_cite": "Section 102A",
+      "expected_target": {
+        "kind": "section-ref",
+        "anchor_id": "b102a",
+        "module_id": "sf-building"
+      }
+    },
+    {
+      "name": "multi-code-paragraph-police",
+      "context": "two cross-module cites in one sentence — second cite binds to Police Code with bare numeric anchor",
+      "citing_module_id": "sf-plumbing",
+      "citing_section_id": "p109",
+      "text": "Per Section 102A of the Building Code and Section 50 of the Police Code.",
+      "expected_cite": "Section 50",
+      "expected_target": {
+        "kind": "section-ref",
+        "anchor_id": "50",
+        "module_id": "sf-police"
+      }
+    },
+    {
+      "name": "internal-not-borrowed",
+      "context": "earlier cite without code phrase stays internal; phrase attaches to nearer cite",
+      "citing_module_id": "sf-plumbing",
+      "citing_section_id": "p109",
+      "text": "See Section 109.0 herein and the procedures in Section 102 of the Building Code.",
+      "expected_cite": "Section 109.0",
+      "expected_target": {
+        "kind": "section-ref",
+        "anchor_id": "p109",
+        "module_id": "sf-plumbing"
+      }
+    },
+    {
+      "name": "sf-charter-bare-numeric-intra",
+      "context": "sf-charter bare numeric anchor — no prefix needed",
+      "citing_module_id": "sf-charter",
+      "citing_section_id": "5.102",
+      "text": "See Section 5.102 hereunder.",
+      "expected_cite": "Section 5.102",
+      "expected_target": {
+        "kind": "section-ref",
+        "anchor_id": "5.102",
+        "module_id": "sf-charter"
+      }
+    },
+    {
+      "name": "sf-charter-appendix-a-prefix",
+      "context": "sf-charter cite that requires the 'a' extra-prefix to bind to the appendix anchor",
+      "citing_module_id": "sf-charter",
+      "citing_section_id": "5.102",
+      "text": "See Section 8.559 for the appendix-A provision.",
+      "expected_cite": "Section 8.559",
+      "expected_target": {
+        "kind": "section-ref",
+        "anchor_id": "a8.559",
+        "module_id": "sf-charter"
+      }
+    },
+    {
+      "name": "external-cal-vehicle-code",
+      "context": "Cal. Vehicle Code reference — module not in build, stays cross_module for install-time resolution",
+      "citing_module_id": "sf-administrative",
+      "citing_section_id": "5.122",
+      "text": "Compliance with Cal. Veh. Code § 22358.",
+      "expected_cite": "§ 22358",
+      "expected_target": {
+        "kind": "cross_module",
+        "module_id": "ca-vehicle",
+        "section_id": "22358"
+      }
+    },
+    {
+      "name": "external-usc-no-phrase-vague",
+      "context": "bare-integer cite without code-phrase prefix and no anchor anywhere → vague",
+      "citing_module_id": "sf-administrative",
+      "citing_section_id": "5.122",
+      "text": "See § 5270 for the external context.",
+      "expected_cite": "§ 5270",
+      "expected_target": {
+        "kind": "vague",
+        "raw": "§ 5270"
+      }
+    },
+    {
+      "name": "sf-housing-strip-trailing-zero",
+      "context": "sf-housing has m104.0 anchor — strip_trailing_zero variant generates the right candidate",
+      "citing_module_id": "sf-housing",
+      "citing_section_id": "m104.0",
+      "text": "Compliance with Section 104.0 is required.",
+      "expected_cite": "Section 104.0",
+      "expected_target": {
+        "kind": "section-ref",
+        "anchor_id": "m104.0",
+        "module_id": "sf-housing"
+      }
+    },
+    {
+      "name": "sf-building-cross-from-plumbing-bare-numeric",
+      "context": "sf-plumbing cite to a bare-numeric sf-building anchor — binds via the bare fallback (not the b prefix)",
+      "citing_module_id": "sf-plumbing",
+      "citing_section_id": "p103",
+      "text": "Procedures shall conform to Section 1106 of the Building Code.",
+      "expected_cite": "Section 1106",
+      "expected_target": {
+        "kind": "section-ref",
+        "anchor_id": "1106",
+        "module_id": "sf-building"
+      }
+    },
+    {
+      "name": "structural-chapter-cite",
+      "context": "Chapter N references resolve at runtime against the corpus tree, not the binder",
+      "citing_module_id": "sf-charter",
+      "citing_section_id": "5.102",
+      "text": "Per Chapter 5 of this Code.",
+      "expected_cite": "Chapter 5",
+      "expected_target": {
+        "kind": "structural",
+        "level": "chapter",
+        "number": "5"
+      }
+    },
+    {
+      "name": "structural-article-cite",
+      "context": "Article N references resolve at runtime against the corpus tree, not the binder",
+      "citing_module_id": "sf-charter",
+      "citing_section_id": "5.102",
+      "text": "See Article 5 herein.",
+      "expected_cite": "Article 5",
+      "expected_target": {
+        "kind": "structural",
+        "level": "article",
+        "number": "5"
+      }
+    },
+    {
+      "name": "sf-building-intra-alpha-suffix",
+      "context": "sf-building citing its own b110a anchor via alpha-suffix capture",
+      "citing_module_id": "sf-building",
+      "citing_section_id": "b102a",
+      "text": "See Section 110A herein for the penalty schedule.",
+      "expected_cite": "Section 110A",
+      "expected_target": {
+        "kind": "section-ref",
+        "anchor_id": "b110a",
+        "module_id": "sf-building"
+      }
+    }
+  ]
+}

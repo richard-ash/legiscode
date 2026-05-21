@@ -22,22 +22,113 @@
 }
 
 /* ── Citations ──────────────────────────────────────────────────────── */
+/* Span (not button) so text selection works across citation boundaries —
+ * VS Code semantics: plain click selects, ⌘/Ctrl-click navigates. Amber
+ * accents per the 2026-05-19 mockup; structural labels stay blue,
+ * defined terms stay green (a 3-color palette keeps the three kinds
+ * visually distinct). */
 .lc-cite {
-  cursor: default;
-  text-decoration: none;
+  color: var(--peach, var(--yellow, #d4a36a));
   border-bottom: 1px dotted currentColor;
+  cursor: default;
 }
-.lc-cite-internal {
+.lc-cite[data-cite-kind="structural"] {
   color: var(--blue);
 }
-.lc-cite-external {
-  color: var(--mauve, var(--blue));
-  border-bottom-style: dashed;
-}
-.lc-cite-vague {
+.lc-cite[data-cite-kind="vague"] {
   color: var(--overlay1);
   border-bottom-style: dashed;
   font-style: italic;
+}
+/* ⌘/Ctrl held → indicate the cite is clickable. Toggled by the body
+ * container so every citation reacts to a single key event. */
+.lc-section-body[data-modifier="meta"] .lc-cite,
+.lc-section-body[data-modifier="ctrl"] .lc-cite {
+  cursor: pointer;
+}
+
+/* ── Citation popover (hover) ───────────────────────────────────────── */
+.lc-cite-popover {
+  background: var(--bg-surface0);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--text);
+  z-index: 50;
+  overflow: hidden;
+}
+.lc-cite-popover-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: color-mix(in oklab, var(--peach, var(--yellow, #d4a36a)) 10%, transparent);
+  border-bottom: 1px solid var(--border-soft);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--peach, var(--yellow, #d4a36a));
+}
+.lc-cite-popover-icon {
+  font-size: 11px;
+}
+.lc-cite-popover-raw {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lc-cite-popover-body {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lc-cite-popover-title {
+  font-weight: 600;
+  color: var(--text);
+}
+.lc-cite-popover-excerpt {
+  color: var(--subtext1);
+  font-size: 12px;
+  line-height: 1.45;
+  max-height: 6em;
+  overflow: hidden;
+}
+.lc-cite-popover-note {
+  color: var(--overlay1);
+  font-size: 12px;
+  font-style: italic;
+}
+.lc-cite-popover-footer {
+  padding: 6px 10px;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--overlay1);
+}
+.lc-cite-popover-hint {
+  font-family: var(--font-mono);
+}
+.lc-cite-popover-action {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--blue, #89b4fa);
+  cursor: pointer;
+  font-family: var(--font-mono);
+}
+.lc-cite-popover-action:hover {
+  text-decoration: underline;
+}
+.lc-cite-popover-action:focus-visible {
+  outline: 2px solid var(--blue, #89b4fa);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 /* ── Defined terms ──────────────────────────────────────────────────── */

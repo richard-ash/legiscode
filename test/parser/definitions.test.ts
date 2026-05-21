@@ -6,6 +6,7 @@ function section(id: string, defined_terms: string[]): SectionFile {
   return {
     kind: "section",
     id,
+    display_label: id,
     title: id,
     text: "",
     citations: [],

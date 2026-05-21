@@ -89,6 +89,87 @@ describe("ModuleConfigSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  // Phase 1 — display_rules is the minimum-shape DSL the binder reads to
+  // turn cite text into candidate anchor_ids. Optional on the manifest
+  // (modules without cross-module cite traffic can omit it); strict on
+  // the four knobs.
+  it("accepts a module without display_rules", () => {
+    expect(ModuleConfigSchema.parse(validModule).display_rules).toBeUndefined();
+  });
+
+  it("accepts display_rules with sf-plumbing-shaped knobs", () => {
+    const result = ModuleConfigSchema.safeParse({
+      ...validModule,
+      display_rules: { prefix: "p", strip_trailing_zero: true },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.display_rules?.prefix).toBe("p");
+      expect(result.data.display_rules?.strip_trailing_zero).toBe(true);
+      expect(result.data.display_rules?.alpha_suffix).toBe(false);
+      expect(result.data.display_rules?.override_regex).toBeNull();
+    }
+  });
+
+  it("accepts display_rules with sf-building-shaped knobs", () => {
+    const result = ModuleConfigSchema.safeParse({
+      ...validModule,
+      display_rules: { prefix: "b", alpha_suffix: true },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.display_rules?.alpha_suffix).toBe(true);
+  });
+
+  it("accepts display_rules with a null prefix (sf-charter bare-numeric)", () => {
+    const result = ModuleConfigSchema.safeParse({
+      ...validModule,
+      display_rules: { prefix: null },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.display_rules?.prefix).toBeNull();
+  });
+
+  it("accepts display_rules with an override_regex escape hatch", () => {
+    const result = ModuleConfigSchema.safeParse({
+      ...validModule,
+      display_rules: { override_regex: "^foo(\\d+)$" },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects display_rules with uppercase prefix", () => {
+    const result = ModuleConfigSchema.safeParse({
+      ...validModule,
+      display_rules: { prefix: "B" },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts display_rules with digit-bearing prefix (sf-park 11a-style)", () => {
+    const result = ModuleConfigSchema.safeParse({
+      ...validModule,
+      display_rules: { prefix: "11a" },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts display_rules with extra_prefixes for multi-prefix modules", () => {
+    const result = ModuleConfigSchema.safeParse({
+      ...validModule,
+      display_rules: { prefix: null, extra_prefixes: ["a", "d"] },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.display_rules?.extra_prefixes).toEqual(["a", "d"]);
+  });
+
+  it("rejects display_rules with extra fields (strict)", () => {
+    const result = ModuleConfigSchema.safeParse({
+      ...validModule,
+      display_rules: { prefix: "p", composite_chapter: true },
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("JurisdictionManifestSchema — happy path", () => {

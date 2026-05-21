@@ -64,7 +64,6 @@ async function tmpOutput(): Promise<string> {
 async function makeValidNew(output: string): Promise<string> {
   const newDir = await ensureCleanNew(output);
   await writeJson(join(newDir, "manifest.json"), { id: moduleConfig.id });
-  await writeJson(join(newDir, "references.json"), {});
   await writeJson(join(newDir, "definitions.json"), {});
   const meta = await composeCorpusMeta({
     jurisdiction,
@@ -226,7 +225,7 @@ describe("ensureCleanNew + isSentinelValid", () => {
     const lock = await acquireLock(output);
     try {
       const newDir = await makeValidNew(output);
-      await writeFile(join(newDir, "references.json"), '{"tampered": true}\n', "utf8");
+      await writeFile(join(newDir, "definitions.json"), '{"tampered": true}\n', "utf8");
       expect(await isSentinelValid(newDir)).toBe(false);
     } finally {
       await releaseLock(lock);

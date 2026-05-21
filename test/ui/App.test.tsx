@@ -53,6 +53,7 @@ function buildApi(overrides: Partial<Api["corpus"]> = {}): Api {
       ...overrides,
     },
     app: { ping: vi.fn().mockResolvedValue({ pong: 1 }) },
+    shell: { openExternal: vi.fn().mockResolvedValue({ ok: true, value: undefined }) },
   };
 }
 
@@ -173,6 +174,7 @@ function buildPopulatedApi(): Api {
           section: {
             kind: "section" as const,
             id: req.sectionId,
+            display_label: req.sectionId,
             title: req.sectionId === "1.1" ? "Definitions" : "Commission",
             text: "",
             citations: [],
@@ -189,6 +191,7 @@ function buildPopulatedApi(): Api {
       })),
     },
     app: { ping: vi.fn().mockResolvedValue({ pong: 1 }) },
+    shell: { openExternal: vi.fn().mockResolvedValue({ ok: true, value: undefined }) },
   };
 }
 
@@ -365,7 +368,7 @@ describe("App — tab strip integration (feat/tabs)", () => {
     expect(activeTab?.textContent).toContain("1.2");
   });
 
-  it("FileTree.onActivate opens a section as a new tab in the strip", async () => {
+  it("clicking a file-tree row opens a section as a new tab in the strip", async () => {
     render(<App />);
     await screen.findByTestId("section-view");
     // Click § 1.2 in the tree.
@@ -471,5 +474,283 @@ describe("App — tab strip integration (feat/tabs)", () => {
     });
     expect(captured).not.toBeNull();
     expect((captured as unknown as Event).defaultPrevented).toBe(true);
+  });
+});
+
+// ─── T7 citation dispatch — App.tsx wires resolve() → navigate() ──────────
+//
+// Section views fire `onCitationActivate(citation, intent)` on a delegated
+// click. App.tsx builds a `CorpusExistence` oracle from `titleMap`, calls
+// `resolve(citation, existence)`, and dispatches based on the result kind:
+// internal/cross_module → `navigate({kind:"section", ...}, intent)`, external
+// (URL-synthesizable) → `navigate({kind:"external-citation", ...}, intent)`.
+// Unresolvable + appendix + null-URL external all log+skip without surfacing
+// UI today.
+
+function buildPopulatedApiWithCitations(
+  sectionBodies: Record<string, { body: unknown[]; citations: unknown[] }>,
+): Api {
+  return {
+    corpus: {
+      list: vi.fn().mockResolvedValue({ ok: true, value: populatedCorpus }),
+      read: vi.fn(async (req: { moduleId: string; sectionId: string }) => {
+        const override = sectionBodies[req.sectionId];
+        return {
+          ok: true as const,
+          value: {
+            moduleId: req.moduleId,
+            section: {
+              kind: "section" as const,
+              id: req.sectionId,
+              display_label: req.sectionId,
+              title: req.sectionId === "1.1" ? "Definitions" : "Commission",
+              text: "",
+              // biome-ignore lint/suspicious/noExplicitAny: test fixture shape passthrough
+              citations: (override?.citations ?? []) as any,
+              defined_terms: [],
+              hierarchy: ["Port Code", "ARTICLE 1"],
+              editorial_status: "active" as const,
+              // biome-ignore lint/suspicious/noExplicitAny: test fixture shape passthrough
+              body: (override?.body ?? []) as any,
+            },
+            parents: [{ code: "Port Code", name: "" }],
+            prev: null,
+            next: null,
+            definitions: {},
+          },
+        };
+      }),
+    },
+    app: { ping: vi.fn().mockResolvedValue({ pong: 1 }) },
+    shell: { openExternal: vi.fn().mockResolvedValue({ ok: true, value: undefined }) },
+  };
+}
+
+describe("App — citation dispatch (T7)", () => {
+  beforeEach(() => {
+    __resetVisibleRowsCache();
+    // biome-ignore lint/suspicious/noExplicitAny: test fixture
+    (window as any).api = buildPopulatedApiWithCitations({
+      "1.1": {
+        citations: [{ display_text: "§ 1.2", target: { kind: "internal", section_id: "1.2" } }],
+        body: [
+          { type: "text", text: "see " },
+          { type: "citation", raw: "§ 1.2", citation_index: 0 },
+        ],
+      },
+    });
+  });
+
+  it("plain click on an internal citation does NOT navigate (VS Code semantics: selection only)", async () => {
+    render(<App />);
+    // biome-ignore lint/suspicious/noExplicitAny: test fixture
+    const readMock = (window as any).api.corpus.read as ReturnType<typeof vi.fn>;
+    await waitFor(() => {
+      expect(readMock).toHaveBeenCalledWith({ moduleId: "sf-port", sectionId: "1.1" });
+    });
+    const link = await waitFor(() => {
+      const a = document.querySelector("span.lc-cite") as HTMLSpanElement | null;
+      if (!a) throw new Error("citation span not yet rendered");
+      return a;
+    });
+    fireEvent.click(link);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(readMock).not.toHaveBeenCalledWith({ moduleId: "sf-port", sectionId: "1.2" });
+    const sectionList = screen.getByRole("tablist", { name: "Open sections" });
+    const tabs = within(sectionList).getAllByRole("tab");
+    expect(tabs).toHaveLength(1);
+    expect(tabs[0]?.textContent).toContain("1.1");
+  });
+
+  it("Cmd-click on an internal citation opens the target in a new foreground tab", async () => {
+    render(<App />);
+    // biome-ignore lint/suspicious/noExplicitAny: test fixture
+    const readMock = (window as any).api.corpus.read as ReturnType<typeof vi.fn>;
+    await waitFor(() => {
+      expect(readMock).toHaveBeenCalledWith({ moduleId: "sf-port", sectionId: "1.1" });
+    });
+    const link = await waitFor(() => {
+      const a = document.querySelector("span.lc-cite") as HTMLSpanElement | null;
+      if (!a) throw new Error("citation span not yet rendered");
+      return a;
+    });
+    fireEvent.click(link, { metaKey: true });
+    // Primary intent → 2 tabs, foreground switched to 1.2.
+    await waitFor(() => {
+      const sectionList = screen.getByRole("tablist", { name: "Open sections" });
+      expect(within(sectionList).getAllByRole("tab")).toHaveLength(2);
+    });
+    const sectionList = screen.getByRole("tablist", { name: "Open sections" });
+    const tabs = within(sectionList).getAllByRole("tab");
+    expect(tabs[1]?.getAttribute("aria-selected")).toBe("true");
+    expect(tabs[0]?.textContent).toContain("1.1");
+    expect(tabs[1]?.textContent).toContain("1.2");
+  });
+
+  it("Cmd-click on a cross_module citation into an uninstalled module is a no-op", async () => {
+    // biome-ignore lint/suspicious/noExplicitAny: test fixture
+    (window as any).api = buildPopulatedApiWithCitations({
+      "1.1": {
+        citations: [
+          {
+            display_text: "Cal. Veh. Code § 21",
+            target: { kind: "cross_module", module_id: "ca-vehicle", section_id: "21" },
+          },
+        ],
+        body: [{ type: "citation", raw: "Cal. Veh. Code § 21", citation_index: 0 }],
+      },
+    });
+    render(<App />);
+    // biome-ignore lint/suspicious/noExplicitAny: test fixture
+    const readMock = (window as any).api.corpus.read as ReturnType<typeof vi.fn>;
+    await waitFor(() => {
+      expect(readMock).toHaveBeenCalledWith({ moduleId: "sf-port", sectionId: "1.1" });
+    });
+    const link = await waitFor(() => {
+      const a = document.querySelector("span.lc-cite") as HTMLSpanElement | null;
+      if (!a) throw new Error("citation span not yet rendered");
+      return a;
+    });
+    fireEvent.click(link, { metaKey: true });
+    await new Promise((r) => setTimeout(r, 50));
+    // No new tab; ⌘-click on a not-installed module is a popover-only flow.
+    const sectionList = screen.getByRole("tablist", { name: "Open sections" });
+    expect(within(sectionList).getAllByRole("tab")).toHaveLength(1);
+  });
+
+  it("Cmd-click on an unresolvable (vague) citation is a safe no-op — no tab change", async () => {
+    // biome-ignore lint/suspicious/noExplicitAny: test fixture
+    (window as any).api = buildPopulatedApiWithCitations({
+      "1.1": {
+        citations: [
+          {
+            display_text: "see related rules",
+            target: { kind: "vague", raw: "see related rules" },
+          },
+        ],
+        body: [{ type: "citation", raw: "see related rules", citation_index: 0 }],
+      },
+    });
+    // Phase 3 — unresolvable was warn-level; promoted to error-level so
+    // dev catches the should-never-fire path under the Phase 4 gate.
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<App />);
+    // biome-ignore lint/suspicious/noExplicitAny: test fixture
+    const readMock = (window as any).api.corpus.read as ReturnType<typeof vi.fn>;
+    await waitFor(() => {
+      expect(readMock).toHaveBeenCalledWith({ moduleId: "sf-port", sectionId: "1.1" });
+    });
+    const link = await waitFor(() => {
+      const a = document.querySelector("span.lc-cite") as HTMLSpanElement | null;
+      if (!a) throw new Error("citation span not yet rendered");
+      return a;
+    });
+    fireEvent.click(link, { metaKey: true });
+    await new Promise((r) => setTimeout(r, 50));
+    const sectionList = screen.getByRole("tablist", { name: "Open sections" });
+    expect(within(sectionList).getAllByRole("tab")).toHaveLength(1);
+    expect(err).toHaveBeenCalledWith(expect.stringContaining("unresolvable"));
+    err.mockRestore();
+  });
+
+  it("subsection citation triggers a scrollTop write on the target section's container (P1.3)", async () => {
+    // Codex review caught: useNavigation's `subsection` history field
+    // was recorded but never consumed — clicking § 1.2(b) flipped to
+    // § 1.2 but never scrolled into the (b) anchor. This test pins the
+    // wiring by spying on every scrollTop assignment on the scroll
+    // container. useRestoreScroll fires one scrollTop write on every
+    // section flip (restoring saved position); the new pending-scroll
+    // consumer fires a second write when the target section's body
+    // contains a matching `lc-sub-{label}` anchor. Asserting on the
+    // second write (against a baseline of one) catches the
+    // "consumer removed" regression without depending on layout math
+    // jsdom can't simulate.
+    //
+    // Strategy: render App, capture the .lc-doc.lc-scroll element after
+    // cold-start render, override its scrollTop accessor to count
+    // writes, then click the subsection citation. The unit-tested
+    // pendingScroll state proves the right TARGET is computed; this
+    // test proves the App's effect ACTS on it.
+    // biome-ignore lint/suspicious/noExplicitAny: test fixture
+    (window as any).api = buildPopulatedApiWithCitations({
+      "1.1": {
+        citations: [
+          {
+            display_text: "§ 1.2(b)",
+            target: { kind: "internal", section_id: "1.2", subsection: "(b)" },
+          },
+        ],
+        body: [
+          { type: "text", text: "see " },
+          { type: "citation", raw: "§ 1.2(b)", citation_index: 0 },
+        ],
+      },
+      "1.2": {
+        citations: [],
+        body: [
+          { type: "text", text: "Lead text. " },
+          { type: "subsection_label", label: "(b)" },
+          { type: "text", text: " Subsection content." },
+        ],
+      },
+    });
+    render(<App />);
+    // biome-ignore lint/suspicious/noExplicitAny: test fixture
+    const readMock = (window as any).api.corpus.read as ReturnType<typeof vi.fn>;
+    await waitFor(() => {
+      expect(readMock).toHaveBeenCalledWith({ moduleId: "sf-port", sectionId: "1.1" });
+    });
+
+    // Once the scroll container has mounted, install a scrollTop spy on
+    // its instance. This survives subsequent renders because the
+    // callback ref hands the same element back to setScrollEl. Reading
+    // the property has to return *something* so React's effect that
+    // computes `scrollEl.scrollTop + delta` doesn't blow up.
+    const scrollEl = await waitFor(() => {
+      const el = document.querySelector(".lc-doc.lc-scroll") as HTMLElement | null;
+      if (!el) throw new Error("scroll container not yet mounted");
+      return el;
+    });
+    let scrollTopWrites = 0;
+    let internalScrollTop = 0;
+    Object.defineProperty(scrollEl, "scrollTop", {
+      configurable: true,
+      get: () => internalScrollTop,
+      set: (v: number) => {
+        scrollTopWrites += 1;
+        internalScrollTop = v;
+      },
+    });
+
+    // Reset before the click so we count writes triggered by this
+    // navigation only (the initial cold-start renders may have written
+    // before the spy was installed).
+    scrollTopWrites = 0;
+
+    const link = await waitFor(() => {
+      const a = document.querySelector("span.lc-cite") as HTMLSpanElement | null;
+      if (!a) throw new Error("citation span not yet rendered");
+      return a;
+    });
+    fireEvent.click(link, { metaKey: true });
+
+    // Wait for the corpus read for § 1.2 (the target section).
+    await waitFor(() => {
+      expect(readMock).toHaveBeenCalledWith({ moduleId: "sf-port", sectionId: "1.2" });
+    });
+    // The (b) anchor must mount so the consumer's querySelector lands
+    // on a real element rather than null (null → consumer clears
+    // pending but does not write scrollTop).
+    await waitFor(() => {
+      expect(document.getElementById("lc-sub-(b)")).not.toBeNull();
+    });
+
+    // Two scrollTop writes expected: 1 from useRestoreScroll (restoring
+    // saved scroll for §1.2 — defaults to 0), 1 from the pending-scroll
+    // consumer landing on `#lc-sub-(b)`. If the consumer is ever
+    // removed, this drops to 1 and the test fails.
+    await waitFor(() => {
+      expect(scrollTopWrites).toBeGreaterThanOrEqual(2);
+    });
   });
 });

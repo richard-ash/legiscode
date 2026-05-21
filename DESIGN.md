@@ -171,7 +171,7 @@ Light mode is fully supported via a `.light-mode` class toggle.
 ## Interaction Patterns
 
 ### Citation hover (amber)
-Amber-colored text with underline. On hover: shows a tooltip with the cited section's title, excerpt, and "Go to definition" action. `Cmd+click` navigates to the cited section.
+Amber-colored text with underline. Plain click selects text (VS Code semantics — `feat/citation-resolution` 2026-05-20). After a 400ms hover delay a popover renders with the resolved target's label and a "⌘-click to open" footer; the popover hides 200ms after the cursor leaves and dismisses on Escape. `Cmd+click` opens the cited section in a new foreground tab. Cross-module citations whose bundle isn't installed surface a "Not downloaded" popover instead of navigating.
 
 ### Defined term hover (green)
 Green italic text with dashed underline. On hover: shows definition tooltip with the term's legal definition and first-use location.

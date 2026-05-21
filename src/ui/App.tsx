@@ -1,14 +1,21 @@
 // Root component — orchestrates corpus loading and the workbench
 // openItems state. Owns: corpus IPC, BootOverlay branching for crash /
 // corpus errors, persistence cold-start (legacy migration runs through
-// `@/persistence` Layer 1), and the palette toggle. Workbench mutators
-// (`openItem`, `openItemWithoutSwitching`) are dispatched via functional
-// `setOpenItems` updates so closure-based deps stay stable.
+// `@/persistence` Layer 1), and the palette toggle. Tab dispatch goes
+// through useNavigation's `navigate(item, intent)` primitive — the legacy
+// `onActivate`/`onOpenWithoutSwitching` pair retired in T7.
 
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { api } from "@/app/api";
 import { applyPersistedLineHeightMult } from "@/app/section-line-height";
-import { type CorpusRef, corpusRefFromWire, corpusRefToWire, hash as refHash } from "@/corpus/refs";
+import { type CorpusExistence, resolve } from "@/citations/resolver";
+import {
+  type CorpusRef,
+  corpusRefFromWire,
+  corpusRefToWire,
+  parse as parseRef,
+  hash as refHash,
+} from "@/corpus/refs";
 import type {
   CorpusError,
   CorpusModuleSummary,
@@ -16,6 +23,8 @@ import type {
   CorpusTreeNode,
 } from "@/corpus/wire";
 import { readOpenItems, writeOpenItems } from "@/persistence";
+import { type ModuleId, ModuleIdSchema } from "@/types";
+import type { Citation } from "@/types/citation";
 import { ActivityBar } from "@/ui/chrome/activity-bar";
 import { BootOverlay } from "@/ui/chrome/boot-overlay";
 import { Breadcrumb } from "@/ui/chrome/breadcrumb";
@@ -29,16 +38,18 @@ import { useTabKeyboardShortcuts } from "@/ui/tabs/keyboard-shortcuts";
 import { TabContent } from "@/ui/tabs/tab-content";
 import { buildTitleMap, TabStrip } from "@/ui/tabs/tab-strip";
 import { useTabs } from "@/ui/tabs/use-tabs";
+import { useNavigation } from "@/ui/use-navigation";
 import {
   activeItem,
   emptyOpenItems,
   fromPersisted,
+  type OpenItem,
   type OpenItemsState,
   openItem,
-  openItemWithoutSwitching,
   toPersisted,
   validateAgainstCorpus,
 } from "@/workbench";
+import type { NavigationIntent } from "@/workbench/navigate";
 
 export function App() {
   const [corpus, setCorpus] = useState<CorpusModuleSummary | null>(null);
@@ -179,14 +190,6 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const onActivate = useCallback((ref: CorpusRef) => {
-    setOpenItems((prev) => openItem(prev, ref));
-  }, []);
-
-  const onOpenWithoutSwitching = useCallback((ref: CorpusRef) => {
-    setOpenItems((prev) => openItemWithoutSwitching(prev, ref));
-  }, []);
-
   // CQ4 — `Map<RefHash, CorpusTreeNode>` keyed by `module::section`,
   // built once per corpus snapshot and threaded through TabStrip for
   // O(1) per-tab title lookup (P1).
@@ -195,6 +198,140 @@ export function App() {
   // CQ4-adjacent: use the title map as the corpus-validity predicate for
   // recentlyClosed re-validation. Cheap, no second tree walk.
   const isRefInCorpus = useCallback((ref: CorpusRef) => titleMap.has(refHash(ref)), [titleMap]);
+
+  // Set of installed module ids, derived from titleMap so the existence
+  // oracle re-uses the same per-corpus walk. Used by the resolver to
+  // distinguish cross-module citations into uninstalled modules
+  // (unresolvable) from those into installed ones.
+  const installedModules = useMemo<ReadonlySet<ModuleId>>(() => {
+    const out = new Set<ModuleId>();
+    for (const node of titleMap.values()) {
+      if (!node.ref) continue;
+      const parsed = ModuleIdSchema.safeParse(node.ref.moduleId);
+      if (parsed.success) out.add(parsed.data);
+    }
+    return out;
+  }, [titleMap]);
+
+  // useNavigation owns the active-tab state mutators + the ⌘⌥←/→
+  // keyboard listener. Per-tab history was removed in
+  // feat/citation-resolution; navigate(item, intent) is the only entry
+  // point the citation dispatcher needs.
+  const { navigate, pendingScroll, requestScroll, consumePendingScroll } = useNavigation({
+    openItems,
+    setOpenItems,
+  });
+
+  const buildExistence = useCallback((): CorpusExistence | null => {
+    if (!corpus || !section) return null;
+    const parsed = ModuleIdSchema.safeParse(section.moduleId);
+    if (!parsed.success) return null;
+    const citingModule = parsed.data;
+    let activeSectionRef: CorpusRef | null = null;
+    try {
+      activeSectionRef = parseRef({ module: citingModule, section: section.section.id });
+    } catch {
+      activeSectionRef = null;
+    }
+    return {
+      citingModule,
+      installedModules,
+      activeSection: activeSectionRef,
+      hasSection: (module, sectionId) => {
+        try {
+          return titleMap.has(refHash(parseRef({ module, section: sectionId })));
+        } catch {
+          return false;
+        }
+      },
+      findStructural: (level, number) =>
+        findStructuralRef(corpus.tree, citingModule, level, number),
+    };
+  }, [corpus, section, installedModules, titleMap]);
+
+  const resolveCitation = useCallback(
+    (citation: Citation) => {
+      const existence = buildExistence();
+      if (!existence) return null;
+      return resolve(citation, existence);
+    },
+    [buildExistence],
+  );
+
+  // Synchronous (title, excerpt) lookup for the citation hover popover.
+  // Same titleMap that powers tab titles — node carries `code`, `name`,
+  // and the optional `preview` baked at corpus-load time. Returns null
+  // when the ref isn't in the loaded corpus (cross-module into an
+  // uninstalled module; the popover handles that case via the resolution
+  // discriminator, not via preview).
+  const getCitationPreview = useCallback(
+    (ref: CorpusRef, subsection?: string): { title: string; excerpt?: string } | null => {
+      const node = titleMap.get(refHash(ref));
+      if (!node) return null;
+      const title = node.name ? `${node.code} — ${node.name}` : node.code;
+      // Subsection-keyed excerpt wins when the cite targets a subsection
+      // and the parser-emitted label matches a pre-baked entry; else fall
+      // back to the section-level preview.
+      const subsectionExcerpt =
+        subsection && node.subsectionPreviews ? node.subsectionPreviews[subsection] : undefined;
+      const excerpt = subsectionExcerpt ?? node.preview;
+      return excerpt ? { title, excerpt } : { title };
+    },
+    [titleMap],
+  );
+
+  const onCitationActivate = useCallback(
+    (citation: Citation, intent: NavigationIntent) => {
+      const existence = buildExistence();
+      if (!existence) return;
+      const result = resolve(citation, existence);
+      switch (result.kind) {
+        case "navigate-section": {
+          const item: OpenItem = { kind: "section", ref: result.ref };
+          navigate(item, intent, result.subsection ? { subsection: result.subsection } : undefined);
+          return;
+        }
+        case "navigate-structural": {
+          const item: OpenItem = { kind: "section", ref: result.ref };
+          navigate(item, intent);
+          return;
+        }
+        case "navigate-appendix": {
+          // No appendix viewer in v1; resolver still returns the verb so
+          // the consumer can drop in support without re-discriminating.
+          console.warn(
+            `[citations] appendix navigation not yet implemented: ${result.module}::${result.appendixId}`,
+          );
+          return;
+        }
+        case "module-not-installed": {
+          // Decided 2026-05-20: ⌘-click on a not-installed module is a
+          // no-op; the popover is the user-facing affordance.
+          return;
+        }
+        case "scroll-only": {
+          if (!section) return;
+          requestScroll({
+            subsection: result.subsection,
+            targetSectionKey: `${section.moduleId}::${section.section.id}`,
+          });
+          return;
+        }
+        case "unresolvable": {
+          // Phase 3 — should never fire from committed corpus data once
+          // the Phase 4 gate is in place. Loud-log so dev catches drift:
+          // a fired unresolvable means the build leaked an unbindable
+          // cite past the gate (or a vague target reached navigate,
+          // which the dispatcher upstream is supposed to filter).
+          // Stays at console-level only; no toast in v1 — the gate is
+          // the user-facing signal.
+          console.error(`[citations] unresolvable: ${result.reason}`);
+          return;
+        }
+      }
+    },
+    [buildExistence, section, navigate, requestScroll],
+  );
 
   const {
     close: closeTabAt,
@@ -205,6 +342,7 @@ export function App() {
     openItems,
     setOpenItems,
     isValidRef: isRefInCorpus,
+    navigate,
   });
 
   // Callback ref + state for SectionView's scroll container — the hook
@@ -222,6 +360,30 @@ export function App() {
   }, [openItems]);
   const sectionKey = section ? `${section.moduleId}::${section.section.id}` : null;
   useRestoreScroll(activeSectionRef, scrollEl, sectionKey);
+
+  // Subsection scroll target — runs AFTER useRestoreScroll so a citation
+  // jump like "§ 1.2(a)(2)" overrides the per-section scrollTop restore.
+  // The pendingScroll.targetSectionKey gate is load-bearing: a citation
+  // click sets pendingScroll synchronously but the new section's body
+  // mounts only after the corpus.read IPC roundtrip. Without the gate,
+  // the effect would fire against the previous section's DOM, miss the
+  // anchor, and consume the pending scroll before the new section ever
+  // had a chance. CSS.escape on the subsection label is required since
+  // labels carry parens and digits (e.g. "(a)", "(2)") that aren't
+  // valid in a raw CSS id selector.
+  useLayoutEffect(() => {
+    if (!pendingScroll || !scrollEl || !sectionKey) return;
+    if (pendingScroll.targetSectionKey !== sectionKey) return;
+    const el = scrollEl.querySelector(
+      `#${CSS.escape(`lc-sub-${pendingScroll.subsection}`)}`,
+    ) as HTMLElement | null;
+    if (el) {
+      const containerRect = scrollEl.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      scrollEl.scrollTop = scrollEl.scrollTop + (elRect.top - containerRect.top) - 16;
+    }
+    consumePendingScroll();
+  }, [pendingScroll, sectionKey, scrollEl, consumePendingScroll]);
 
   const onScrollY = useCallback(
     (y: number) => {
@@ -244,7 +406,7 @@ export function App() {
 
   const fileLabel = useMemo(() => {
     if (!section) return "";
-    return `§ ${section.section.id} — ${section.section.title}`;
+    return `§ ${section.section.display_label} — ${section.section.title}`;
   }, [section]);
 
   const parentsLabel = useMemo(() => {
@@ -294,7 +456,7 @@ export function App() {
   // Until corpus + first section resolve, render the chrome shell with
   // empty bodies. The window stays show:false in main.ts so this state is
   // never visible to the user.
-  const sectionLabel = section ? `§ ${section.section.id}` : null;
+  const sectionLabel = section ? `§ ${section.section.display_label}` : null;
   const active = activeItem(openItems);
   const hasItems = openItems.items.length > 0;
   const center: ReactNode = (
@@ -314,7 +476,10 @@ export function App() {
               section={section}
               sectionError={sectionError}
               parentsLabel={parentsLabel}
-              onActivate={onActivate}
+              navigate={navigate}
+              onCitationActivate={onCitationActivate}
+              resolveCitation={resolveCitation}
+              getCitationPreview={getCitationPreview}
               scrollContainerRef={setScrollEl}
               onScrollY={onScrollY}
             />
@@ -350,8 +515,7 @@ export function App() {
                   key={corpus?.jurisdictionVersion ?? "boot"}
                   tree={corpus?.tree ?? []}
                   openItems={openItems}
-                  onActivate={onActivate}
-                  onOpenWithoutSwitching={onOpenWithoutSwitching}
+                  navigate={navigate}
                 />
               </div>
             }
@@ -370,10 +534,7 @@ export function App() {
           open={paletteOpen}
           onClose={() => setPaletteOpen(false)}
           corpus={corpus}
-          onSelect={(ref) => {
-            onActivate(ref);
-            setPaletteOpen(false);
-          }}
+          navigate={navigate}
         />
       ) : null}
     </>
@@ -401,4 +562,96 @@ function hasRefInTree(tree: readonly CorpusTreeNode[], ref: CorpusRef): boolean 
     if (node.kids) for (const k of node.kids) stack.push(k);
   }
   return false;
+}
+
+// Convert a positive integer (≤ 3999) to a Roman numeral. SF's
+// chapter/article naming uses both forms — Articles tend to be Roman
+// ("ARTICLE V"), chapters arabic ("CHAPTER 5") — so the structural
+// resolver tries both when matching tree node prefixes.
+const ROMAN_PIECES: ReadonlyArray<readonly [number, string]> = [
+  [1000, "M"],
+  [900, "CM"],
+  [500, "D"],
+  [400, "CD"],
+  [100, "C"],
+  [90, "XC"],
+  [50, "L"],
+  [40, "XL"],
+  [10, "X"],
+  [9, "IX"],
+  [5, "V"],
+  [4, "IV"],
+  [1, "I"],
+];
+export function toRoman(n: number): string {
+  if (!Number.isInteger(n) || n <= 0 || n > 3999) return "";
+  let remaining = n;
+  let out = "";
+  for (const [value, symbol] of ROMAN_PIECES) {
+    while (remaining >= value) {
+      out += symbol;
+      remaining -= value;
+    }
+  }
+  return out;
+}
+
+export function findStructuralRef(
+  tree: readonly CorpusTreeNode[],
+  module: ModuleId,
+  level: "article" | "chapter" | "division" | "title",
+  number: string,
+): CorpusRef | null {
+  const moduleRoot = tree.find((n) => n.kind === "code" && n.id === module);
+  if (!moduleRoot?.kids) return null;
+  const labelUpper = level.toUpperCase();
+  const candidates = new Set<string>([number]);
+  const asInt = Number.parseInt(number, 10);
+  if (!Number.isNaN(asInt)) {
+    const roman = toRoman(asInt);
+    if (roman) candidates.add(roman);
+  }
+  // Delimited prefixes (e.g. "CHAPTER 1:" / "CHAPTER 1 ") match by
+  // startsWith — the trailing delimiter prevents "CHAPTER 1" from
+  // claiming "CHAPTER 10". Bare matchers (no trailing delimiter) must
+  // be exact-equality matches so labels that are just the cited number
+  // with no trailing prose still resolve.
+  const prefixMatchers: string[] = [];
+  const exactMatchers: string[] = [];
+  for (const cand of candidates) {
+    prefixMatchers.push(`${labelUpper} ${cand}:`);
+    prefixMatchers.push(`${labelUpper} ${cand} `);
+    exactMatchers.push(`${labelUpper} ${cand}`);
+  }
+  function firstSection(node: CorpusTreeNode): CorpusTreeNode | null {
+    if (node.kind === "section" && node.ref) return node;
+    if (node.kids) {
+      for (const k of node.kids) {
+        const r = firstSection(k);
+        if (r) return r;
+      }
+    }
+    return null;
+  }
+  const stack: CorpusTreeNode[] = [...moduleRoot.kids];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) continue;
+    if (
+      node.kind === "chapter" &&
+      (prefixMatchers.some((p) => node.code.startsWith(p)) ||
+        exactMatchers.some((e) => node.code === e))
+    ) {
+      const leaf = firstSection(node);
+      if (leaf?.ref) {
+        try {
+          return parseRef({ module, section: leaf.ref.sectionId });
+        } catch {
+          // Fall through to next match if ref parse fails.
+        }
+      }
+    }
+    if (node.kids) for (const k of node.kids) stack.push(k);
+  }
+  return null;
 }

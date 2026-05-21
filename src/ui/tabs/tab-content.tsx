@@ -8,10 +8,13 @@
 // shouldn't crash the user's workbench).
 
 import type { ReactNode } from "react";
+import type { ResolutionResult } from "@/citations/resolver";
 import type { CorpusRef } from "@/corpus/refs";
 import { hash as refHash } from "@/corpus/refs";
 import type { CorpusError, CorpusSectionView } from "@/corpus/wire";
+import type { Citation } from "@/types/citation";
 import { SectionView } from "@/ui/center-panel/section-view/section-view";
+import type { NavigationIntent } from "@/workbench/navigate";
 import type { OpenItem } from "@/workbench/open-items";
 
 export interface TabContentProps {
@@ -19,7 +22,17 @@ export interface TabContentProps {
   section: CorpusSectionView | null;
   sectionError: CorpusError | null;
   parentsLabel: string;
-  onActivate: (ref: CorpusRef) => void;
+  /** Tab-dispatch primitive forwarded to SectionView for defined-term jumps
+   *  and redesignated redirect links. */
+  navigate: (item: OpenItem, intent: NavigationIntent) => void;
+  /** Citation dispatch — pass-through to SectionView. Optional today
+   *  because not every consumer (some tests) needs to assert the seam. */
+  onCitationActivate?: (citation: Citation, intent: NavigationIntent) => void;
+  /** Resolves a citation for the hover popover. Pass-through to SectionView. */
+  resolveCitation?: (citation: Citation) => ResolutionResult | null;
+  /** Synchronous (title, excerpt) lookup keyed by the resolved target's
+   *  ref — feeds the hover popover's title + body excerpt. Pass-through. */
+  getCitationPreview?: (ref: CorpusRef) => { title: string; excerpt?: string } | null;
   /** Callback ref handed to SectionView's scroll container so the parent
    *  can drive per-tab scroll restoration via the use-tabs hook. */
   scrollContainerRef?: (el: HTMLElement | null) => void;
@@ -32,7 +45,10 @@ export function TabContent({
   section,
   sectionError,
   parentsLabel,
-  onActivate,
+  navigate,
+  onCitationActivate,
+  resolveCitation,
+  getCitationPreview,
   scrollContainerRef,
   onScrollY,
 }: TabContentProps): ReactNode {
@@ -46,7 +62,10 @@ export function TabContent({
             view={section}
             parentsLabel={parentsLabel}
             error={sectionError}
-            onActivate={onActivate}
+            navigate={navigate}
+            onCitationActivate={onCitationActivate}
+            resolveCitation={resolveCitation}
+            getCitationPreview={getCitationPreview}
             scrollContainerRef={scrollContainerRef}
             onScrollY={onScrollY}
           />

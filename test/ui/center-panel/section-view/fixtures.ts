@@ -17,6 +17,7 @@ export function buildCorpusSectionView(
   const sectionDefaults: SectionFile = {
     kind: "section",
     id: "1.1",
+    display_label: "1.1",
     title: "Definitions",
     text: "",
     citations: [],
@@ -73,8 +74,12 @@ export function citationCrossModule(
     target: { kind: "cross_module", module_id, section_id },
   };
 }
-export function citationExternal(display_text: string, raw: string): Citation {
-  return { display_text, target: { kind: "external", raw } };
+export function citationStructural(
+  display_text: string,
+  level: "article" | "chapter" | "division" | "title",
+  number: string,
+): Citation {
+  return { display_text, target: { kind: "structural", level, number } };
 }
 export function citationVague(display_text: string, raw: string): Citation {
   return { display_text, target: { kind: "vague", raw } };

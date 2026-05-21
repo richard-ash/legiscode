@@ -4,9 +4,12 @@ import {
   activeItem,
   closeItem,
   emptyOpenItems,
+  findItemIndex,
   findSectionIndex,
   fromPersisted,
+  itemIdentity,
   type OpenItem,
+  type OpenItemsState,
   openItem,
   openItemWithoutSwitching,
   reorderItems,
@@ -181,16 +184,20 @@ describe("reorderItems (drag-reorder pure mutator)", () => {
   });
 });
 
-describe("validateRecentlyClosed (drop stale refs)", () => {
-  it("drops refs that fail the predicate and returns a fresh array", () => {
-    const buf = [refA, refB, refC];
+describe("validateRecentlyClosed (drop stale items)", () => {
+  const itemA: OpenItem = { kind: "section", ref: refA };
+  const itemB: OpenItem = { kind: "section", ref: refB };
+  const itemC: OpenItem = { kind: "section", ref: refC };
+
+  it("drops section items that fail the predicate and returns a fresh array", () => {
+    const buf = [itemA, itemB, itemC];
     const out = validateRecentlyClosed(buf, (ref) => ref.section !== "1.2");
     expect(out).toHaveLength(2);
     expect(out).not.toBe(buf);
   });
 
   it("returns the same reference when nothing is dropped (cheap fast path)", () => {
-    const buf = [refA, refB];
+    const buf = [itemA, itemB];
     const out = validateRecentlyClosed(buf, () => true);
     expect(out).toBe(buf);
   });
@@ -357,5 +364,27 @@ describe("persistence interop", () => {
     const round = fromPersisted(toPersisted(original));
     expect(round.items).toHaveLength(3);
     expect(round.activeIndex).toBe(2);
+  });
+});
+
+describe("itemIdentity / findItemIndex", () => {
+  const chat: OpenItem = { kind: "chat", chatId: "thread-1" };
+  const section: OpenItem = { kind: "section", ref: refA };
+  const section2: OpenItem = { kind: "section", ref: refB };
+
+  it("returns distinct identities per kind", () => {
+    expect(itemIdentity(section)).toMatch(/^section::/);
+    expect(itemIdentity(chat)).toMatch(/^chat::/);
+    expect(itemIdentity(section)).not.toEqual(itemIdentity(chat));
+  });
+
+  it("findItemIndex locates items across kinds", () => {
+    const items: OpenItem[] = [chat, section];
+    expect(findItemIndex(items, section)).toBe(1);
+    expect(findItemIndex(items, chat)).toBe(0);
+  });
+
+  it("findItemIndex returns -1 when the item is not present", () => {
+    expect(findItemIndex([section], section2)).toBe(-1);
   });
 });

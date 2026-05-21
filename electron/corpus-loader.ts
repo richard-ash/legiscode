@@ -18,7 +18,7 @@
 // performance cost (zod parse per section, ~11k sections) is amortized
 // against the boot once-per-app-launch.
 
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import {
@@ -513,15 +513,108 @@ function buildModuleTree(m: LoadedModule): CorpusTreeNode {
       cursor = next;
     }
     if (!cursor.kids) cursor.kids = [];
+    // `code` carries the human-readable display label, not the
+    // canonical anchor id. Post-refoundation, sf-plumbing's section
+    // anchor "p109" has display_label "109.0" — the file tree, command
+    // palette, and inactive-tab titles all surface `code`, and users
+    // need to see the legal section number ("109.0") not the prefixed
+    // anchor ("p109"). The anchor id stays canonical via `ref.sectionId`
+    // for routing.
+    const preview = extractPreview(s.section.text);
+    const subsectionPreviews = extractSubsectionPreviews(s.section.body);
     cursor.kids.push({
       id: `${m.id}::${s.section.id}`,
-      code: `§ ${s.section.id}`,
+      code: `§ ${s.section.display_label}`,
       name: s.section.title,
       kind: "section",
       ref: { moduleId: m.id, sectionId: s.section.id },
+      ...(preview ? { preview } : {}),
+      ...(Object.keys(subsectionPreviews).length > 0 ? { subsectionPreviews } : {}),
     });
   }
   return root;
+}
+
+const PREVIEW_MAX_CHARS = 180;
+
+/**
+ * First chunk of section text, normalized for the hover popover. Used
+ * synchronously from the file-tree map keyed by refHash; the tree is
+ * already on the IPC wire so adding ~180 chars per section is a small
+ * fixed multiplier on the existing payload.
+ *
+ * Truncation prefers a word boundary inside the last 40 chars to avoid
+ * cutting mid-word, then appends an ellipsis. Returns empty when the
+ * section text is itself empty so the field is omitted (consumers
+ * branch on presence, not on the empty string).
+ */
+function extractPreview(text: string): string {
+  const collapsed = text.replace(/\s+/g, " ").trim();
+  if (collapsed.length === 0) return "";
+  if (collapsed.length <= PREVIEW_MAX_CHARS) return collapsed;
+  const window = collapsed.slice(0, PREVIEW_MAX_CHARS);
+  const lastSpace = window.lastIndexOf(" ");
+  const cut = lastSpace >= PREVIEW_MAX_CHARS - 40 ? lastSpace : PREVIEW_MAX_CHARS;
+  return `${window.slice(0, cut).trimEnd()}…`;
+}
+
+/**
+ * Walk body[] and bake a preview for each subsection_label encountered.
+ * Each preview is the text immediately following the label, up to the
+ * next subsection_label or the end of body (whichever comes first), then
+ * normalized + truncated by the same rules as extractPreview.
+ *
+ * First-occurrence-wins matches the subsection-id emission pattern in
+ * section-view.tsx — duplicate labels in the same section are rare in
+ * real legal corpora and the renderer's anchor lands on the first.
+ *
+ * Recurses into format.children so subsection_labels inside list /
+ * listItem wrappers still get previews.
+ */
+function extractSubsectionPreviews(body: readonly BodySegment[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  let currentLabel: string | null = null;
+  let currentBuf = "";
+
+  const flush = (): void => {
+    if (currentLabel === null) return;
+    if (!(currentLabel in out)) {
+      const preview = extractPreview(currentBuf);
+      if (preview) out[currentLabel] = preview;
+    }
+    currentLabel = null;
+    currentBuf = "";
+  };
+
+  const walk = (segs: readonly BodySegment[]): void => {
+    for (const seg of segs) {
+      switch (seg.type) {
+        case "subsection_label":
+          flush();
+          currentLabel = seg.label;
+          break;
+        case "text":
+          if (currentLabel !== null) currentBuf += seg.text;
+          break;
+        case "citation":
+          if (currentLabel !== null) currentBuf += seg.raw;
+          break;
+        case "defined_term":
+          if (currentLabel !== null) currentBuf += seg.term;
+          break;
+        case "paragraph_break":
+          if (currentLabel !== null) currentBuf += " ";
+          break;
+        case "format":
+          walk(seg.children);
+          break;
+      }
+    }
+  };
+
+  walk(body);
+  flush();
+  return out;
 }
 
 function describe(cause: unknown): string {

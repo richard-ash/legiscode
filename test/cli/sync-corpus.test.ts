@@ -10,7 +10,6 @@ import {
   DistributedModuleManifestSchema,
   KNOWN_SCHEMA_VERSION,
   OrdinanceHistorySchema,
-  ReferencesFileSchema,
   ResolutionHistorySchema,
   SectionFileSchema,
 } from "@/types";
@@ -47,7 +46,6 @@ describe("sync-corpus E2E — happy path against committed jurisdiction fixture"
     const out = join(firstBuild.outputBase, "sf-transportation");
     expect((await stat(out)).isDirectory()).toBe(true);
     expect((await stat(join(out, "manifest.json"))).isFile()).toBe(true);
-    expect((await stat(join(out, "references.json"))).isFile()).toBe(true);
     expect((await stat(join(out, "definitions.json"))).isFile()).toBe(true);
     expect((await stat(join(out, "corpus-meta.json"))).isFile()).toBe(true);
     const sections = await readdir(
@@ -237,27 +235,6 @@ describe("sync-corpus E2E — happy path against committed jurisdiction fixture"
     expect(transportMeta.corpus_entry_kinds).toEqual(["section"]);
   });
 
-  it("each module's references.json validates and contains its own sections only", async () => {
-    const transportRefs = ReferencesFileSchema.parse(
-      JSON.parse(
-        await readFile(join(firstBuild.outputBase, "sf-transportation", "references.json"), "utf8"),
-      ),
-    );
-    for (const id of ["1.1", "1.2", "1.3", "1.4", "1.5"]) {
-      expect(transportRefs[id]).toBeDefined();
-    }
-    expect(transportRefs["1.100"]).toBeUndefined();
-
-    const charterRefs = ReferencesFileSchema.parse(
-      JSON.parse(
-        await readFile(join(firstBuild.outputBase, "sf-charter", "references.json"), "utf8"),
-      ),
-    );
-    expect(charterRefs["1.100"]).toBeDefined();
-    expect(charterRefs["1.101"]).toBeDefined();
-    expect(charterRefs["1.1"]).toBeUndefined();
-  });
-
   it("definitions.json validates as a record for each module", async () => {
     DefinitionsFileSchema.parse(
       JSON.parse(
@@ -357,7 +334,6 @@ describe("sync-corpus determinism — only snapshot_at varies", () => {
         expect(b.equals(a)).toBe(true);
       };
       await compare("manifest.json");
-      await compare("references.json");
       await compare("definitions.json");
     }
   });

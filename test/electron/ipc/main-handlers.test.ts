@@ -53,6 +53,7 @@ function buildHandlers(overrides: Partial<Handlers> = {}): Handlers {
       error: { kind: "not_found", detail: "" },
     }),
     "app:ping": () => ({ pong: 42 }),
+    "shell:openExternal": () => ({ ok: true, value: undefined }),
     ...overrides,
   } as Handlers;
 }

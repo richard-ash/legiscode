@@ -57,22 +57,21 @@ describe("CitationTargetSchema (cross_module)", () => {
   });
 });
 
-describe("CitationTargetSchema (external + vague)", () => {
-  it("accepts external with raw only", () => {
+describe("CitationTargetSchema (structural + vague)", () => {
+  it("accepts a structural target", () => {
     const result = CitationTargetSchema.parse({
-      kind: "external",
-      raw: "Cal. Veh. Code § 22358",
+      kind: "structural",
+      level: "article",
+      number: "5",
     });
-    expect(result.kind).toBe("external");
+    expect(result).toEqual({ kind: "structural", level: "article", number: "5" });
   });
 
-  it("accepts external with parsed", () => {
-    const result = CitationTargetSchema.parse({
-      kind: "external",
-      raw: "Cal. Veh. Code § 22358(a)",
-      parsed: { jurisdiction: "ca", code: "veh", section: "22358", subsection: "(a)" },
-    });
-    expect(result.kind === "external" && result.parsed?.section).toBe("22358");
+  it("rejects a structural target with an unknown level", () => {
+    expect(
+      CitationTargetSchema.safeParse({ kind: "structural", level: "subarticle", number: "5" })
+        .success,
+    ).toBe(false);
   });
 
   it("accepts vague", () => {
@@ -82,6 +81,12 @@ describe("CitationTargetSchema (external + vague)", () => {
 
   it("rejects unknown kind", () => {
     expect(CitationTargetSchema.safeParse({ kind: "wat", raw: "x" }).success).toBe(false);
+  });
+
+  it("rejects the removed external kind (post-refoundation)", () => {
+    expect(
+      CitationTargetSchema.safeParse({ kind: "external", raw: "Cal. Veh. Code § 22358" }).success,
+    ).toBe(false);
   });
 });
 
@@ -111,6 +116,79 @@ describe("CitationTargetSchema (internal_appendix)", () => {
         section_id: "1.234",
       }).success,
     ).toBe(false);
+  });
+});
+
+// Phase 1 — section-ref carries an anchor-bound citation target produced
+// by the build-time binder. The discriminated union routes on `kind`;
+// the resolver collapses to a titleMap lookup once these supersede the
+// legacy internal / cross_module variants in Phase 5.
+describe("CitationTargetSchema (section-ref)", () => {
+  it("accepts a bare section-ref target", () => {
+    const result = CitationTargetSchema.parse({
+      kind: "section-ref",
+      anchor_id: "b102a",
+      module_id: "sf-building",
+    });
+    expect(result.kind).toBe("section-ref");
+  });
+
+  it("accepts section-ref with subsection", () => {
+    const result = CitationTargetSchema.parse({
+      kind: "section-ref",
+      anchor_id: "b102a",
+      module_id: "sf-building",
+      subsection: "(a)(2)",
+    });
+    expect(result.kind === "section-ref" && result.subsection).toBe("(a)(2)");
+  });
+
+  it("accepts section-ref with range when anchor_id equals range.from", () => {
+    const result = CitationTargetSchema.parse({
+      kind: "section-ref",
+      anchor_id: "b102a",
+      module_id: "sf-building",
+      range: { from: "b102a", to: "b110a" },
+    });
+    expect(result.kind === "section-ref" && result.range?.to).toBe("b110a");
+  });
+
+  it("rejects section-ref with range when anchor_id differs from range.from", () => {
+    const result = CitationTargetSchema.safeParse({
+      kind: "section-ref",
+      anchor_id: "b102a",
+      module_id: "sf-building",
+      range: { from: "b110a", to: "b120" },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects section-ref with malformed anchor_id", () => {
+    const result = CitationTargetSchema.safeParse({
+      kind: "section-ref",
+      anchor_id: "INVALID ID",
+      module_id: "sf-building",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects section-ref with malformed module_id", () => {
+    const result = CitationTargetSchema.safeParse({
+      kind: "section-ref",
+      anchor_id: "b102a",
+      module_id: "SF Building",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects section-ref with extra fields under strict", () => {
+    const result = CitationTargetSchema.safeParse({
+      kind: "section-ref",
+      anchor_id: "b102a",
+      module_id: "sf-building",
+      raw: "should not be allowed",
+    });
+    expect(result.success).toBe(false);
   });
 });
 

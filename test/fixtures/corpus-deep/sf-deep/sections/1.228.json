@@ -1,11 +1,15 @@
 {
   "kind": "section",
   "id": "1.228",
+  "display_label": "1.228",
   "title": "Test Section 1.228",
   "text": "Hermetic fixture content for sticky-header E2E section 1.228.",
   "citations": [],
   "defined_terms": [],
-  "hierarchy": ["Deep", "Article I"],
+  "hierarchy": [
+    "Deep",
+    "Article I"
+  ],
   "editorial_status": "active",
   "body": [
     {

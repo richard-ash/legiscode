@@ -87,14 +87,90 @@ describe("persistence/storage — openItems", () => {
     expect(warn).toHaveBeenCalled();
   });
 
-  it("returns null + warns when the persisted shape doesn't match the schema", () => {
+  it("drops items with unknown kinds individually (item-wise tolerant parse)", () => {
+    // Pre-C1: a single unknown-kind item caused the whole payload to be
+    // rejected via zod's discriminatedUnion failure, leaving the user with
+    // no tabs on next launch. Post-C1: unknown items drop one-at-a-time;
+    // valid items survive. activeIndex is remapped through the survivor
+    // map so the user's active tab tracks the surviving item rather than
+    // pointing past the end of the compacted list.
+    localStorage.setItem(
+      "legiscode.openItems",
+      JSON.stringify({
+        items: [
+          { kind: "section", ref: { module: "sf-port", section: "1.1" } },
+          { kind: "chat", chatId: "future" }, // unknown / non-persisted variant
+          { kind: "section", ref: { module: "sf-port", section: "1.2" } },
+        ],
+        activeIndex: 2,
+      }),
+    );
+    const result = readOpenItems();
+    expect(result?.items).toEqual([
+      { kind: "section", ref: { module: "sf-port", section: "1.1" } },
+      { kind: "section", ref: { module: "sf-port", section: "1.2" } },
+    ]);
+    // Original activeIndex=2 pointed at the third item, which survives at
+    // position 1 in the compacted list.
+    expect(result?.activeIndex).toBe(1);
+  });
+
+  it("remaps activeIndex to nearest at-or-before survivor when the active item is dropped", () => {
+    // The active tab itself is the future-kind item. Remapping picks the
+    // surviving item just before it so the session opens on a tab near
+    // where the user left off rather than at the wrong end.
+    localStorage.setItem(
+      "legiscode.openItems",
+      JSON.stringify({
+        items: [
+          { kind: "section", ref: { module: "sf-port", section: "1.1" } },
+          { kind: "chat", chatId: "future" }, // the active one — gets dropped
+          { kind: "section", ref: { module: "sf-port", section: "1.2" } },
+        ],
+        activeIndex: 1,
+      }),
+    );
+    const result = readOpenItems();
+    expect(result?.items).toHaveLength(2);
+    // The dropped active was at original index 1; the nearest surviving
+    // index at-or-before 1 is original index 0, which maps to position 0
+    // in the compacted list.
+    expect(result?.activeIndex).toBe(0);
+  });
+
+  it("returns null + warns when the persisted shape's wrapper is malformed", () => {
+    // The wrapper schema (items: array, activeIndex: int|null) still does
+    // whole-payload validation — only the items[] inner element is tolerant.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     localStorage.setItem(
       "legiscode.openItems",
-      JSON.stringify({ items: [{ kind: "chat" }], activeIndex: 0 }),
+      JSON.stringify({ items: "not an array", activeIndex: 0 }),
     );
     expect(readOpenItems()).toBeNull();
     expect(warn).toHaveBeenCalled();
+  });
+
+  it("drops legacy external-citation items from a persisted payload (post-refoundation)", () => {
+    // Pre-refoundation builds wrote { kind: "external-citation", url, label }
+    // entries to localStorage. After feat/citation-resolution the kind no
+    // longer exists in the schema; the per-item tolerant parser silently
+    // drops these so the user's other tabs survive intact.
+    localStorage.setItem(
+      "legiscode.openItems",
+      JSON.stringify({
+        items: [
+          {
+            kind: "external-citation",
+            url: "https://leginfo.legislature.ca.gov/foo",
+            label: "Cal. Veh. Code § 22358",
+          },
+        ],
+        activeIndex: 0,
+      }),
+    );
+    // No items survive the per-item drop, so activeIndex collapses to
+    // null — there is no tab to point at.
+    expect(readOpenItems()).toEqual({ items: [], activeIndex: null });
   });
 
   it("removeOpenItems clears the key", () => {
@@ -163,7 +239,11 @@ describe("persistence/storage — legacy migration (REGRESSION — IRON RULE)", 
       JSON.stringify({ moduleId: "sf-port", sectionId: "1.1" }),
     );
     const result = readOpenItems();
-    expect(result?.items[0]?.ref.section).toBe("1.1");
+    const first = result?.items[0];
+    expect(first?.kind).toBe("section");
+    if (first?.kind === "section") {
+      expect(first.ref.section).toBe("1.1");
+    }
     expect(warn).toHaveBeenCalled();
   });
 });
