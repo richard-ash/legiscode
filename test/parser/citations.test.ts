@@ -72,6 +72,83 @@ describe("extractCitations — §§ ranges", () => {
   });
 });
 
+// D8 — ordinal disambiguators in citation regex. Before T3b, the range
+// regex matched "16.9-2" as range from 16.9 to 2; after T3a preserves
+// the -N suffix in section.id, every 3,567 disambiguated body cite in
+// the SF corpus would have systematically misparsed. The single-section
+// regex now accepts an optional `-N[A]` suffix, and the hyphen-range
+// regex requires both operands to share dot depth so "16.9-2" (depth
+// 1 vs 0) is no longer misclassified.
+describe("extractCitations — ordinal disambiguator suffix (D8)", () => {
+  // SF municipal pattern carries the [A-Za-z]? suffix in both operand
+  // positions so the cite-text walker captures "16.9-29A" as a single
+  // span before classifySection runs.
+  // Manifest cite-walker pattern with `-N` disambiguator captured BEFORE
+  // the subsection paren group so "16.9-2(a)" surfaces as a single cite
+  // span. The legacy order (subsection before disambiguator) collapsed
+  // "16.9-2(a)" down to "16.9-2" and stranded "(a)" as ungated text.
+  const sfFullPattern: ModuleConfig = {
+    ...manifest,
+    citation_patterns: [
+      "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)",
+    ],
+  };
+
+  it("'Section 16.9-2' parses as a single internal section, NOT a range", () => {
+    const cites = extractCitations("Per Section 16.9-2 the rule applies.", sfFullPattern);
+    expect(cites).toHaveLength(1);
+    expect(cites[0]?.citation.target).toEqual({
+      kind: "internal",
+      section_id: "16.9-2",
+    });
+  });
+
+  it("'Section 16.9-29A' preserves the alpha-suffixed ordinal", () => {
+    const cites = extractCitations("Per Section 16.9-29A the rule applies.", sfFullPattern);
+    expect(cites).toHaveLength(1);
+    expect(cites[0]?.citation.target).toEqual({
+      kind: "internal",
+      section_id: "16.9-29a",
+    });
+  });
+
+  it("'Section 16.9-2(a)' parses as section_id 16.9-2 with subsection (a)", () => {
+    const cites = extractCitations("Per Section 16.9-2(a) the rule applies.", sfFullPattern);
+    expect(cites).toHaveLength(1);
+    expect(cites[0]?.citation.target).toEqual({
+      kind: "internal",
+      section_id: "16.9-2",
+      subsection: "(a)",
+    });
+  });
+
+  // The manifest citation_patterns regex only captures the leading
+  // section span, so "Sections 16.9-2 to 16.9-29A" surfaces as two
+  // independent cites ("16.9-2" and "16.9-29A") rather than one range.
+  // The classifier nonetheless treats "16.9-2" as a single-section
+  // disambiguated cite — never a misparsed range from 16.9 to 2 — which
+  // is the regression D8 was opened to fix. If a future jurisdiction
+  // pattern expands to span explicit "to" / em-dash range delimiters,
+  // classifySection's EXPLICIT_RANGE_RE branch is already wired to bind
+  // them; no further classifier change is needed.
+
+  it("preserves legacy hyphen ranges when both operands share dot depth", () => {
+    // The original "Sections 10.04.020-10.04.030" form has to keep
+    // working. Both operands are depth 2; the same-dot-depth rule
+    // treats the hyphen as a range delimiter.
+    const cites = extractCitations(
+      "See §§ 10.04.020-10.04.030 for the schedule.",
+      sfFullPattern,
+    );
+    const rangeCite = cites.find((c) => "range" in c.citation.target);
+    expect(rangeCite?.citation.target).toEqual({
+      kind: "internal",
+      section_id: "10.04.020",
+      range: { from: "10.04.020", to: "10.04.030" },
+    });
+  });
+});
+
 describe("extractCitations — cross_module via active code prefix", () => {
   it("classifies § N as cross_module when California Vehicle Code is in scope", () => {
     const cites = extractCitations("Per Cal. Veh. Code § 22358 the limit is 25mph.", manifest);

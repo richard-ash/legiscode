@@ -140,27 +140,30 @@ describe("chrome rbox patterns are classified consumed_by_parent", () => {
 });
 
 describe("id extraction patterns parse correctly", () => {
-  it("SEC. N. [REDESIGNATED.] heading produces clean id (no trailing period)", () => {
-    // No JD anchor — heading-text fallback. Without the trailing-period
-    // exclusion in HEADING_SEC_RE, the captured id was "23.7." with a
-    // dangling period.
+  // Updated under section-id-uniqueness: anchor-less tombstone sections
+  // (Section-Deleted rboxes that fall back to heading-text id extraction
+  // because they carry no JD anchor of their own) now suffix `-orig` so
+  // they don't collide on disk with the live section that took over the
+  // same number. The trailing-period exclusion in HEADING_SEC_RE still
+  // works — the rawId stays "23.7" before the editorial suffix is added.
+  it("SEC. N. [REDESIGNATED.] heading produces clean id (no trailing period; -orig suffix to disambiguate)", () => {
     const buffer = html(
       root("Test", "TEST CODE"),
       `<div class="Section-Deleted toc-destination rbox"><h5>SEC. 23.7.  [REDESIGNATED.]</h5></div>`,
     );
     const result = parseSingleModule(buffer);
     expect(result.skipped).toEqual([]);
-    expect(result.sections.map((s) => s.id)).toEqual(["23.7"]);
+    expect(result.sections.map((s) => s.id)).toEqual(["23.7-orig"]);
   });
 
-  it("SEC. N. [REPEALED.] heading produces clean id", () => {
+  it("SEC. N. [REPEALED.] heading produces clean id (-orig suffix to disambiguate)", () => {
     const buffer = html(
       root("Test", "TEST CODE"),
       `<div class="Section-Deleted toc-destination rbox"><h5>SEC. 28.13.  [REPEALED.]</h5></div>`,
     );
     const result = parseSingleModule(buffer);
     expect(result.skipped).toEqual([]);
-    expect(result.sections.map((s) => s.id)).toEqual(["28.13"]);
+    expect(result.sections.map((s) => s.id)).toEqual(["28.13-orig"]);
   });
 
   it("JD_<id>Note<n>* anchor title gets ' Note <n>' stripped", () => {
@@ -177,7 +180,13 @@ describe("id extraction patterns parse correctly", () => {
     expect(result.sections.map((s) => s.id)).toEqual(["4.100.1"]);
   });
 
-  it("JD_<id>-<n> anchor title gets '-<n>' stripped", () => {
+  // D11 inversion. Before the section-id-uniqueness fix this test
+  // asserted that `title="9.111-1"` collapsed to id "9.111" (the
+  // stripJdAnchorSuffixes bug). The new invariant: `-<n>` ordinals are
+  // load-bearing disambiguators the source emits to distinguish
+  // multiple Section-class rboxes sharing a dotted-number prefix, so
+  // they must survive into section.id.
+  it("JD_<id>-<n> anchor title preserves the '-<n>' ordinal disambiguator", () => {
     const buffer = html(
       root("Test", "TEST CODE"),
       `<div class="Section toc-destination rbox"><h3><a name="JD_9.111-1" id="JD_9.111-1" title="9.111-1"></a>SEC. 9.111.  HEADING.</h3></div>
@@ -185,7 +194,56 @@ describe("id extraction patterns parse correctly", () => {
     );
     const result = parseSingleModule(buffer);
     expect(result.skipped).toEqual([]);
-    expect(result.sections.map((s) => s.id)).toEqual(["9.111"]);
+    expect(result.sections.map((s) => s.id)).toEqual(["9.111-1"]);
+  });
+
+  // G1 (D6). Parser-level red test for the section.id uniqueness regression.
+  // The pre-fix `stripJdAnchorSuffixes` collapsed every `JD_X.Y-N` anchor's
+  // title (e.g. "16.9-2") down to "16.9", silently merging the ordinal-
+  // disambiguated sections that AmLegal genuinely emits as distinct entries.
+  // Empirical scope of the bug: 1,531 SF sections lost their disambiguator,
+  // 1,643 distinct ids collapsed onto 5,823 sections (45% of corpus).
+  //
+  // This test passes the parser three Section-class rboxes with anchor
+  // titles "16.9", "16.9-2", and "16.9-29A". After T3a, every disambiguator
+  // survives and the parser emits three distinct section.ids. Before T3a,
+  // the strip silently collapses them onto two ids ("16.9" twice + "16.9").
+  it("preserves JD_X-N disambiguators across multiple Section-class rboxes", () => {
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      // Plain id (no disambiguator).
+      `<div class="Section toc-destination rbox"><h3><a name="JD_16.9" id="JD_16.9" title="16.9"></a>SEC. 16.9.  FIRST.</h3></div>
+       <div class="rbox Normal-Level"><div>body one</div></div>`,
+      // Ordinal disambiguator: "-2" must NOT be stripped (current bug
+      // collapses to "16.9").
+      `<div class="Section toc-destination rbox"><h3><a name="JD_16.9-2" id="JD_16.9-2" title="16.9-2"></a>SEC. 16.9-2.  SECOND.</h3></div>
+       <div class="rbox Normal-Level"><div>body two</div></div>`,
+      // Alphanumeric disambiguator (e.g. "-29A") must survive too — same
+      // strip regex would eat the "-29" leaving a stranded "A".
+      `<div class="Section toc-destination rbox"><h3><a name="JD_16.9-29A" id="JD_16.9-29A" title="16.9-29A"></a>SEC. 16.9-29A.  THIRD.</h3></div>
+       <div class="rbox Normal-Level"><div>body three</div></div>`,
+    );
+    const result = parseSingleModule(buffer);
+
+    expect(result.skipped).toEqual([]);
+    expect(result.sections.map((s) => s.id).sort()).toEqual(["16.9", "16.9-2", "16.9-29a"]);
+  });
+
+  // G1 sibling test (D10). Parser anchor-name fallback when title is empty.
+  // The current heading-text fallback truncates disambiguators when the
+  // anchor title is missing — the new precedence is title → name
+  // (JD_-stripped) → heading text. The "Sec. 16.9" heading carries no
+  // disambiguator, but the `name` attribute does; the parser must read it.
+  it("falls back to anchor name (JD_-stripped) when title is empty", () => {
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      `<div class="Section toc-destination rbox"><h3><a name="JD_16.9-2" id="JD_16.9-2" title=""></a>SEC. 16.9.  HEADING.</h3></div>
+       <div class="rbox Normal-Level"><div>body</div></div>`,
+    );
+    const result = parseSingleModule(buffer);
+
+    expect(result.skipped).toEqual([]);
+    expect(result.sections.map((s) => s.id)).toEqual(["16.9-2"]);
   });
 
   it("parser self-validates against SECTION_ID_RE; non-conforming id is skipped with the real reason", () => {
@@ -283,7 +341,17 @@ describe("Positive controls — parser produces expected structure", () => {
     // unnavigable).
     const sec = result.sections.find((s) => s.id === "1.1");
     const vague = sec?.citations.find((c) => c.target.kind === "vague");
-    expect(vague?.target).toEqual({ kind: "vague", raw: expect.stringContaining("99.99") });
+    // D9 — vague reclass now preserves the pre-bind target so the
+    // validator can bucket by reason. Assert structurally (kind + raw)
+    // without pinning the exact source_target shape, which is covered
+    // by validate-corpus.test.ts.
+    expect(vague?.target).toMatchObject({
+      kind: "vague",
+      raw: expect.stringContaining("99.99"),
+    });
+    if (vague?.target.kind === "vague") {
+      expect(vague.target.source_target).toBeDefined();
+    }
   });
 
   it("source-anchor TOC resolution: cite to deletion-stub anchor resolves", () => {
@@ -316,7 +384,13 @@ describe("Positive controls — parser produces expected structure", () => {
     expect(validation.citations.unresolvedCross).toEqual([]);
     const sec = result.sections.find((s) => s.id === "1.1");
     const vague = sec?.citations.find((c) => c.target.kind === "vague");
-    expect(vague?.target).toEqual({ kind: "vague", raw: expect.stringContaining("5270") });
+    expect(vague?.target).toMatchObject({
+      kind: "vague",
+      raw: expect.stringContaining("5270"),
+    });
+    if (vague?.target.kind === "vague") {
+      expect(vague.target.source_target).toBeDefined();
+    }
   });
 });
 

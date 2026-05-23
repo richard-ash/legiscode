@@ -687,8 +687,12 @@ type SectionParse = { kind: "ok"; section: ParsedSection } | { kind: "skip"; ent
 
 // Normalize a raw section id from AmLegal into the slug shape that
 // SectionIdSchema accepts. Handles the round-11 skip-bucket edge cases:
-//   - asterisk-suffix marker ("117.1*", "701.3*") is stripped (editorial
-//     footnote indicator that doesn't change the canonical id)
+//   - asterisk-suffix marker ("117.1*", "701.3*") was originally stripped
+//     as a no-op editorial indicator, but T3a found 11 cases where the
+//     asterisked form ("JD_117.1*") coexists with its bare twin
+//     ("JD_117.1") as DISTINCT source sections. Encoding the asterisk
+//     count as `-fnN` preserves the asterisk's disambiguating role
+//     without breaking SECTION_ID_RE.
 //   - art-infix ("1075.1 art 16") becomes "1075.1-art-16" so the dotted/
 //     dashed identifier passes the validator
 //   - whitespace collapses to single hyphen
@@ -697,7 +701,7 @@ type SectionParse = { kind: "ok"; section: ParsedSection } | { kind: "skip"; ent
 function normalizeSectionId(rawId: string): string {
   return rawId
     .trim()
-    .replace(/\*$/, "")
+    .replace(/(\*+)$/, (_, asterisks: string) => `-fn${asterisks.length}`)
     .replace(/\.$/, "")
     .toLowerCase()
     .replace(/\s+/g, "-")
@@ -705,14 +709,14 @@ function normalizeSectionId(rawId: string): string {
 }
 
 // Strip editorial suffixes from a JD_ anchor's title attribute before
-// id normalization. " Note", " Note 1", "-1" suffix on a Section-class
-// rbox's anchor title indicates a sub-element of the parent section,
-// not a section root — but when AmLegal does emit one as a Section-class
-// rbox, the unstripped title turns into a non-conforming id (e.g.
-// "28.11-note-1") that pollutes the section namespace. Verified surface:
-// 2 cases in the production SF AmLegal snapshot.
+// id normalization. Only the " Note <n>" suffix is editorial; the "-<n>"
+// ordinal suffix is a load-bearing disambiguator the source uses to
+// distinguish multiple sections that share the same dotted-number prefix
+// (e.g. "16.9-2", "16.9-21", "16.9-29A"). Stripping the ordinal collapses
+// 1,531 SF sections onto colliding ids and silently last-write-wins them
+// at storage time — see test/parser/chrome-and-id-patterns.test.ts G1.
 function stripJdAnchorSuffixes(rawTitle: string): string {
-  return rawTitle.replace(/\s+Note\s*\d*\s*\*?$/i, "").replace(/-\d+\s*\*?$/, "");
+  return rawTitle.replace(/\s+Note\s*\d*\s*\*?$/i, "");
 }
 
 // Capture allows a `.` only when followed by alnum / `*` / `-` — so a
@@ -747,6 +751,25 @@ function parseSectionElement(
   const headingText = (heading.length > 0 ? heading.text() : sectionEl.text()).trim();
 
   let rawId = stripJdAnchorSuffixes((anchorEl.attr("title") ?? "").trim());
+  // D10 anchor-name fallback. When `title` is missing the disambiguator
+  // we care about ("title=\"\" name=\"JD_16.9-2\"" is a real shape AmLegal
+  // emits when the title attribute is dropped during their export step),
+  // read the canonical id from the `name` attribute with the JD_ prefix
+  // stripped. Must come BEFORE the heading-text fallback: heading text
+  // typically reads "SEC. 16.9." without the disambiguator, so it would
+  // truncate the id back to "16.9" and reintroduce the collision.
+  if (rawId === "") {
+    const anchorName = (anchorEl.attr("name") ?? "").trim();
+    if (anchorName.startsWith("JD_")) {
+      rawId = stripJdAnchorSuffixes(anchorName.slice(3).trim());
+    }
+  }
+  // Track whether the id came from a real JD anchor — used below to
+  // disambiguate tombstone-shaped sections that share an id with a
+  // JD-anchored sibling. anchorEl.length is the most reliable signal:
+  // when zero, the section has no JD anchor of its own and must be
+  // emitted via heading-text fallback.
+  const hasJdAnchor = anchorEl.length > 0;
   if (rawId === "") {
     const headingMatch = headingText.match(HEADING_SEC_RE);
     if (headingMatch?.[1]) {
@@ -775,7 +798,35 @@ function parseSectionElement(
   const headingDisplayMatch = headingText.match(HEADING_SEC_RE);
   const displayLabel = headingDisplayMatch?.[1]?.trim() || rawId.trim();
 
-  const id = normalizeSectionId(rawId);
+  // Anchor-less tombstone disambiguation. A Section-Deleted rbox whose
+  // heading reads "SEC. 23.7. [REDESIGNATED.]" but carries no JD anchor
+  // of its own (the anchor lives only on the live section that took
+  // over the number) collides at id-uniqueness time with the live
+  // sibling. The renderer still wants the tombstone so readers see the
+  // "moved to 23.10" pointer at the old location. Suffix `-orig`
+  // disambiguates without losing semantic information; the tombstone
+  // gets a stable on-disk path that cannot collide with the JD-anchored
+  // section. Only the heading-text-fallback path (no JD anchor at all)
+  // needs this — sections that DO have their own anchor are addressable
+  // by anchor and never collide on this axis.
+  //
+  // We check heading text directly rather than the class-derived
+  // editorial status because the SF AmLegal source frequently puts the
+  // Section-Deleted class on the inner <h5> rather than the outer rbox
+  // (e.g. rid 14067), so classifyRbox sees only the outer "level-Section"
+  // classes and reports editorialFromClass = "active". The heading text
+  // ("[REDESIGNATED.]" / "[REPEALED.]" / "[Reserved.]") is the
+  // authoritative tombstone signal regardless of which DOM level the
+  // editorial class lives on.
+  const looksLikeTombstone =
+    REDESIGNATED_RE.test(headingText) ||
+    REPEALED_RE.test(headingText) ||
+    RESERVED_RE.test(headingText);
+  let normalizedId = normalizeSectionId(rawId);
+  if (!hasJdAnchor && looksLikeTombstone) {
+    normalizedId = `${normalizedId}-orig`;
+  }
+  const id = normalizedId;
   // Self-validate against the canonical regex before returning. Without
   // this, an id-extraction bug surfaces only via the downstream
   // SectionFileSchema round-trip with a less-specific reason. Co-locate

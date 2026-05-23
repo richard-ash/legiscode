@@ -57,11 +57,17 @@ describe("sync-corpus E2E — happy path against committed jurisdiction fixture"
       "1.3.json",
       "1.4.json",
       "1.5.json",
-      "1.6.json",
+      "1.6-fn1.json",
     ]);
   });
 
-  it("normalizes the asterisk-suffixed section id (1.6* -> 1.6)", async () => {
+  // Updated under section-id-uniqueness: the asterisk on `1.6*` was
+  // historically stripped to `1.6` as a no-op editorial marker, but
+  // empirical scan found 11 SF source anchors where `JD_X*` and `JD_X`
+  // coexist as distinct sections. The asterisk is now encoded as the
+  // disambiguator suffix `-fn<count>` so collisions never silently
+  // drop bytes at write time.
+  it("encodes the asterisk-suffixed section id (1.6* -> 1.6-fn1)", async () => {
     const path = join(
       firstBuild.outputBase,
       "sf-transportation",
@@ -69,10 +75,10 @@ describe("sync-corpus E2E — happy path against committed jurisdiction fixture"
       "transportation-code",
       "division-i",
       "article-1",
-      "1.6.json",
+      "1.6-fn1.json",
     );
     const section = SectionFileSchema.parse(JSON.parse(await readFile(path, "utf8")));
-    expect(section.id).toBe("1.6");
+    expect(section.id).toBe("1.6-fn1");
     expect(section.editorial_status).toBe("active");
   });
 
