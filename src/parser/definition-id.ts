@@ -36,10 +36,6 @@ export function sha8(input: string): string {
 
 // buildDefinitionId composes the canonical wire form. Term is
 // canonicalized before hashing.
-export function buildDefinitionId(
-  moduleId: string,
-  sectionId: string,
-  term: string,
-): DefinitionId {
+export function buildDefinitionId(moduleId: string, sectionId: string, term: string): DefinitionId {
   return formatDefinitionId(moduleId, sectionId, sha8(canonicalizeTerm(term)));
 }

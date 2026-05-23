@@ -20,12 +20,14 @@
 
 import { readdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
-import { z } from "zod";
 import {
   type BodySegment,
-  DefinedTermSchema,
-  DefinitionEntrySchema,
+  type Definition,
+  type DefinitionId,
+  MIN_SUPPORTED_SCHEMA_VERSION,
+  ModuleDefinitionsSchema,
   ModuleIdSchema,
+  type ScopeExpr,
   type SectionFile,
   SectionFileSchema,
   type SectionId,
@@ -39,8 +41,17 @@ import type {
   CorpusTreeNode,
 } from "./ipc/contract";
 
-type DefinitionEntries = ReadonlyArray<{ defined_in_section: SectionId }>;
-type ModuleDefinitions = ReadonlyMap<string, DefinitionEntries>;
+// Per-section wire shape returned for the popover lookup. Mirrors
+// CorpusSectionView.definitions value type so the loader's projection
+// step doesn't need a transform.
+type DefinitionView = {
+  term: string;
+  excerpt: string;
+  scope: ScopeExpr;
+  first_use_section: SectionId;
+};
+
+type DefinitionsById = ReadonlyMap<DefinitionId, Definition>;
 
 interface LoadedSection {
   moduleId: string;
@@ -61,13 +72,16 @@ interface LoadedModule {
   /** Sections sorted by SectionId ascending (numeric-aware). */
   sections: LoadedSection[];
   /**
-   * Module-wide defined-term lookup. Loaded once from the module's
-   * `definitions.json` and joined per-section in `readSection`. A term
-   * may resolve to multiple defining sections, so the value preserves
-   * every entry. Missing definitions.json yields an empty map and the
-   * renderer renders highlights without tooltips.
+   * Canonical Definition[] for this module, loaded from
+   * definitions-v2.json. The L2b cutover means per-section serving
+   * works through def_id-keyed lookups (definitionsById) instead of
+   * the legacy term-keyed dict. The Definition[] is kept alongside
+   * the index because the command-palette aggregation step needs the
+   * full record set, not just the lookup map.
    */
-  definitions: ModuleDefinitions;
+  definitions: readonly Definition[];
+  /** Id-keyed lookup index for O(1) per-section projection. */
+  definitionsById: DefinitionsById;
 }
 
 interface LoadedCorpus {
@@ -216,9 +230,7 @@ export function readSection(req: CorpusReadRequest): CorpusReadResult {
   const idx = sectionList.findIndex((s) => s.section.id === req.sectionId);
   const prev = idx > 0 ? sectionList[idx - 1] : null;
   const next = idx >= 0 && idx < sectionList.length - 1 ? sectionList[idx + 1] : null;
-  const definitions = module
-    ? joinDefinitionsForSection(module.definitions, loaded.section.body)
-    : {};
+  const definitions = module ? joinDefinitionsForSection(module, loaded.section.body) : {};
 
   return {
     ok: true,
@@ -237,33 +249,45 @@ export function readSection(req: CorpusReadRequest): CorpusReadResult {
 }
 
 /**
- * Walk `body[]` and project the module-wide definitions map down to only
- * the terms referenced by this section. Recurses into `format.children`
+ * Walk `body[]` and project the module's Definition index down to only
+ * the def_ids referenced by this section. Recurses into `format.children`
  * because a defined-term span may be nested inside bold/italic/list
- * formatting. Skips terms missing from the module map (graceful — the
- * renderer just renders the highlight without a tooltip).
+ * formatting. Skips def_ids missing from the module index (graceful —
+ * the renderer renders the highlight without a popover; happens when
+ * the build pipeline emits a def_id that wasn't persisted, which is
+ * an extractor bug worth seeing as a missing tooltip rather than a
+ * crash).
  */
 function joinDefinitionsForSection(
-  moduleDefinitions: ModuleDefinitions,
+  module: LoadedModule,
   body: readonly BodySegment[],
-): Record<string, DefinitionEntries> {
-  // Null-prototype object so terms colliding with Object.prototype names
-  // ("constructor", "toString", "__proto__") project correctly. With a
-  // plain {} the `term in out` check would short-circuit on those terms
-  // and we'd silently drop their tooltip entries.
-  const out: Record<string, DefinitionEntries> = Object.create(null);
-  collectDefinedTerms(body, (term) => {
-    if (term in out) return;
-    const entries = moduleDefinitions.get(term);
-    if (entries) out[term] = entries;
+): Record<DefinitionId, DefinitionView> {
+  // Null-prototype object so def_ids colliding with Object.prototype
+  // names ("constructor", "toString", "__proto__") project correctly.
+  // With a plain {} the `defId in out` check would short-circuit on
+  // those keys and we'd silently drop their tooltip entries.
+  const out: Record<DefinitionId, DefinitionView> = Object.create(null);
+  collectDefIds(body, (defId) => {
+    if (defId in out) return;
+    const def = module.definitionsById.get(defId);
+    if (!def) return;
+    out[defId] = {
+      term: def.term,
+      excerpt: def.excerpt,
+      scope: def.scope,
+      first_use_section: def.defined_in,
+    };
   });
   return out;
 }
 
-function collectDefinedTerms(body: readonly BodySegment[], visit: (term: string) => void): void {
+function collectDefIds(body: readonly BodySegment[], visit: (defId: DefinitionId) => void): void {
   for (const seg of body) {
-    if (seg.type === "defined_term") visit(seg.term);
-    else if (seg.type === "format") collectDefinedTerms(seg.children, visit);
+    if (seg.type === "defined_term") {
+      if (seg.def_id) visit(seg.def_id);
+    } else if (seg.type === "format") {
+      collectDefIds(seg.children, visit);
+    }
   }
 }
 
@@ -285,7 +309,24 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
   };
   const meta = JSON.parse(await readFile(join(moduleDir, "corpus-meta.json"), "utf8")) as {
     module_version: string;
+    schema_version?: number;
   };
+
+  // Schema-version gate. The --corpus-path flag lets power users point
+  // at custom local bundles that bypass the backend's per-version URL
+  // namespacing. A stale bundle would otherwise crash downstream when
+  // the renderer reaches into a defined_term segment that's missing
+  // its now-required def_id. Fail loudly with a clear message.
+  if (
+    typeof meta.schema_version === "number" &&
+    meta.schema_version < MIN_SUPPORTED_SCHEMA_VERSION
+  ) {
+    throw new Error(
+      `module ${manifest.id}: corpus at ${moduleDir} uses schema_version ${meta.schema_version}, ` +
+        `app requires >= ${MIN_SUPPORTED_SCHEMA_VERSION}. Reinstall the app or run ` +
+        "`mise run validate:full` to rebuild the corpus.",
+    );
+  }
 
   // Validate the moduleId at the trust boundary. If the bundle ships a
   // module id that fails ModuleIdSchema, the renderer's CorpusRef.parse()
@@ -331,6 +372,7 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
   );
 
   const definitions = await loadDefinitions(moduleDir, manifest.id);
+  const definitionsById = indexDefinitionsById(definitions);
 
   return {
     id: manifest.id,
@@ -340,88 +382,53 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
     jurisdiction: manifest.jurisdiction,
     sections,
     definitions,
+    definitionsById,
   };
 }
 
 /**
- * Read and validate `definitions.json` for a module. Missing file is
- * legitimate (a module can have zero defined terms) and yields an
- * empty map.
+ * Read and validate the canonical Definition[] for a module from
+ * `definitions-v2.json`. The L2b cutover replaced the legacy
+ * term-keyed `definitions.json` with the addressable Definition[]
+ * graph; the loader reads only the v2 file.
  *
- * Schema-failure policy: per-key soft-fail. Each entry is validated
- * individually; a bad key (e.g. whitespace-padded "\nCity") logs +
- * skips that key only, the rest of the module's definitions still
- * project. Rationale — blast radius:
- *   • body[] validation failure (corpus-loader.ts:266) hides substantive
- *     section content; the section can't render at all. Hard-fail is
- *     correct.
- *   • A single bad definitions key only kills the hover tooltip for
- *     that one term; the highlight still renders from section.body[],
- *     and joinDefinitionsForSection already handles a missing entry by
- *     skipping it. Per-FILE failure (the previous policy) was the wrong
- *     granularity — 2 bad keys out of 301 would silence ALL tooltips
- *     in the module.
- *
- * The today's-real-world driver: 6+ modules in the operator-built SF
- * corpus carry `definitions.json` keys with stray whitespace ("\nCity",
- * "...third party ") emitted by an upstream parser bug — fixing that
- * lives outside this PR's scope. TODOS.md tracks the parser cleanup so
- * the per-key fallback can eventually flip back to a stricter posture.
+ * Missing file is legitimate (modules without defined terms produce
+ * an empty array). Schema failure is hard-fail at the file level: by
+ * L2b the build pipeline owns uniqueness + per-Definition shape
+ * invariants (ModuleDefinitionsSchema), so a malformed file means
+ * the bundle is corrupt. The whole-file hard-fail surfaces the
+ * corruption clearly instead of silently dropping individual entries.
+ * The per-key soft-fail policy of the legacy path was a workaround
+ * for an upstream parser bug that the L2a builder fixes by
+ * construction (terms are canonicalized + schema-validated at
+ * extraction time).
  */
-async function loadDefinitions(moduleDir: string, moduleId: string): Promise<ModuleDefinitions> {
-  const path = join(moduleDir, "definitions.json");
+async function loadDefinitions(
+  moduleDir: string,
+  moduleId: string,
+): Promise<readonly Definition[]> {
+  const path = join(moduleDir, "definitions-v2.json");
   const exists = await stat(path).catch(() => null);
-  if (!exists || !exists.isFile()) return new Map();
+  if (!exists || !exists.isFile()) return [];
   let parsed: ReturnType<typeof JSON.parse>;
   try {
     parsed = JSON.parse(await readFile(path, "utf8"));
   } catch (cause) {
-    console.warn(
-      `[corpus-loader] module ${moduleId}: definitions.json is not valid JSON, skipping tooltip lookups: ${describe(cause)}`,
-    );
-    return new Map();
-  }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    console.warn(
-      `[corpus-loader] module ${moduleId}: definitions.json is not a JSON object, skipping tooltip lookups`,
-    );
-    return new Map();
-  }
-  // Per-key validation: 1 bad key shouldn't drop a module's other 300
-  // valid keys (per-file safeParse turned a 0.7%-bad file into
-  // 100%-no-tooltips — the upstream parser bug tracked in TODOS.md is
-  // real but shouldn't gate UX while it gets fixed). Each bad entry
-  // contributes to a single summary warning at the end so the floor
-  // stays at 1 line per bad module rather than N lines per bad key.
-  const entriesSchema = z.array(DefinitionEntrySchema).min(1);
-  const map = new Map<string, DefinitionEntries>();
-  const skipped: Array<{ key: string; reason: string }> = [];
-  for (const [term, value] of Object.entries(parsed as Record<string, unknown>)) {
-    const termValid = DefinedTermSchema.safeParse(term);
-    if (!termValid.success) {
-      skipped.push({ key: term, reason: termValid.error.issues[0]?.message ?? "invalid term" });
-      continue;
-    }
-    const arr = entriesSchema.safeParse(value);
-    if (!arr.success) {
-      skipped.push({
-        key: term,
-        reason: arr.error.issues[0]?.message ?? "invalid entries array",
-      });
-      continue;
-    }
-    map.set(term, arr.data);
-  }
-  if (skipped.length > 0) {
-    const sample = skipped
-      .slice(0, 3)
-      .map(({ key, reason }) => `${JSON.stringify(key)}: ${reason}`)
-      .join("; ");
-    const more = skipped.length > 3 ? ` (+${skipped.length - 3} more)` : "";
-    console.warn(
-      `[corpus-loader] module ${moduleId}: ${skipped.length}/${skipped.length + map.size} definitions failed schema, dropped from tooltip map: ${sample}${more}`,
+    throw new Error(
+      `module ${moduleId}: definitions-v2.json is not valid JSON: ${describe(cause)}`,
     );
   }
+  const result = ModuleDefinitionsSchema.safeParse(parsed);
+  if (!result.success) {
+    const issues = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+    throw new Error(`module ${moduleId}: definitions-v2.json failed schema: ${issues}`);
+  }
+  return result.data;
+}
+
+function indexDefinitionsById(definitions: readonly Definition[]): DefinitionsById {
+  const map = new Map<DefinitionId, Definition>();
+  for (const def of definitions) map.set(def.id, def);
   return map;
 }
 
@@ -481,9 +488,11 @@ function buildSummary(
 }
 
 /**
- * Walk every module's `definitions` map and emit one row per
- * `(term, moduleId)` pair. Cross-module collisions are preserved as
- * separate rows so the command palette's `:def` filter can show each
+ * Walk every module's canonical Definition[] and emit one row per
+ * `(term, moduleId)` pair. Multiple Definitions of the same term
+ * within a module collapse into a single row whose `definers` array
+ * lists every `defined_in` section. Cross-module collisions stay as
+ * separate rows so the command palette's `:def` filter shows each
  * definer authority distinctly — collapsing across modules would be
  * materially wrong for legal reading (D5).
  *
@@ -494,14 +503,17 @@ function buildSummary(
 function aggregateDefinitions(
   modules: readonly LoadedModule[],
 ): CorpusModuleSummary["definitions"] {
-  const rows: Array<{ term: string; moduleId: string; definers: readonly SectionId[] }> = [];
+  const rows: Array<{ term: string; moduleId: string; definers: SectionId[] }> = [];
   for (const m of modules) {
-    for (const [term, entries] of m.definitions) {
-      rows.push({
-        term,
-        moduleId: m.id,
-        definers: entries.map((e) => e.defined_in_section),
-      });
+    const byTerm = new Map<string, SectionId[]>();
+    for (const def of m.definitions) {
+      const definers = byTerm.get(def.term);
+      if (definers) definers.push(def.defined_in);
+      else byTerm.set(def.term, [def.defined_in]);
+    }
+    for (const [term, definers] of byTerm) {
+      definers.sort((a, b) => a.localeCompare(b));
+      rows.push({ term, moduleId: m.id, definers });
     }
   }
   rows.sort((a, b) => {
@@ -634,7 +646,7 @@ function extractSubsectionPreviews(body: readonly BodySegment[]): Record<string,
           if (currentLabel !== null) currentBuf += seg.raw;
           break;
         case "defined_term":
-          if (currentLabel !== null) currentBuf += seg.term;
+          if (currentLabel !== null) currentBuf += seg.raw;
           break;
         case "paragraph_break":
           if (currentLabel !== null) currentBuf += " ";

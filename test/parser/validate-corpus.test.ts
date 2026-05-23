@@ -9,13 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import { validateCorpus } from "@/parser";
-import type {
-  DefinitionsFile,
-  ModuleConfig,
-  ParsedModule,
-  SectionFile,
-  SkippedEntry,
-} from "@/types";
+import type { ModuleConfig, ParsedModule, SectionFile, SkippedEntry } from "@/types";
 
 const moduleConfig: ModuleConfig = {
   id: "sf-charter",
@@ -48,14 +42,12 @@ function makeParsedModule(overrides: Partial<ParsedModule> = {}): ParsedModule {
   for (const s of sections) {
     sectionPaths[s.id] = [];
   }
-  const definitions: DefinitionsFile = {};
   return {
     module: moduleConfig,
     sections,
     appendices: [],
     ordinanceHistories: [],
     resolutionHistories: [],
-    definitions,
     moduleDefinitions: [],
     unresolvedReferences: [],
     skipped: [],

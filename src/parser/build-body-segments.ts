@@ -32,10 +32,10 @@ import { buildCandidatesByTerm, resolveDefinitionForOccurrence } from "./resolve
 
 // A primary annotation — the non-format spans that tile `text`. Each
 // has a position range; gaps between primaries become `text` segments
-// at emit time. defined_term primaries carry the resolved def_id and
-// raw surface form after the per-occurrence resolver runs (L2a). Until
-// resolution, def_id is absent and the primary may be dropped to a
-// text gap by the resolver (unresolved or self-suppressed).
+// at emit time. defined_term primaries start with just `term` (from
+// the occurrence scanner); the per-occurrence resolver pass attaches
+// def_id + raw (or drops the primary to a text gap when unresolved or
+// self-suppressed).
 type Primary =
   | { kind: "citation"; start: number; end: number; raw: string; citation_index: number }
   | {
@@ -59,9 +59,8 @@ type Segment =
   | { type: "citation"; raw: string; citation_index: number }
   | {
       type: "defined_term";
-      term: string;
-      raw?: string;
-      def_id?: DefinitionId;
+      raw: string;
+      def_id: DefinitionId;
       candidates_dropped?: DefinitionId[];
     }
   | { type: "subsection_label"; label: string }
@@ -268,9 +267,11 @@ function buildPrimaryLeaves(text: string, primaries: Primary[]): PositionedLeaf[
         });
         break;
       case "defined_term": {
-        const segment: Segment = { type: "defined_term", term: p.term };
-        if (p.raw !== undefined) segment.raw = p.raw;
-        if (p.def_id !== undefined) segment.def_id = p.def_id;
+        // After resolveDefinedTermOccurrences, every defined_term primary
+        // that survived has def_id + raw populated; the unresolved/
+        // self-suppressed ones were dropped to text gaps upstream.
+        if (p.def_id === undefined || p.raw === undefined) continue;
+        const segment: Segment = { type: "defined_term", raw: p.raw, def_id: p.def_id };
         if (p.candidates_dropped !== undefined && p.candidates_dropped.length > 0) {
           segment.candidates_dropped = p.candidates_dropped;
         }

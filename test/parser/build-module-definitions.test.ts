@@ -73,7 +73,7 @@ describe("buildSectionDefinitions", () => {
   });
 
   it("excerpt is the paragraph containing the defining clause", () => {
-    const text = "Some intro paragraph.\n\"Apartment\" means a dwelling unit.\nMore text after.";
+    const text = 'Some intro paragraph.\n"Apartment" means a dwelling unit.\nMore text after.';
     const ctx: SectionDefinitionContext = {
       moduleId: "sf-housing",
       section: makeSection({ text }),
@@ -230,11 +230,7 @@ describe("buildSectionDefinitions", () => {
     if (def?.scope.kind === "hierarchy") {
       def.scope.prefix.push("MUTATED");
     }
-    expect(makeSection().hierarchy).toEqual([
-      "Housing Code",
-      "Preface",
-      "Chapter 4 Definitions",
-    ]);
+    expect(makeSection().hierarchy).toEqual(["Housing Code", "Preface", "Chapter 4 Definitions"]);
   });
 });
 

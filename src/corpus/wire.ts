@@ -12,7 +12,7 @@
 // needs validation, validation lives in the boundary helper (e.g.
 // corpusRefFromWire in @/corpus/refs), not in this file.
 
-import type { SectionFile, SectionId } from "@/types";
+import type { DefinitionId, ScopeExpr, SectionFile, SectionId } from "@/types";
 
 /**
  * Tree node returned by `corpus:list`. Tree levels:
@@ -110,16 +110,28 @@ export interface CorpusSectionView {
   prev: { moduleId: string; sectionId: string } | null;
   next: { moduleId: string; sectionId: string } | null;
   /**
-   * Pre-resolved definition lookup for every term that appears as a
-   * `defined_term` segment in this section's `body[]`. Pre-joining at
-   * load time means the renderer's hover tooltip is synchronous (read
-   * from props, no IPC, no flicker). The value is an array because a
-   * term can be defined in multiple sections — the lookup preserves
-   * every defining section. Keys are restricted to terms used in this
-   * section so the payload size stays bounded by the section, not by
-   * the module's full definitions dictionary.
+   * Pre-resolved definition lookup for every def_id that appears as a
+   * `defined_term` segment in this section's `body[]`. L2b cutover:
+   * keys are now DefinitionIds (string `<module>/<section>#<sha8>`)
+   * instead of terms, because per-occurrence resolution at build time
+   * means the same term may resolve to different Definitions across
+   * subtrees of the module. Each value carries the canonical
+   * Definition's renderable bits (term, excerpt, scope, first_use
+   * section) so the popover renders synchronously from props with no
+   * IPC, no flicker. Keys are restricted to def_ids referenced by
+   * this section so the payload stays bounded by section size.
    */
-  definitions: Readonly<Record<string, ReadonlyArray<{ defined_in_section: SectionId }>>>;
+  definitions: Readonly<
+    Record<
+      DefinitionId,
+      {
+        term: string;
+        excerpt: string;
+        scope: ScopeExpr;
+        first_use_section: SectionId;
+      }
+    >
+  >;
 }
 
 export type CorpusErrorKind = "not_loaded" | "not_found" | "corrupt";

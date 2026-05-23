@@ -48,8 +48,55 @@ export function bodyParaBreak(): BodySegment {
 export function bodyCitation(raw: string, citation_index: number): BodySegment {
   return { type: "citation", raw, citation_index };
 }
-export function bodyDefinedTerm(term: string): BodySegment {
-  return { type: "defined_term", term };
+// Post-L2b every defined_term segment carries a def_id and raw. The
+// `term` argument is the canonical-term shorthand used to derive a
+// stable test def_id (and the default raw when no override is given);
+// it doesn't appear on the emitted segment because the schema removed
+// the legacy term field.
+export function bodyDefinedTerm(
+  term: string,
+  opts: { defId?: string; raw?: string } = {},
+): BodySegment {
+  return {
+    type: "defined_term",
+    raw: opts.raw ?? term,
+    def_id: opts.defId ?? testDefId(term),
+  };
+}
+
+// Stable def_id helper for renderer fixtures. Mirrors the parser's
+// canonical id format without importing the runtime parser code into a
+// renderer test (keeps the test surface minimal).
+export function testDefId(term: string): string {
+  return `sf-test/test-def#${sha8Hex(term)}`;
+}
+
+// Tiny pure-JS sha8 helper for test fixtures — avoids importing node:crypto
+// (some renderer tests run in jsdom). Polyfill-grade FNV-1a 32-bit twice
+// is enough for fixture stability; collisions don't matter inside test
+// vocabulary.
+function sha8Hex(input: string): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x9e3779b1;
+  for (let i = 0; i < input.length; i++) {
+    h1 = Math.imul(h1 ^ input.charCodeAt(i), 0x01000193) >>> 0;
+    h2 = Math.imul(h2 + input.charCodeAt(i), 0x85ebca6b) >>> 0;
+  }
+  return (h1.toString(16).padStart(4, "0") + h2.toString(16).padStart(4, "0")).slice(0, 8);
+}
+
+// Build a DefinitionView fixture for renderer tests. Mirrors the wire
+// shape the loader projects via joinDefinitionsForSection.
+export function testDefinitionView(
+  term: string,
+  opts: { excerpt?: string; first_use_section?: string } = {},
+): CorpusSectionView["definitions"][string] {
+  return {
+    term,
+    excerpt: opts.excerpt ?? `"${term}" means a thing.`,
+    scope: { kind: "module" },
+    first_use_section: opts.first_use_section ?? "test-def",
+  };
 }
 export function bodySubsectionLabel(label: string): BodySegment {
   return { type: "subsection_label", label };

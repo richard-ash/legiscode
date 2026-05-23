@@ -6,7 +6,7 @@
 
 import type { Appendix } from "./appendix";
 import type { CorpusEntryKind, SkippedEntry } from "./corpus-meta";
-import type { Definition, DefinitionId, DefinitionsFile } from "./definitions";
+import type { Definition, DefinitionId } from "./definitions";
 import type { SectionId } from "./identifiers";
 import type { ModuleConfig } from "./manifest";
 import type { OrdinanceHistory } from "./ordinance-history";
@@ -35,13 +35,9 @@ export interface ParsedModule {
   ordinanceHistories: OrdinanceHistory[];
   /** Validated resolution-history digest entries. */
   resolutionHistories: ResolutionHistory[];
-  /** Legacy definitions.json content for this module (term →
-   *  [defined_in_section]). Kept during the L2a-L2b dual-write window;
-   *  L2b drops this in favor of moduleDefinitions[] alone. */
-  definitions: DefinitionsFile;
   /** Canonical Definition[] graph: addressable (id), anchored
    *  (body_anchor), scoped (ScopeExpr), provenance-tagged
-   *  (extracted_by). The L2b loader reads this directly; each
+   *  (extracted_by). Persisted as definitions-v2.json. Each
    *  defined_term body segment carries a def_id pointing into this
    *  set. */
   moduleDefinitions: Definition[];

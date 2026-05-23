@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +22,38 @@ interface FixtureSection {
   displayLabel?: string;
 }
 
+// Test-only shorthand: term → array of defining section ids. Helper
+// expands each entry into a full Definition record (module-scoped so any
+// reader resolves) and writes them as definitions-v2.json.
+type FixtureDefinitions = Record<string, string[]>;
+
+// Mirror parser/definition-id.ts. Inline rather than imported so the
+// electron-side loader test stays free of parser-side dependencies.
+function fixtureDefId(moduleId: string, sectionId: string, term: string): string {
+  const normalized = term.trim().replace(/\s+/g, " ");
+  const sha8 = createHash("sha256").update(normalized, "utf8").digest("hex").slice(0, 8);
+  return `${moduleId}/${sectionId}#${sha8}`;
+}
+
+function buildDefinitionsV2(moduleId: string, definitions: FixtureDefinitions) {
+  const out: Array<Record<string, unknown>> = [];
+  for (const [term, sectionIds] of Object.entries(definitions)) {
+    for (const sectionId of sectionIds) {
+      out.push({
+        id: fixtureDefId(moduleId, sectionId, term),
+        term,
+        defined_in: sectionId,
+        body_anchor: { start: 0, end: 0 },
+        excerpt: `"${term}" means a thing.`,
+        scope: { kind: "module" },
+        extracted_by: "amlegal:pattern:quoted-means",
+      });
+    }
+  }
+  out.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  return out;
+}
+
 async function buildFixtureCorpus(
   root: string,
   modules: Array<{
@@ -30,7 +63,15 @@ async function buildFixtureCorpus(
     moduleVersion: string;
     jurisdiction: string;
     sections: FixtureSection[];
-    definitions?: Record<string, Array<{ defined_in_section: string }>>;
+    definitions?: FixtureDefinitions;
+    /** Override the on-disk definitions-v2.json with a raw value
+     *  (string or object). Used for tests that probe schema-failure
+     *  paths. Wins over `definitions` when both are supplied. */
+    definitionsV2Raw?: unknown;
+    /** Override the corpus-meta.json schema_version field. Omit to
+     *  skip the field entirely (loader treats absence as
+     *  acceptable). Used by version-gate tests. */
+    schemaVersion?: number;
   }>,
 ): Promise<void> {
   await mkdir(root, { recursive: true });
@@ -49,12 +90,26 @@ async function buildFixtureCorpus(
         defined_term_patterns: [],
       }),
     );
-    await writeFile(
-      join(moduleDir, "corpus-meta.json"),
-      JSON.stringify({ module_version: m.moduleVersion, jurisdiction: m.jurisdiction }),
-    );
-    if (m.definitions) {
-      await writeFile(join(moduleDir, "definitions.json"), JSON.stringify(m.definitions));
+    const corpusMetaPayload: Record<string, unknown> = {
+      module_version: m.moduleVersion,
+      jurisdiction: m.jurisdiction,
+    };
+    if (m.schemaVersion !== undefined) {
+      corpusMetaPayload.schema_version = m.schemaVersion;
+    }
+    await writeFile(join(moduleDir, "corpus-meta.json"), JSON.stringify(corpusMetaPayload));
+    if (m.definitionsV2Raw !== undefined) {
+      await writeFile(
+        join(moduleDir, "definitions-v2.json"),
+        typeof m.definitionsV2Raw === "string"
+          ? m.definitionsV2Raw
+          : JSON.stringify(m.definitionsV2Raw),
+      );
+    } else if (m.definitions) {
+      await writeFile(
+        join(moduleDir, "definitions-v2.json"),
+        JSON.stringify(buildDefinitionsV2(m.id, m.definitions)),
+      );
     }
     const sectionsDir = join(moduleDir, "sections");
     await mkdir(sectionsDir, { recursive: true });
@@ -175,7 +230,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
     expect(result.value.tree).toHaveLength(2);
     expect(result.value.tree[0]?.kind).toBe("code");
     expect(result.value.defaultRef).toEqual({ moduleId: "sf-fire", sectionId: "1" });
-    // No definitions.json in either module fixture → field is the
+    // No definitions-v2.json in either module fixture → field is the
     // empty array, not undefined. Consumers can branch on length
     // alone without an existence check.
     expect(result.value.definitions).toEqual([]);
@@ -196,8 +251,8 @@ describe("loadCorpus + listCorpus + readSection", () => {
         jurisdiction: "City and County of San Francisco",
         sections: [{ id: "1.1", title: "Defs", hierarchy: ["Administrative Code"] }],
         definitions: {
-          Director: [{ defined_in_section: "1.1" }],
-          City: [{ defined_in_section: "1.1" }],
+          Director: ["1.1"],
+          City: ["1.1"],
         },
       },
       {
@@ -214,7 +269,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
           // Intra-module collision: two definers in the same module.
           // Both preserved in `definers[]`; the renderer surfaces the
           // count as "+N more" but the data stays here.
-          Director: [{ defined_in_section: "1.1" }, { defined_in_section: "1.2" }],
+          Director: ["1.1", "1.2"],
         },
       },
     ]);
@@ -231,7 +286,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
     ]);
   });
 
-  it("aggregated definitions omit modules with no definitions.json (T1)", async () => {
+  it("aggregated definitions omit modules with no definitions-v2.json (T1)", async () => {
     await buildFixtureCorpus(dir, [
       {
         id: "sf-with-defs",
@@ -240,7 +295,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
         moduleVersion: "2026.05.20",
         jurisdiction: "City and County of San Francisco",
         sections: [{ id: "1.1", title: "X", hierarchy: ["With Defs"] }],
-        definitions: { Person: [{ defined_in_section: "1.1" }] },
+        definitions: { Person: ["1.1"] },
       },
       {
         id: "sf-without-defs",
@@ -260,10 +315,11 @@ describe("loadCorpus + listCorpus + readSection", () => {
     ]);
   });
 
-  it("aggregated definitions drop entries that failed per-key schema validation (T1)", async () => {
-    // The per-key soft-fail policy in loadDefinitions already skips
-    // whitespace-padded keys at the section join; the aggregated list
-    // inherits that filter automatically because it walks the same Map.
+  it("loadCorpus rejects a bundle with schema_version below MIN_SUPPORTED_SCHEMA_VERSION", async () => {
+    // The --corpus-path flag bypasses the backend's per-version URL
+    // namespacing, so a stale local bundle would otherwise crash
+    // downstream on the now-required def_id field. Loader catches it
+    // at the trust boundary with a clear "rebuild your corpus" message.
     await buildFixtureCorpus(dir, [
       {
         id: "sf-port",
@@ -272,19 +328,80 @@ describe("loadCorpus + listCorpus + readSection", () => {
         moduleVersion: "2026.05.20",
         jurisdiction: "City and County of San Francisco",
         sections: [{ id: "1.1", title: "X", hierarchy: ["Port"] }],
-        definitions: {
-          "\nDropMe": [{ defined_in_section: "1.1" }],
-          KeepMe: [{ defined_in_section: "1.1" }],
-        },
+        schemaVersion: 1, // stale: app requires >= 2
       },
     ]);
     await loadCorpus(dir);
     const result = listCorpus();
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.definitions).toEqual([
-      { term: "KeepMe", moduleId: "sf-port", definers: ["1.1"] },
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("corrupt");
+    expect(result.error.detail).toMatch(/schema_version 1/);
+    expect(result.error.detail).toMatch(/requires >= 2/);
+  });
+
+  it("loadCorpus accepts a bundle whose schema_version matches MIN_SUPPORTED_SCHEMA_VERSION", async () => {
+    await buildFixtureCorpus(dir, [
+      {
+        id: "sf-port",
+        name: "Port",
+        codeTitle: "Port",
+        moduleVersion: "2026.05.20",
+        jurisdiction: "City and County of San Francisco",
+        sections: [{ id: "1.1", title: "X", hierarchy: ["Port"] }],
+        schemaVersion: 2,
+      },
     ]);
+    await loadCorpus(dir);
+    expect(listCorpus().ok).toBe(true);
+  });
+
+  it("loadCorpus tolerates a corpus-meta.json without schema_version (legacy / partial fixture)", async () => {
+    // Fixtures without an explicit schema_version (the common case
+    // across renderer unit tests) shouldn't trip the gate. The gate
+    // only fires for bundles that explicitly advertise a stale
+    // schema_version. This isn't a security gap — sections still
+    // validate against SectionFileSchema (post-L2b requires def_id),
+    // so any section file from an actual schema-1 build would fail
+    // its own schema check.
+    await buildFixtureCorpus(dir, [
+      {
+        id: "sf-port",
+        name: "Port",
+        codeTitle: "Port",
+        moduleVersion: "2026.05.20",
+        jurisdiction: "City and County of San Francisco",
+        sections: [{ id: "1.1", title: "X", hierarchy: ["Port"] }],
+      },
+    ]);
+    await loadCorpus(dir);
+    expect(listCorpus().ok).toBe(true);
+  });
+
+  it("loadCorpus hard-fails on a malformed definitions-v2.json (L2b policy)", async () => {
+    // L2b cutover: per-key soft-fail is gone. By L2b the build pipeline
+    // owns Definition uniqueness + per-record shape invariants
+    // (ModuleDefinitionsSchema); a malformed file at load time means
+    // the bundle is corrupt and the loader routes it to
+    // CorpusError("corrupt") instead of silently dropping entries.
+    await buildFixtureCorpus(dir, [
+      {
+        id: "sf-port",
+        name: "Port",
+        codeTitle: "Port",
+        moduleVersion: "2026.05.20",
+        jurisdiction: "City and County of San Francisco",
+        sections: [{ id: "1.1", title: "X", hierarchy: ["Port"] }],
+        // Raw value: not a Definition[] — wrong shape, fails schema.
+        definitionsV2Raw: { notAnArray: true },
+      },
+    ]);
+    await loadCorpus(dir);
+    const result = listCorpus();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("corrupt");
+    expect(result.error.detail).toContain("definitions-v2.json");
   });
 
   it("section tree node.code carries display_label, not section.id", async () => {
@@ -615,8 +732,8 @@ describe("loadCorpus + listCorpus + readSection", () => {
     expect(r.value.next).toEqual({ moduleId: "sf-port", sectionId: "1.3" });
   });
 
-  it("readSection joins module definitions.json entries for defined-term body segments (D-DELTA-2)", async () => {
-    // body[] mentions "Person"; definitions.json maps "Person" → 1.1.
+  it("readSection joins module definitions-v2 entries for defined-term body segments (D-DELTA-2)", async () => {
+    // body[] mentions "Person"; definitions-v2 has Person → 1.1.
     // The definitions field on the response must surface the entry so
     // the renderer's hover tooltip is synchronous (no per-hover IPC).
     await buildFixtureCorpus(dir, [
@@ -633,12 +750,18 @@ describe("loadCorpus + listCorpus + readSection", () => {
             title: "Use",
             hierarchy: ["Port Code", "ARTICLE 1"],
             text: "Person",
-            body: [{ type: "defined_term", term: "Person" }],
+            body: [
+              {
+                type: "defined_term",
+                raw: "Person",
+                def_id: fixtureDefId("sf-port", "1.1", "Person"),
+              },
+            ],
             defined_terms: ["Person"],
           },
         ],
         definitions: {
-          Person: [{ defined_in_section: "1.1" }],
+          Person: ["1.1"],
         },
       },
     ]);
@@ -646,12 +769,24 @@ describe("loadCorpus + listCorpus + readSection", () => {
     const r = readSection({ moduleId: "sf-port", sectionId: "1.2" });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.value.definitions).toEqual({ Person: [{ defined_in_section: "1.1" }] });
+    const personId = fixtureDefId("sf-port", "1.1", "Person");
+    expect(r.value.definitions[personId]).toEqual({
+      term: "Person",
+      excerpt: '"Person" means a thing.',
+      scope: { kind: "module" },
+      first_use_section: "1.1",
+    });
   });
 
-  it("readSection preserves multi-section definition arrays (D-DELTA-2 data-loss guard)", async () => {
-    // The original per-hover IPC plan flattened to a single defined_in.
-    // The bulk pre-resolve preserves every entry — codex's data-loss catch.
+  it("readSection projects one wire entry per def_id present in body[]", async () => {
+    // L2b cutover: per-occurrence resolution means each defined_term
+    // segment resolves to exactly ONE Definition (the precedence-rule
+    // winner). Multiple definers of the same term across the module
+    // become distinct Definitions with distinct def_ids; body[] picks
+    // the winning def_id at build time. The wire shape carries one
+    // entry per resolved def_id referenced by this section.
+    const def11 = fixtureDefId("sf-port", "1.1", "Vessel");
+    const def12 = fixtureDefId("sf-port", "1.2", "Vessel");
     await buildFixtureCorpus(dir, [
       {
         id: "sf-port",
@@ -666,13 +801,17 @@ describe("loadCorpus + listCorpus + readSection", () => {
             id: "1.3",
             title: "Use",
             hierarchy: ["Port Code"],
-            text: "Vessel",
-            body: [{ type: "defined_term", term: "Vessel" }],
+            text: "Vessel and Vessel",
+            body: [
+              { type: "defined_term", raw: "Vessel", def_id: def11 },
+              { type: "text", text: " and " },
+              { type: "defined_term", raw: "Vessel", def_id: def12 },
+            ],
             defined_terms: ["Vessel"],
           },
         ],
         definitions: {
-          Vessel: [{ defined_in_section: "1.1" }, { defined_in_section: "1.2" }],
+          Vessel: ["1.1", "1.2"],
         },
       },
     ]);
@@ -680,10 +819,9 @@ describe("loadCorpus + listCorpus + readSection", () => {
     const r = readSection({ moduleId: "sf-port", sectionId: "1.3" });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.value.definitions.Vessel).toEqual([
-      { defined_in_section: "1.1" },
-      { defined_in_section: "1.2" },
-    ]);
+    expect(Object.keys(r.value.definitions).sort()).toEqual([def11, def12].sort());
+    expect(r.value.definitions[def11]?.first_use_section).toBe("1.1");
+    expect(r.value.definitions[def12]?.first_use_section).toBe("1.2");
   });
 
   it("readSection returns an empty definitions map when the section has no defined_term segments", async () => {
@@ -695,7 +833,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
         moduleVersion: "2026.04.01",
         jurisdiction: "City and County of San Francisco",
         sections: [{ id: "1.1", title: "X", hierarchy: ["Port Code"] }],
-        definitions: { Person: [{ defined_in_section: "1.1" }] },
+        definitions: { Person: ["1.1"] },
       },
     ]);
     await loadCorpus(dir);
@@ -705,11 +843,12 @@ describe("loadCorpus + listCorpus + readSection", () => {
     expect(r.value.definitions).toEqual({});
   });
 
-  it("readSection drops only the bad definitions.json keys, projects the valid ones", async () => {
-    // Pre-existing parser bug emits some keys with stray whitespace
-    // ("\nCity"). Per-key soft-fail: bad keys log and drop, valid keys
-    // still load. The previous per-file policy turned 2 bad keys out
-    // of 301 into 100%-no-tooltips for the entire module.
+  it("readSection skips def_ids not present in the module's Definition index (extractor regression — graceful degrade)", async () => {
+    // If the L2a builder somehow ships a body[] def_id that wasn't
+    // persisted into definitions-v2.json (extractor / writer mismatch),
+    // the loader can't project a Definition for it. Renderer renders
+    // the highlight without a tooltip rather than crashing.
+    const orphanDefId = fixtureDefId("sf-port", "1.1", "Phantom");
     await buildFixtureCorpus(dir, [
       {
         id: "sf-port",
@@ -722,56 +861,13 @@ describe("loadCorpus + listCorpus + readSection", () => {
             id: "1.1",
             title: "Use",
             hierarchy: ["Port"],
-            text: "Person Vessel",
-            body: [
-              { type: "defined_term", term: "Person" },
-              { type: "text", text: " " },
-              { type: "defined_term", term: "Vessel" },
-            ],
-            defined_terms: ["Person", "Vessel"],
+            text: "Phantom",
+            // def_id points to a Definition that isn't in the module index.
+            body: [{ type: "defined_term", raw: "Phantom", def_id: orphanDefId }],
+            defined_terms: ["Phantom"],
           },
         ],
-        definitions: {
-          // Whitespace-padded key violates DefinedTermSchema → dropped.
-          "\nPerson": [{ defined_in_section: "1.1" }],
-          // Valid key → still projects.
-          Vessel: [{ defined_in_section: "1.1" }],
-        },
-      },
-    ]);
-    await loadCorpus(dir);
-    const r = readSection({ moduleId: "sf-port", sectionId: "1.1" });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    // Person dropped (bad key), Vessel projects.
-    expect(Object.hasOwn(r.value.definitions, "Person")).toBe(false);
-    expect(r.value.definitions.Vessel).toEqual([{ defined_in_section: "1.1" }]);
-    expect(r.value.section.body).toHaveLength(3);
-  });
-
-  it("readSection returns an empty map when every definitions.json entry is malformed", async () => {
-    // The fully-broken case still loads the section — only tooltips
-    // degrade. (The previous per-file policy collapsed to this same
-    // outcome on a single bad key; per-key keeps the outcome as the
-    // floor, not the ceiling.)
-    await buildFixtureCorpus(dir, [
-      {
-        id: "sf-port",
-        name: "Port",
-        codeTitle: "Port",
-        moduleVersion: "2026.04.01",
-        jurisdiction: "City and County of San Francisco",
-        sections: [
-          {
-            id: "1.1",
-            title: "Use",
-            hierarchy: ["Port"],
-            text: "Person",
-            body: [{ type: "defined_term", term: "Person" }],
-            defined_terms: ["Person"],
-          },
-        ],
-        definitions: { "\nPerson": [{ defined_in_section: "1.1" }] },
+        definitions: { Person: ["1.1"] },
       },
     ]);
     await loadCorpus(dir);
@@ -779,47 +875,9 @@ describe("loadCorpus + listCorpus + readSection", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.value.definitions).toEqual({});
-    expect(r.value.section.body).toHaveLength(1);
   });
 
-  it("readSection projects defined-term entries even when the term name collides with Object.prototype", async () => {
-    // A section body[] segment can name any defined-term string, including
-    // ones that shadow Object.prototype properties ("constructor",
-    // "toString", "__proto__"). With a plain `{}` accumulator the
-    // `term in out` check would short-circuit on those terms and silently
-    // drop the projection — the renderer would then read an inherited
-    // function from the prototype and crash on tooltip hover. Null-prototype
-    // accumulator + Object.hasOwn at the read site keeps the projection
-    // honest end-to-end.
-    await buildFixtureCorpus(dir, [
-      {
-        id: "sf-port",
-        name: "Port",
-        codeTitle: "Port",
-        moduleVersion: "2026.04.01",
-        jurisdiction: "City and County of San Francisco",
-        sections: [
-          {
-            id: "1.1",
-            title: "Use",
-            hierarchy: ["Port"],
-            text: "constructor",
-            body: [{ type: "defined_term", term: "constructor" }],
-            defined_terms: ["constructor"],
-          },
-        ],
-        definitions: { constructor: [{ defined_in_section: "1.1" }] },
-      },
-    ]);
-    await loadCorpus(dir);
-    const r = readSection({ moduleId: "sf-port", sectionId: "1.1" });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(Object.hasOwn(r.value.definitions, "constructor")).toBe(true);
-    expect(r.value.definitions.constructor).toEqual([{ defined_in_section: "1.1" }]);
-  });
-
-  it("readSection returns an empty definitions map when the module has no definitions.json", async () => {
+  it("readSection returns an empty definitions map when the module has no definitions-v2.json", async () => {
     await buildFixtureCorpus(dir, [
       {
         id: "sf-port",
@@ -827,14 +885,20 @@ describe("loadCorpus + listCorpus + readSection", () => {
         codeTitle: "Port Code",
         moduleVersion: "2026.04.01",
         jurisdiction: "City and County of San Francisco",
-        // No `definitions` key → no definitions.json file written.
+        // No `definitions` key → no definitions-v2.json file written.
         sections: [
           {
             id: "1.1",
             title: "Use",
             hierarchy: ["Port Code"],
             text: "Person",
-            body: [{ type: "defined_term", term: "Person" }],
+            body: [
+              {
+                type: "defined_term",
+                raw: "Person",
+                def_id: fixtureDefId("sf-port", "1.1", "Person"),
+              },
+            ],
             defined_terms: ["Person"],
           },
         ],

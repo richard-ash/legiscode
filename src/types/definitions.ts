@@ -2,46 +2,15 @@ import { z } from "zod";
 import { DefinedTermSchema, SectionIdSchema } from "./identifiers";
 import { ScopeExprSchema } from "./scope";
 
-// ─── Legacy per-module definitions map (L0) ────────────────────────────────
+// ─── Canonical Definition record (L2b) ─────────────────────────────────────
 //
-// DefinitionsFile is the existing wire shape: a term → [{defined_in_section}]
-// dict, one file per module, joined per-section at load time by the renderer.
-// L2a will dual-write the canonical Definition[] alongside this map; L2b
-// will remove DefinitionsFile entirely once every reader is cut over to
-// def_id lookups. Kept here unchanged so L1 ships zero behavior delta.
-
-export const DefinitionEntrySchema = z
-  .object({
-    defined_in_section: SectionIdSchema,
-  })
-  .strict();
-
-// Keys are TERMS (DefinedTermSchema), not SectionIdSchema. Every term in
-// the map is defined in at least one section, so the value array is
-// .min(1); the same term defined across multiple sections produces an
-// array length > 1.
-export const DefinitionsFileSchema = z.record(
-  DefinedTermSchema,
-  z.array(DefinitionEntrySchema).min(1),
-);
-
-export type DefinitionEntry = z.infer<typeof DefinitionEntrySchema>;
-export type DefinitionsFile = z.infer<typeof DefinitionsFileSchema>;
-
-// ─── Canonical Definition record (L1) ──────────────────────────────────────
-//
-// Definition is the addressable, scoped, anchored unit the L1+ graph uses.
-// Every defining provision earns a stable id (sha8 of the canonical term,
-// so L3 pattern expansion doesn't invalidate L1 ids — see §9 L1 of the
-// definitions-foundation plan). Resolution at L2a is build-time and
-// per-occurrence: each defined_term body segment carries a def_id that
-// points into this set.
-//
-// Fields here populate as the build pipeline gains the corresponding
-// extractors (L2a writes the full record from the parser; L1 only
-// establishes the schema). No runtime code reads the canonical record
-// yet — the L0 DefinitionsFile path remains authoritative for tooltips
-// until L2b cutover.
+// Definition is the addressable, scoped, anchored unit of the
+// definitions graph. Every defining provision earns a stable id (sha8
+// of the canonical term, so L3 pattern expansion doesn't invalidate
+// previously-persisted ids — see §9 L1 of the definitions-foundation
+// plan). Resolution at L2a is build-time and per-occurrence: each
+// defined_term body segment carries a def_id that points into this
+// set; the loader reads definitions-v2.json and projects per-section.
 
 // DefinitionIds are <module>/<section>#<sha8-of-canonical-term>. The sha8
 // makes the id stable across L3 pattern additions (adding new extraction
@@ -112,9 +81,8 @@ export const DefinitionSchema = z
 export type Definition = z.infer<typeof DefinitionSchema>;
 
 // ModuleDefinitionsSchema is the canonical Definition[] wire shape per
-// module. L2a writes this as part of the dual-write step; L2b makes it
-// the only definitions wire shape and removes DefinitionsFile. Uniqueness
-// refinement catches extractor bugs before they corrupt the loader: the
+// module — persisted as definitions-v2.json. Uniqueness refinement
+// catches extractor bugs before they corrupt the loader: the
 // sha8(term) + section pair guarantees per-module uniqueness when the
 // extractor is correct.
 export const ModuleDefinitionsSchema = z.array(DefinitionSchema).superRefine((defs, ctx) => {

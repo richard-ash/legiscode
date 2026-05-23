@@ -96,13 +96,10 @@ export async function writeModule(parsed: ParsedModule, opts: WriteModuleOptions
       join(newDir, "manifest.json"),
       toDistributedManifest(opts.jurisdiction, parsed.module),
     );
-    await writeJson(join(newDir, "definitions.json"), parsed.definitions);
-    // L2a additions: canonical Definition[] graph + per-occurrence
-    // unresolved-references audit. definitions-v2.json lives alongside
-    // the legacy definitions.json during the L2a-L2b dual-write window;
-    // L2b promotes it to the only definitions artifact. The unresolved
-    // file always ships (even empty) so the operator coverage report has
-    // a stable file path to read.
+    // L2b cutover: definitions-v2.json (canonical Definition[]) is the
+    // only definitions artifact; the legacy term-keyed definitions.json
+    // is gone. unresolved_references.json always ships (even empty) so
+    // the operator coverage report has a stable file path to read.
     await writeJson(join(newDir, "definitions-v2.json"), parsed.moduleDefinitions);
     await writeJson(join(newDir, "unresolved_references.json"), parsed.unresolvedReferences);
 

@@ -1,37 +1,48 @@
 // @vitest-environment jsdom
 //
-// D-DELTA-2 lock — tooltip renders synchronously from the `definitions`
-// prop. No IPC, no async lookup. The multi-section case asserts the
-// renderer doesn't flatten data the way the original per-hover lookup
-// would have (codex's data-loss catch).
+// L2b cutover — tooltip renders synchronously from the `definition` prop.
+// Per-occurrence build-time resolution means each occurrence has exactly
+// ONE canonical Definition (not a list of definers); the tooltip shows
+// the excerpt and a single "go to definer" link.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DefinedTerm } from "@/ui/center-panel/section-view/defined-term";
 import { SectionView } from "@/ui/center-panel/section-view/section-view";
-import { bodyDefinedTerm, bodyText, buildCorpusSectionView } from "./fixtures";
+import {
+  bodyDefinedTerm,
+  bodyText,
+  buildCorpusSectionView,
+  testDefId,
+  testDefinitionView,
+} from "./fixtures";
 
 describe("DefinedTerm — synchronous hover tooltip", () => {
-  it("hover renders the tooltip with all defining sections (no IPC)", () => {
+  it("hover renders the tooltip with the canonical excerpt and definer link", () => {
     render(
       <DefinedTerm
-        term="Person"
-        definitions={[{ defined_in_section: "1.1" }, { defined_in_section: "1.2" }]}
+        raw="Person"
+        definition={testDefinitionView("Person", {
+          excerpt: '"Person" means a natural person.',
+          first_use_section: "1.1",
+        })}
         onJump={vi.fn()}
       />,
     );
     const span = document.querySelector(".lc-deftrm") as HTMLSpanElement;
     fireEvent.mouseEnter(span);
     const tooltip = screen.getByRole("tooltip");
-    expect(tooltip).toBeInTheDocument();
-    // Both defining sections are listed — no flattening.
+    expect(tooltip).toHaveTextContent('"Person" means a natural person.');
     expect(screen.getByRole("button", { name: /§ 1\.1/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /§ 1\.2/ })).toBeInTheDocument();
   });
 
   it("mouse leave hides the tooltip", () => {
     render(
-      <DefinedTerm term="Person" definitions={[{ defined_in_section: "1.1" }]} onJump={vi.fn()} />,
+      <DefinedTerm
+        raw="Person"
+        definition={testDefinitionView("Person", { first_use_section: "1.1" })}
+        onJump={vi.fn()}
+      />,
     );
     const span = document.querySelector(".lc-deftrm") as HTMLSpanElement;
     fireEvent.mouseEnter(span);
@@ -40,10 +51,14 @@ describe("DefinedTerm — synchronous hover tooltip", () => {
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
-  it("clicking a tooltip jump-link fires onJump with that section id", () => {
+  it("clicking the definer link fires onJump with first_use_section", () => {
     const onJump = vi.fn();
     render(
-      <DefinedTerm term="Person" definitions={[{ defined_in_section: "5.05" }]} onJump={onJump} />,
+      <DefinedTerm
+        raw="Person"
+        definition={testDefinitionView("Person", { first_use_section: "5.05" })}
+        onJump={onJump}
+      />,
     );
     fireEvent.mouseEnter(document.querySelector(".lc-deftrm") as HTMLSpanElement);
     fireEvent.click(screen.getByRole("button", { name: /§ 5\.05/ }));
@@ -59,7 +74,9 @@ describe("DefinedTerm — synchronous hover tooltip", () => {
         defined_terms: ["Person"],
         body: [bodyDefinedTerm("Person")],
       },
-      definitions: { Person: [{ defined_in_section: "1.1" }] },
+      definitions: {
+        [testDefId("Person")]: testDefinitionView("Person", { first_use_section: "1.1" }),
+      },
     });
     render(<SectionView view={view} parentsLabel="" error={null} navigate={navigate} />);
     fireEvent.mouseEnter(document.querySelector(".lc-deftrm") as HTMLSpanElement);
@@ -72,8 +89,8 @@ describe("DefinedTerm — synchronous hover tooltip", () => {
     expect(intent).toBe("primary");
   });
 
-  it("no tooltip rendering when the term has no definitions entry", () => {
-    // Loader's join skips terms missing from definitions.json — the
+  it("no tooltip when the def_id has no projected Definition", () => {
+    // Loader's join skips def_ids missing from the module index — the
     // renderer renders the highlight anyway and the hover handler is
     // never bound, so even a synthetic mouseenter does nothing.
     const view = buildCorpusSectionView({
@@ -82,7 +99,7 @@ describe("DefinedTerm — synchronous hover tooltip", () => {
         defined_terms: ["Vessel"],
         body: [bodyText(""), bodyDefinedTerm("Vessel")],
       },
-      // Empty definitions — terms not pre-resolved.
+      // Empty definitions — def_id not projected.
       definitions: {},
     });
     render(<SectionView view={view} parentsLabel="" error={null} navigate={vi.fn()} />);

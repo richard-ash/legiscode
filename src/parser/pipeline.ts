@@ -12,7 +12,6 @@ import type {
   Appendix,
   Citation,
   CorpusEntryKind,
-  Definition,
   DisplayRules,
   JurisdictionManifest,
   ModuleConfig,
@@ -42,7 +41,7 @@ import {
 import { buildBodySegments, type UnresolvedReferenceReport } from "./build-body-segments";
 import { type CitationMatch, extractCitations } from "./citations";
 import { type DefinedTermMatch, extractDefinedTerms } from "./defined-terms";
-import { buildModuleDefinitions, computeDefinitions } from "./definitions";
+import { buildModuleDefinitions } from "./definitions";
 import { ParseAbortError, parseExport as parseExportRaw, type SpanRecord } from "./parse-html";
 
 // Known raw-parser strategies. Adding a new jurisdiction adds a token here
@@ -161,11 +160,11 @@ function buildParsedModule(
   //   Pass 1 — per section: extract citations + defined terms (positions
   //            retained for Pass 2 and Pass 3), build a body-less
   //            SectionFile, schema-validate. Skips on validation failure.
-  //   Pass 2 — module-wide: compute (a) the legacy DefinitionsFile (term
-  //            → [defined_in_section]) and (b) the canonical Definition[]
-  //            graph (id-keyed, scoped, anchored). Both feed downstream
-  //            consumers during the L2a-L2b dual-write window; L2b drops
-  //            the legacy DefinitionsFile.
+  //   Pass 2 — module-wide: build the canonical Definition[] graph
+  //            (id-keyed, scoped, anchored) from every section's
+  //            extracted matches plus the manifest's
+  //            global_definer_sections list. Persisted as
+  //            definitions-v2.json.
   //   Pass 3 — per section: call buildBodySegments using Pass-1
   //            extraction outputs + Pass-2's canonical Definition[]. The
   //            per-occurrence resolver inside buildBodySegments attaches
@@ -250,17 +249,12 @@ function buildParsedModule(
     });
   }
 
-  // Pass 2a: legacy DefinitionsFile (term → [defined_in_section]).
-  // Kept during the L2a-L2b dual-write window for backward
-  // compatibility with the existing loader path. L2b cuts the loader
-  // over to the canonical Definition[] and removes this artifact.
-  const localDefinitions = computeDefinitions(drafts.map((d) => d.section));
-
-  // Pass 2b (L2a): canonical Definition[] graph. Each Definition is
+  // Pass 2: canonical Definition[] graph. Each Definition is
   // addressable (id), anchored (body_anchor char offsets into
   // section.text), scoped (default to definer's hierarchy prefix;
   // module manifest globals override), and provenance-tagged
-  // (extracted_by names the source pattern).
+  // (extracted_by names the source pattern). Persisted as
+  // definitions-v2.json.
   const globalDefinerSections = new Set<SectionId>(module.global_definer_sections ?? []);
   const moduleDefinitions = buildModuleDefinitions(
     module,
@@ -387,12 +381,6 @@ function buildParsedModule(
     appendices,
     ordinanceHistories,
     resolutionHistories,
-    // Reuse Pass-2's dictionary. drafts (input) ⊇ sections (output) — they
-    // diverge only on Pass-3 failures, which fail the 0%-skip gate before
-    // the build ships. Recomputing would also drop a now-skipped section's
-    // defined-term from the map even though the surviving sections' body[]
-    // already references it.
-    definitions: localDefinitions,
     moduleDefinitions,
     unresolvedReferences,
     skipped,

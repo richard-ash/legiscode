@@ -440,14 +440,16 @@ function renderSegment(seg: BodySegment, ctx: RenderCtx, key: string): ReactNode
       );
     }
     case "defined_term": {
-      // Object.hasOwn guard: definitions arrives as a plain object after
-      // IPC's JSON round-trip, so a term named "constructor" / "toString"
-      // would otherwise read an inherited function from Object.prototype
-      // and crash on tooltip hover.
-      const entries = Object.hasOwn(ctx.definitions, seg.term)
-        ? ctx.definitions[seg.term]
+      // L2b cutover: lookup keyed by def_id (build-time-resolved per
+      // occurrence) instead of by term. Object.hasOwn guard: definitions
+      // arrives as a plain object after IPC's JSON round-trip, so a
+      // def_id colliding with an Object.prototype name (theoretically
+      // impossible given the sha8 suffix, but the guard costs nothing)
+      // would otherwise read an inherited property.
+      const definition = Object.hasOwn(ctx.definitions, seg.def_id)
+        ? ctx.definitions[seg.def_id]
         : undefined;
-      return <DefinedTerm key={key} term={seg.term} definitions={entries} onJump={ctx.onJump} />;
+      return <DefinedTerm key={key} raw={seg.raw} definition={definition} onJump={ctx.onJump} />;
     }
     case "subsection_label": {
       // First-occurrence-wins anchor id (D7, D14). Duplicate labels

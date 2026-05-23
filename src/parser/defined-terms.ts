@@ -78,8 +78,8 @@ const KNOWN_PATTERN_KINDS: Record<string, string> = {
   '"([^"]+)"\\s+are\\s+defined\\s+as': "are-defined-as",
   // Curly-quote variants — AmLegal HTML occasionally emits these for
   // the same definitional phrasing.
-  '[“”]([^“”]+)[“”]\\s+means': "curly-quoted-means",
-  '[“”]([^“”]+)[“”]\\s+shall\\s+mean': "curly-quoted-shall-mean",
+  "[“”]([^“”]+)[“”]\\s+means": "curly-quoted-means",
+  "[“”]([^“”]+)[“”]\\s+shall\\s+mean": "curly-quoted-shall-mean",
 };
 
 function classifyPattern(patternStr: string): string {

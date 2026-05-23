@@ -7,14 +7,20 @@ import { ModuleIdSchema, SectionIdSchema } from "./identifiers";
 // only ever requests /modules/schema-N/... URLs from the backend.
 //
 // The --corpus-path power-user path bypasses that backend gate (custom
-// local bundles can be at any schema_version), so L2b adds a load-time
-// CorpusVersionError gate against MIN_SUPPORTED_SCHEMA_VERSION when
-// reading from --corpus-path. L1 stages the constant bump that L2b
-// will key off of: version 2 is the L1 schema with optional def_id /
-// raw / candidates_dropped on defined_term segments and the canonical
-// Definition record. L2b flips def_id required and removes the legacy
-// `term` field, completing the schema-version-2 cutover.
+// local bundles can be at any schema_version), so the loader compares
+// each module's corpus-meta.schema_version against
+// MIN_SUPPORTED_SCHEMA_VERSION and fails loudly when a stale bundle
+// would otherwise crash downstream on field-shape mismatches.
+//
+// KNOWN_SCHEMA_VERSION = 2: definitions graph is canonical Definition[]
+// (id, body_anchor, scope, extracted_by); defined_term body segments
+// require def_id + raw; legacy term-keyed DefinitionsFile is gone.
+// MIN_SUPPORTED_SCHEMA_VERSION starts equal to KNOWN_SCHEMA_VERSION —
+// there are no older schema versions in the wild yet. When the app
+// learns to read additive future versions, bump KNOWN above MIN; when
+// it stops supporting older shapes, bump MIN to match.
 export const KNOWN_SCHEMA_VERSION = 2;
+export const MIN_SUPPORTED_SCHEMA_VERSION = 2;
 
 // CorpusEntry kinds enumerated in corpus-meta.json's `corpus_entry_kinds`
 // field, so consumers can detect kind-extension at meta-read time without

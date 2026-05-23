@@ -44,12 +44,12 @@ function expectedDefId(term: string): string {
   return buildDefinitionId(TEST_MODULE, TEST_DEFINER, term);
 }
 
-// Most-common defined_term segment shape after the L2a resolver
-// attaches def_id + raw. Helper so tests don't repeat the boilerplate.
+// Post-L2b defined_term segment shape: raw + def_id, no legacy term
+// field. Helper takes the canonical term as a shorthand to derive the
+// expected def_id (and the default raw when no override is supplied).
 function definedTermSegment(term: string, raw?: string) {
   return {
     type: "defined_term" as const,
-    term,
     raw: raw ?? term,
     def_id: expectedDefId(term),
   };
@@ -493,7 +493,7 @@ describe("buildBodySegments — L2a per-occurrence resolution", () => {
     // The reader IS the definer; body_anchor 4..10 marks the canonical
     // definition. Other occurrences of the same term in the same section
     // stay tagged.
-    const text = 'The Person means a human. Other Person says hi.';
+    const text = "The Person means a human. Other Person says hi.";
     const definer = mockDefinition("Person", {
       defined_in: "definer-id",
       body_anchor: { start: 4, end: 10 },
@@ -509,7 +509,7 @@ describe("buildBodySegments — L2a per-occurrence resolution", () => {
     // First occurrence (canonical) is suppressed; second stays tagged.
     expect(out).toEqual([
       { type: "text", text: "The Person means a human. Other " },
-      { type: "defined_term", term: "Person", raw: "Person", def_id: definer.id },
+      { type: "defined_term", raw: "Person", def_id: definer.id },
       { type: "text", text: " says hi." },
     ]);
   });
@@ -536,7 +536,6 @@ describe("buildBodySegments — L2a per-occurrence resolution", () => {
       { type: "text", text: "The " },
       {
         type: "defined_term",
-        term: "City",
         raw: "City",
         def_id: winner.id,
         candidates_dropped: [loser.id],

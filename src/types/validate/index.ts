@@ -14,8 +14,8 @@ import { readFile } from "node:fs/promises";
 import { type ZodType, z } from "zod";
 import type { CorpusMeta } from "../corpus-meta";
 import { CorpusMetaSchema } from "../corpus-meta";
-import type { DefinitionsFile } from "../definitions";
-import { DefinitionsFileSchema } from "../definitions";
+import type { ModuleDefinitions } from "../definitions";
+import { ModuleDefinitionsSchema } from "../definitions";
 import type { DistributedModuleManifest, JurisdictionManifest } from "../manifest";
 import { DistributedModuleManifestSchema, JurisdictionManifestSchema } from "../manifest";
 import type { OrdinanceFile } from "../ordinance";
@@ -78,8 +78,8 @@ export const readJurisdictionManifest = (path: string): Promise<JurisdictionMani
 export const readDistributedModuleManifest = (path: string): Promise<DistributedModuleManifest> =>
   parseFile(path, DistributedModuleManifestSchema);
 
-export const readDefinitions = (path: string): Promise<DefinitionsFile> =>
-  parseFile(path, DefinitionsFileSchema);
+export const readDefinitions = (path: string): Promise<ModuleDefinitions> =>
+  parseFile(path, ModuleDefinitionsSchema);
 
 export const readCorpusMeta = (path: string): Promise<CorpusMeta> =>
   parseFile(path, CorpusMetaSchema);

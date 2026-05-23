@@ -120,11 +120,7 @@ describe("resolveDefinitionForOccurrence", () => {
       scope: { kind: "hierarchy", prefix: ["Administrative Code"] },
       defined_in: "a-100",
     });
-    const result = resolveDefinitionForOccurrence(
-      "City",
-      reader,
-      buildCandidatesByTerm([a, b]),
-    );
+    const result = resolveDefinitionForOccurrence("City", reader, buildCandidatesByTerm([a, b]));
     expect(result.winner?.defined_in).toBe("a-100");
   });
 
@@ -158,11 +154,7 @@ describe("resolveDefinitionForOccurrence", () => {
         ],
       },
     });
-    const result = resolveDefinitionForOccurrence(
-      "City",
-      reader,
-      buildCandidatesByTerm([tooDeep]),
-    );
+    const result = resolveDefinitionForOccurrence("City", reader, buildCandidatesByTerm([tooDeep]));
     expect(result.winner).toBeNull();
   });
 
