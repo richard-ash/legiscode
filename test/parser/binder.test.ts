@@ -206,7 +206,13 @@ describe("bindCitation", () => {
       target: { kind: "internal", section_id: "999" },
     };
     const after = bindCitation(before, ctx);
-    expect(after.target).toEqual({ kind: "vague", raw: "Section 999" });
+    // D9: vague reclass preserves the original target so the validator
+    // can bucket the cite by reason (here: vague_no_anchor).
+    expect(after.target).toEqual({
+      kind: "vague",
+      raw: "Section 999",
+      source_target: { kind: "internal", section_id: "999" },
+    });
   });
 
   it("sibling fallback: internal cite resolves against the one sibling module that has it", () => {
@@ -284,8 +290,13 @@ describe("bindCitation", () => {
       target: { kind: "internal", section_id: "8.509" },
     };
     const after = bindCitation(before, ctx);
-    // Ambiguous → reclassified as vague rather than guessing.
-    expect(after.target).toEqual({ kind: "vague", raw: "Section 8.509" });
+    // Ambiguous → reclassified as vague rather than guessing. D9
+    // source_target preserved so the validator can bucket the cite.
+    expect(after.target).toEqual({
+      kind: "vague",
+      raw: "Section 8.509",
+      source_target: { kind: "internal", section_id: "8.509" },
+    });
   });
 
   it("leaves a cross_module target intact when the target module is not in this build", () => {

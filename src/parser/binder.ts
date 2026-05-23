@@ -90,10 +90,15 @@ export function bindCitation(citation: Citation, ctx: BindContext): Citation {
       // citation (no navigation, no build failure). Per the Phase 4
       // gate: only bindable-shape-but-actually-unbindable targets
       // remain internal / cross_module past this point; the validator
-      // then refuses to ship them.
+      // then refuses to ship them. D9: preserve source_target so the
+      // validator can bucket newly-vague cites by reason.
       return {
         ...citation,
-        target: { kind: "vague", raw: citation.display_text },
+        target: {
+          kind: "vague",
+          raw: citation.display_text,
+          source_target: target,
+        },
       };
     }
     case "cross_module": {
@@ -108,10 +113,16 @@ export function bindCitation(citation: Citation, ctx: BindContext): Citation {
       if (!ctx.anchorsByModule.has(target.module_id)) return citation;
       // Target module IS in build but anchor missing — bindable-shape
       // unbindable. Reclassify as vague to fall outside the Phase 4
-      // intra-gate; the source corpus is the actual culprit.
+      // intra-gate; the source corpus is the actual culprit. D9:
+      // preserve the original target so the validator can attribute
+      // the failure to a cross_module reclass.
       return {
         ...citation,
-        target: { kind: "vague", raw: citation.display_text },
+        target: {
+          kind: "vague",
+          raw: citation.display_text,
+          source_target: target,
+        },
       };
     }
     case "section-ref":

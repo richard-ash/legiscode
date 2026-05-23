@@ -38,10 +38,37 @@ const CrossModuleTargetSchema = z
     path: ["section_id"],
   });
 
+// D9 — vague reclass observability. When the binder reclassifies an
+// `internal` or `cross_module` cite as vague (no anchor matched, or
+// hierarchy-disambiguation came up ambiguous), preserve the original
+// target so the validator can attribute the reclass to its cause:
+// external-author-ambiguity (no source_target → vague_external),
+// collision-family-unresolvable (source_target present, family members
+// all share citing hierarchy → vague_collision_unresolvable), or
+// binder-bug-indicator (source_target present, no anchor reachable →
+// vague_no_anchor). The source_target field is optional so cites
+// authored as vague-from-inception ("the previous section", inline
+// editor notes) carry no provenance.
+//
+// SectionRef is NOT a valid source_target — vague reclass happens
+// BEFORE bind, so the source can only be one of the pre-binder
+// shapes (internal / cross_module).
+const VagueSourceTargetSchema: z.ZodType<
+  | { kind: "internal"; section_id: string; subsection?: string; range?: { from: string; to: string } }
+  | {
+      kind: "cross_module";
+      module_id: string;
+      section_id: string;
+      subsection?: string;
+      range?: { from: string; to: string };
+    }
+> = z.lazy(() => z.union([InternalTargetSchema, CrossModuleTargetSchema]));
+
 const VagueTargetSchema = z
   .object({
     kind: z.literal("vague"),
     raw: z.string().min(1),
+    source_target: VagueSourceTargetSchema.optional(),
   })
   .strict();
 
