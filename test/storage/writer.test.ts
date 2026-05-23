@@ -157,3 +157,44 @@ describe("writeModule — zero-sections gate", () => {
     expect(error.message).toContain("empty bundle");
   });
 });
+
+// T5 — Writer defense-in-depth for the section.id uniqueness invariant.
+// The validateCorpus gate (D2) catches duplicates at pipeline time and
+// the orchestrator short-circuits writeModule (D7). T5 is the second
+// gate: even if a future regression bypassed validation (e.g. a debug
+// flag, or two ParsedModules feeding the same writeModule call), the
+// writer must refuse to drop bytes when a section's JSON path already
+// exists. Two independent gates for one invariant per
+// feedback_test_each_path_once — each layer-targeted, no duplicate
+// coverage of the same path.
+describe("writeModule — section path collision gate (T5)", () => {
+  it("throws AtomicWriteError(PARSE) when two SectionFiles write to the same path", async () => {
+    // Two sections with the same id. The 0%-skip + 0-sections gates
+    // pass (no skips, sections.length === 2), so writeModule enters
+    // the writeSection loop; the second writeSection probe hits the
+    // file the first wrote and aborts.
+    const sectionA = makeSection("16.9");
+    const sectionB = { ...makeSection("16.9"), text: "different body" };
+    const parsed = makeParsedModule({ sections: [sectionA, sectionB] });
+    const outputDir = await tmpOutputDir();
+
+    let caught: unknown = null;
+    try {
+      await writeModule(parsed, {
+        jurisdiction,
+        outputDir,
+        snapshotAt: "2026-05-04T12:00:00Z",
+        maxSkips: 0,
+        sourceSha256,
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(AtomicWriteError);
+    const error = caught as AtomicWriteError;
+    expect(error.exitCode).toBe(ExitCodes.PARSE);
+    expect(error.message).toContain("writeSection collision");
+    expect(error.message).toContain("16.9");
+  });
+});

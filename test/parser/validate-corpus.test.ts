@@ -153,3 +153,154 @@ describe("validateCorpus — TOC coverage gate (failure paths)", () => {
     expect(result.coverage.covered).toBe(2);
   });
 });
+
+// D9 — vague reclass observability. The binder reclassifies bindable-
+// shape-but-actually-unbindable cites as vague (no anchor / hierarchy
+// disambiguation came up ambiguous). The validator buckets these by
+// reason so an operator can tell "honest ambiguity" from "binder bug".
+describe("validateCorpus — newly_vague_by_reason bucketing (D9)", () => {
+  function sectionWithVague(
+    id: string,
+    hierarchy: readonly string[],
+    vagueTarget: SectionFile["citations"][number]["target"],
+  ): SectionFile {
+    return {
+      kind: "section",
+      id,
+      display_label: id,
+      title: "T",
+      text: "body",
+      citations: [{ display_text: "x", target: vagueTarget }],
+      defined_terms: [],
+      hierarchy: [...hierarchy],
+      editorial_status: "active",
+      body: [],
+    };
+  }
+
+  it("buckets a no-source_target vague as vague_external", () => {
+    const sec = sectionWithVague("1.1", ["Code", "ARTICLE I"], {
+      kind: "vague",
+      raw: "the previous section",
+    });
+    const parsed = makeParsedModule({ sections: [sec] });
+
+    const result = validateCorpus([parsed]);
+
+    expect(result.citations.newly_vague_by_reason).toEqual({
+      vague_external: 1,
+      vague_collision_unresolvable: 0,
+      vague_no_anchor: 0,
+    });
+  });
+
+  it("buckets a vague with source_target into vague_collision_unresolvable when a collision family exists", () => {
+    // The citing section is at ARTICLE I. Two family members "16.9-2"
+    // and "16.9-5" also at ARTICLE I — hierarchy-ambiguous. The binder
+    // would have reclassified the bare cite to "16.9" as vague with
+    // source_target preserved. The validator finds the family and
+    // attributes the vague to collision_unresolvable.
+    const citing = sectionWithVague("8.1", ["Code", "ARTICLE I"], {
+      kind: "vague",
+      raw: "Section 16.9",
+      source_target: { kind: "internal", section_id: "16.9" },
+    });
+    const sibling1 = makeSection("16.9-2");
+    sibling1.hierarchy = ["Code", "ARTICLE I"];
+    const sibling2 = makeSection("16.9-5");
+    sibling2.hierarchy = ["Code", "ARTICLE I"];
+    const parsed = makeParsedModule({ sections: [citing, sibling1, sibling2] });
+
+    const result = validateCorpus([parsed]);
+
+    expect(result.citations.newly_vague_by_reason.vague_collision_unresolvable).toBe(1);
+    expect(result.citations.newly_vague_by_reason.vague_external).toBe(0);
+  });
+
+  it("buckets a vague with source_target into vague_no_anchor when no family exists", () => {
+    // Source target named section_id "999" which has no anchor in
+    // the module and no collision family — this is the D12 binder-
+    // bug indicator. Acceptance metric requires zero.
+    const citing = sectionWithVague("1.1", ["Code"], {
+      kind: "vague",
+      raw: "Section 999",
+      source_target: { kind: "internal", section_id: "999" },
+    });
+    const parsed = makeParsedModule({ sections: [citing] });
+
+    const result = validateCorpus([parsed]);
+
+    expect(result.citations.newly_vague_by_reason.vague_no_anchor).toBe(1);
+  });
+});
+
+describe("validateCorpus — section.id uniqueness gate", () => {
+  // T1a (design doc + D2). The pre-fix corpus had ~141 colliding section.ids
+  // in sf-administrative alone; the writer collapsed them onto the same
+  // `<sectionId>.json` path. The gate must name the colliding id so an
+  // operator can chase the parser regression without diffing the disk
+  // layout against the source HTML.
+  it("reports duplicateSectionIds when two SectionFiles in one module share an id", () => {
+    const sectionA = makeSection("16.9");
+    const sectionB = { ...makeSection("16.9"), text: "Different body" };
+
+    const parsed = makeParsedModule({ sections: [sectionA, sectionB] });
+    const result = validateCorpus([parsed]);
+
+    expect(result.perModule[0]?.duplicateSectionIds).toEqual([{ id: "16.9", count: 2 }]);
+  });
+
+  // T1b (design doc). Sanity case for the happy path — every pre-existing
+  // fixture hits this branch. Empty array, not undefined, so consumers
+  // don't reach for optional chaining.
+  it("reports an empty array when every section.id is unique", () => {
+    const parsed = makeParsedModule({
+      sections: [makeSection("1.1"), makeSection("1.2"), makeSection("1.3")],
+    });
+    const result = validateCorpus([parsed]);
+
+    expect(result.perModule[0]?.duplicateSectionIds).toEqual([]);
+  });
+
+  // G2 (D6). Two distinct collisions in one module must report both.
+  // Order is alphabetical by id so the BuildError message is stable
+  // across runs and snapshot tests do not churn on iteration order.
+  it("reports multiple distinct collisions, sorted by id ascending", () => {
+    const parsed = makeParsedModule({
+      sections: [
+        makeSection("20.7"),
+        makeSection("10.100"),
+        makeSection("20.7"),
+        makeSection("10.100"),
+        makeSection("1.1"),
+      ],
+    });
+    const result = validateCorpus([parsed]);
+
+    expect(result.perModule[0]?.duplicateSectionIds).toEqual([
+      { id: "10.100", count: 2 },
+      { id: "20.7", count: 2 },
+    ]);
+  });
+
+  // The aggregate report exposes duplicates per-module; corpus-wide
+  // flattening is left to the orchestrator since the BuildError lives
+  // per-module (operator needs to know WHICH module collided).
+  it("isolates duplicate detection to its own module", () => {
+    const charter = makeParsedModule({
+      module: { ...moduleConfig, id: "sf-charter" },
+      sections: [makeSection("1.1"), makeSection("1.1")],
+    });
+    const transportation = makeParsedModule({
+      module: { ...moduleConfig, id: "sf-transportation" },
+      sections: [makeSection("1.1")], // same id in sibling module is fine — module-scoped
+    });
+
+    const result = validateCorpus([charter, transportation]);
+    const charterReport = result.perModule.find((m) => m.moduleId === "sf-charter");
+    const transportationReport = result.perModule.find((m) => m.moduleId === "sf-transportation");
+
+    expect(charterReport?.duplicateSectionIds).toEqual([{ id: "1.1", count: 2 }]);
+    expect(transportationReport?.duplicateSectionIds).toEqual([]);
+  });
+});

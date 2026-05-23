@@ -53,12 +53,57 @@ export interface CitationReport {
    * both modules are present.
    */
   unresolvedCross: readonly UnresolvedCitation[];
+  /**
+   * D9 — vague reclass observability. Buckets vague targets by why the
+   * binder couldn't bind them:
+   *   - vague_external: target had no source_target field — author
+   *     wrote a fundamentally underspecified cite ("the previous
+   *     section", "as set forth above"). Acceptable; outside the gate.
+   *   - vague_collision_unresolvable: target had a source_target whose
+   *     section_id lives in a collision family every one of whose
+   *     members shares the citing section's hierarchy. The 19%
+   *     honest-vague bucket per D5 empirics; acceptable per D4.
+   *   - vague_no_anchor: target had a source_target whose section_id
+   *     hit no anchor at all (no exact match, no collision family).
+   *     This is a binder bug indicator — D12 acceptance metric
+   *     requires zero entries.
+   */
+  newly_vague_by_reason: NewlyVagueByReason;
+}
+
+export interface NewlyVagueByReason {
+  vague_external: number;
+  vague_collision_unresolvable: number;
+  vague_no_anchor: number;
+}
+
+/**
+ * Per-module section-id uniqueness report. Each entry names a section.id
+ * that two or more SectionFiles in the same module emit, with the count
+ * of colliding entries. Non-empty arrays are gate failures: the storage
+ * writer's `<sectionId>.json` filename layout assumes uniqueness, so a
+ * collision silently drops every entry but the last-write winner.
+ *
+ * Sorted by id ascending so the operator-visible failure message is
+ * deterministic and snapshot tests don't churn on iteration order.
+ */
+export interface DuplicateSectionId {
+  id: SectionId;
+  count: number;
 }
 
 export interface PerModuleValidation {
   moduleId: ModuleId;
   coverage: TocCoverageReport;
   citations: CitationReport;
+  /**
+   * section.id values that appear on more than one SectionFile in this
+   * module. Empty array when uniqueness holds (the happy path). Lifted
+   * into a `duplicate_section_ids` BuildError by the orchestrator; the
+   * orchestrator short-circuits writeModule for any module with a
+   * non-empty entry so silently-collapsed bundles never land on disk.
+   */
+  duplicateSectionIds: readonly DuplicateSectionId[];
 }
 
 export interface CorpusValidationResult {
@@ -72,7 +117,10 @@ export interface CorpusValidationResult {
 
 export function validateCorpus(modules: readonly ParsedModule[]): CorpusValidationResult {
   const universe = buildModuleUniverse(modules);
-  const perModule = modules.map((m) => validateModule(m, modules, universe));
+  const collisionFamilies = buildCollisionFamiliesByModule(modules);
+  const perModule = modules.map((m) =>
+    validateModule(m, modules, universe, collisionFamilies),
+  );
 
   const coverage: TocCoverageReport = {
     total: perModule.reduce((sum, m) => sum + m.coverage.total, 0),
@@ -84,6 +132,20 @@ export function validateCorpus(modules: readonly ParsedModule[]): CorpusValidati
     resolved: perModule.reduce((sum, m) => sum + m.citations.resolved, 0),
     unresolvedIntra: perModule.flatMap((m) => m.citations.unresolvedIntra),
     unresolvedCross: perModule.flatMap((m) => m.citations.unresolvedCross),
+    newly_vague_by_reason: {
+      vague_external: perModule.reduce(
+        (sum, m) => sum + m.citations.newly_vague_by_reason.vague_external,
+        0,
+      ),
+      vague_collision_unresolvable: perModule.reduce(
+        (sum, m) => sum + m.citations.newly_vague_by_reason.vague_collision_unresolvable,
+        0,
+      ),
+      vague_no_anchor: perModule.reduce(
+        (sum, m) => sum + m.citations.newly_vague_by_reason.vague_no_anchor,
+        0,
+      ),
+    },
   };
   return { coverage, citations, perModule };
 }
@@ -106,16 +168,75 @@ function buildModuleUniverse(allModules: readonly ParsedModule[]): ModuleAnchorU
   return out;
 }
 
+// Per-module collision-family index used for D9 vague-bucket attribution.
+// Mirrors binder.buildCollisionFamilies; kept local to avoid pulling the
+// binder module into validate-corpus's dependency graph. Values carry
+// each member's hierarchy so the validator can re-derive the binder's
+// disambiguation verdict without recomputing it against every cite.
+interface FamilyMember {
+  readonly id: SectionId;
+  readonly hierarchy: readonly string[];
+}
+type CollisionFamiliesByModule = Map<ModuleId, ReadonlyMap<string, readonly FamilyMember[]>>;
+
+function stripOrdinalSuffix(id: string): string {
+  return id.replace(/-\d+[a-z]?$/i, "");
+}
+
+function buildCollisionFamiliesByModule(
+  modules: readonly ParsedModule[],
+): CollisionFamiliesByModule {
+  const out: CollisionFamiliesByModule = new Map();
+  for (const m of modules) {
+    const grouped = new Map<string, FamilyMember[]>();
+    for (const s of m.sections) {
+      const stripped = stripOrdinalSuffix(s.id);
+      let arr = grouped.get(stripped);
+      if (!arr) {
+        arr = [];
+        grouped.set(stripped, arr);
+      }
+      arr.push({ id: s.id, hierarchy: s.hierarchy });
+    }
+    const families = new Map<string, readonly FamilyMember[]>();
+    for (const [key, members] of grouped) {
+      if (members.length > 1) families.set(key, members);
+    }
+    out.set(m.module.id, families);
+  }
+  return out;
+}
+
 function validateModule(
   parsed: ParsedModule,
   allModules: readonly ParsedModule[],
   universe: ModuleAnchorUniverse,
+  collisionFamilies: CollisionFamiliesByModule,
 ): PerModuleValidation {
   return {
     moduleId: parsed.module.id,
     coverage: computeCoverage(parsed),
-    citations: computeCitationReport(parsed, allModules, universe),
+    citations: computeCitationReport(parsed, allModules, universe, collisionFamilies),
+    duplicateSectionIds: computeDuplicateSectionIds(parsed),
   };
+}
+
+// Tally each section.id across the module's emitted SectionFiles. Entries
+// with count > 1 are the regression: the writer's filename layout
+// (`<sectionId>.json` per hierarchy directory) makes id uniqueness a
+// load-bearing invariant the parser must guarantee. Returned sorted by id
+// so the BuildError message is deterministic.
+function computeDuplicateSectionIds(parsed: ParsedModule): readonly DuplicateSectionId[] {
+  const counts = new Map<SectionId, number>();
+  for (const s of parsed.sections) {
+    counts.set(s.id, (counts.get(s.id) ?? 0) + 1);
+  }
+  const dups: DuplicateSectionId[] = [];
+  for (const [id, count] of counts) {
+    if (count > 1) dups.push({ id, count });
+  }
+  dups.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return dups;
 }
 
 function computeCoverage(parsed: ParsedModule): TocCoverageReport {
@@ -159,6 +280,7 @@ function computeCitationReport(
   parsed: ParsedModule,
   allModules: readonly ParsedModule[],
   universe: ModuleAnchorUniverse,
+  collisionFamilies: CollisionFamiliesByModule,
 ): CitationReport {
   const ownSectionIds = new Set<SectionId>(parsed.sections.map((s) => s.id));
   // Source TOC anchors (every <a name="JD_X"> in the module's bound)
@@ -190,10 +312,27 @@ function computeCitationReport(
   let resolved = 0;
   const unresolvedIntra: UnresolvedCitation[] = [];
   const unresolvedCross: UnresolvedCitation[] = [];
+  const newly_vague_by_reason: NewlyVagueByReason = {
+    vague_external: 0,
+    vague_collision_unresolvable: 0,
+    vague_no_anchor: 0,
+  };
 
   for (const section of parsed.sections) {
     for (const citation of section.citations) {
       total += 1;
+      // D9 — vague bucketing. Runs BEFORE classifyCitation so the
+      // bookkeeping isn't entangled with the resolution verdict.
+      if (citation.target.kind === "vague") {
+        bucketVague(
+          citation.target,
+          section,
+          collisionFamilies,
+          universe,
+          parsed.module.id,
+          newly_vague_by_reason,
+        );
+      }
       const verdict = classifyCitation(
         section,
         citation,
@@ -222,7 +361,61 @@ function computeCitationReport(
     }
   }
 
-  return { total, resolved, unresolvedIntra, unresolvedCross };
+  return { total, resolved, unresolvedIntra, unresolvedCross, newly_vague_by_reason };
+}
+
+// D9 — attribute a vague target to one of three buckets. The validator
+// dry-runs the binder's disambiguation logic against the per-module
+// collision-family index so its verdict agrees with the runtime
+// resolver's (per the design's "validator/binder agreement" property).
+function bucketVague(
+  target: { kind: "vague"; raw: string; source_target?: { kind: string; section_id?: string; module_id?: string } },
+  section: SectionFile,
+  collisionFamilies: CollisionFamiliesByModule,
+  universe: ModuleAnchorUniverse,
+  citingModuleId: ModuleId,
+  bucket: NewlyVagueByReason,
+): void {
+  if (!target.source_target) {
+    bucket.vague_external += 1;
+    return;
+  }
+  const source = target.source_target;
+  if (typeof source.section_id !== "string") {
+    // Defensive: source_target shape must carry a section_id for
+    // internal/cross_module; without one we can't bucket — treat as
+    // external.
+    bucket.vague_external += 1;
+    return;
+  }
+  // Determine which module's families/anchors to consult.
+  const targetModuleId =
+    source.kind === "cross_module" && typeof source.module_id === "string"
+      ? source.module_id
+      : citingModuleId;
+  const families = collisionFamilies.get(targetModuleId);
+  const anchors = universe.get(targetModuleId);
+  const stripped = stripOrdinalSuffix(source.section_id);
+  const family = families?.get(stripped);
+  if (family) {
+    // The family exists; the binder must have come up ambiguous on
+    // hierarchy disambiguation. That's the design's 19% honest-vague
+    // case: every family member shares the citing section's
+    // hierarchy, or the ancestor walk hit ambiguity at every depth.
+    bucket.vague_collision_unresolvable += 1;
+    return;
+  }
+  // No collision family — but the cite still came up vague. That
+  // means the source_target's section_id matched no anchor at all,
+  // which is the D12 binder-bug indicator (acceptance requires 0).
+  // If the anchor IS present, the binder shouldn't have reclassified;
+  // count it under no_anchor anyway so the gate surfaces the
+  // disagreement.
+  if (anchors?.has(source.section_id) || anchors?.has(source.section_id.toLowerCase())) {
+    bucket.vague_no_anchor += 1;
+    return;
+  }
+  bucket.vague_no_anchor += 1;
 }
 
 type CitationVerdict =

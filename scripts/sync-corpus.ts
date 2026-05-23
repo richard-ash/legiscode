@@ -235,6 +235,15 @@ function formatBuildError(error: BuildError): string {
       return `module "${error.moduleId}": TOC coverage failed (${error.missing.length} missing sections)`;
     case "citation_resolution_failed":
       return `citation resolution failed (${error.unresolved.length} unresolved)`;
+    case "duplicate_section_ids": {
+      const sample = error.duplicates
+        .slice(0, 5)
+        .map((d) => `${d.id} (×${d.count})`)
+        .join(", ");
+      const tail =
+        error.duplicates.length > 5 ? ` and ${error.duplicates.length - 5} more` : "";
+      return `module "${error.moduleId}": duplicate section.ids detected — ${sample}${tail}. Refusing to ship a corpus with last-write-wins overwrites.`;
+    }
     case "atomic_write_failed":
       return `module "${error.moduleId}": ${error.errno}`;
     case "atomic_write_lock_held":
