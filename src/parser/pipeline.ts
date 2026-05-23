@@ -30,7 +30,14 @@ import {
   SectionFileSchema,
   SectionIdSchema,
 } from "@/types";
-import { type AnchorIndex, type BindContext, bindCitation, buildAnchorIndex } from "./binder";
+import {
+  type AnchorIndex,
+  type BindContext,
+  bindCitation,
+  buildAnchorIndex,
+  buildCollisionFamilies,
+  type CollisionFamilyIndex,
+} from "./binder";
 import { buildBodySegments } from "./build-body-segments";
 import { type CitationMatch, extractCitations } from "./citations";
 import { extractDefinedTerms } from "./defined-terms";
@@ -81,9 +88,11 @@ function runBinderPass(modules: ParsedModule[]): ParsedModule[] {
   if (modules.length === 0) return modules;
   const anchorsByModule = new Map<ModuleId, AnchorIndex>();
   const rulesByModule = new Map<ModuleId, DisplayRules | undefined>();
+  const collisionFamiliesByModule = new Map<ModuleId, CollisionFamilyIndex>();
   for (const m of modules) {
     anchorsByModule.set(m.module.id, buildAnchorIndex(m.sections, m.tocAnchors));
     rulesByModule.set(m.module.id, m.module.display_rules);
+    collisionFamiliesByModule.set(m.module.id, buildCollisionFamilies(m.sections));
   }
 
   return modules.map((m) => {
@@ -91,11 +100,17 @@ function runBinderPass(modules: ParsedModule[]): ParsedModule[] {
       citingModuleId: m.module.id,
       anchorsByModule,
       rulesByModule,
+      collisionFamiliesByModule,
     };
     const sections = m.sections.map((section): SectionFile => {
       // Skip sections with no citations to avoid pointless reallocation.
       if (section.citations.length === 0) return section;
-      const rewritten: Citation[] = section.citations.map((c) => bindCitation(c, ctx));
+      // Pass the citing section's hierarchy so D5 hierarchy-scoped
+      // disambiguation can run for cites whose target lives in a
+      // collision family.
+      const rewritten: Citation[] = section.citations.map((c) =>
+        bindCitation(c, ctx, section.hierarchy),
+      );
       const changed = rewritten.some((c, i) => c !== section.citations[i]);
       if (!changed) return section;
       // Citations[] is re-validated through the schema so a malformed

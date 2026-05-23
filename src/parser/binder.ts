@@ -27,6 +27,18 @@ import { candidatesFor } from "./display-rules";
 // binder only asks for membership.
 export type AnchorIndex = ReadonlySet<string>;
 
+// Per-module collision-family index. Keys are stripped-ordinal forms
+// (the section.id with any trailing `-N[A]` suffix removed). Values are
+// every SectionFile whose id shares that stripped form, but only when
+// the family has more than one member — single-section families are
+// elided so the lookup answers "is this id ambiguous?" in one Map.has.
+//
+// Drives D5's hierarchy-scoped fallback: a bare cite "Section 16.9" in
+// a module with sections "16.9", "16.9-2", "16.9-21" carries the family
+// {"16.9": [those three]}. The binder uses the citing section's
+// hierarchy to pick which family member the author meant.
+export type CollisionFamilyIndex = ReadonlyMap<string, readonly SectionFile[]>;
+
 export interface BindContext {
   /** module_id of the section the citation lives in. */
   readonly citingModuleId: ModuleId;
@@ -34,6 +46,80 @@ export interface BindContext {
   readonly anchorsByModule: ReadonlyMap<ModuleId, AnchorIndex>;
   /** display_rules keyed by module_id; missing modules use bare lookup. */
   readonly rulesByModule: ReadonlyMap<ModuleId, DisplayRules | undefined>;
+  /**
+   * Per-module collision families keyed by module_id. Used by D5
+   * hierarchy-scoped fallback to disambiguate bare cites whose stripped
+   * form has multiple disambiguator siblings in the target module.
+   * Optional so legacy call sites that don't supply it fall back to
+   * direct binding only.
+   */
+  readonly collisionFamiliesByModule?: ReadonlyMap<ModuleId, CollisionFamilyIndex>;
+}
+
+// Strip the trailing `-<digit>[A]?` ordinal disambiguator from a section
+// id. Lossy on purpose: "16.9-2" → "16.9", "16.9-29A" → "16.9", but
+// "10.04.020" → "10.04.020" (no suffix present). Used to group disambiguated
+// siblings into collision families.
+function stripOrdinalSuffix(id: string): string {
+  return id.replace(/-\d+[a-z]?$/i, "");
+}
+
+function isBareRef(sectionRef: string): boolean {
+  return stripOrdinalSuffix(sectionRef) === sectionRef;
+}
+
+function hierarchiesEqual(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+// D5 disambiguation. Pick the family member whose hierarchy best
+// matches the citing section's. Verdicts:
+//   - exact hierarchy match on exactly one member → bind that member
+//   - exact hierarchy match on multiple members → ambiguous (vague)
+//   - no exact match → walk citing's ancestor prefixes, pick the
+//     deepest prefix where exactly one family member has the same
+//     hierarchy; on multi-match or no-match at any depth, ambiguous
+//
+// The ancestor walk goes deepest-first so a citing section in
+// ["Code", "ARTICLE I", "DIVISION A"] disambiguates against a family
+// member at ["Code", "ARTICLE I"] before resorting to ["Code"] alone.
+type DisambiguationVerdict =
+  | { kind: "bind"; section: SectionFile }
+  | { kind: "ambiguous" };
+
+function disambiguateFamilyByHierarchy(
+  family: readonly SectionFile[],
+  citingHierarchy: readonly string[],
+): DisambiguationVerdict {
+  const exact: SectionFile[] = [];
+  for (const m of family) {
+    if (hierarchiesEqual(m.hierarchy, citingHierarchy)) exact.push(m);
+  }
+  if (exact.length === 1) {
+    const winner = exact[0];
+    if (winner) return { kind: "bind", section: winner };
+  }
+  if (exact.length > 1) return { kind: "ambiguous" };
+
+  // Ancestor walk. At each ancestor depth, check which family members'
+  // OWN hierarchy is exactly that ancestor. Deepest unique winner.
+  for (let depth = citingHierarchy.length - 1; depth >= 1; depth--) {
+    const prefix = citingHierarchy.slice(0, depth);
+    const matches: SectionFile[] = [];
+    for (const m of family) {
+      if (hierarchiesEqual(m.hierarchy, prefix)) matches.push(m);
+    }
+    if (matches.length === 1) {
+      const winner = matches[0];
+      if (winner) return { kind: "bind", section: winner };
+    }
+    if (matches.length > 1) return { kind: "ambiguous" };
+  }
+  return { kind: "ambiguous" };
 }
 
 // Rewrite a single citation if its target can be bound to a concrete
@@ -64,15 +150,31 @@ export interface BindContext {
 //
 // section_id values in legacy targets are already lowercase per the
 // SectionIdSchema; candidatesFor lowercases again as defense in depth.
-export function bindCitation(citation: Citation, ctx: BindContext): Citation {
+//
+// citingHierarchy supplies the per-section context D5 needs to
+// disambiguate bare cites whose stripped form has multiple
+// disambiguator siblings in the target module. Optional so legacy
+// callers (older tests, sandboxed binder use) keep working without
+// hierarchy info — they just lose D5 fallback for that call.
+export function bindCitation(
+  citation: Citation,
+  ctx: BindContext,
+  citingHierarchy?: readonly string[],
+): Citation {
   const target = citation.target;
   switch (target.kind) {
     case "internal": {
       // Try the citing module first.
-      const sameModule = tryBind(target.section_id, ctx.citingModuleId, ctx, {
-        subsection: target.subsection,
-        range: target.range,
-      });
+      const sameModule = tryBind(
+        target.section_id,
+        ctx.citingModuleId,
+        ctx,
+        {
+          subsection: target.subsection,
+          range: target.range,
+        },
+        citingHierarchy,
+      );
       if (sameModule) return { ...citation, target: sameModule };
       // Sibling-module fallback: legacy authors sometimes write
       // "Section 8.509" inside sf-administrative when they mean
@@ -102,10 +204,16 @@ export function bindCitation(citation: Citation, ctx: BindContext): Citation {
       };
     }
     case "cross_module": {
-      const bound = tryBind(target.section_id, target.module_id, ctx, {
-        subsection: target.subsection,
-        range: target.range,
-      });
+      const bound = tryBind(
+        target.section_id,
+        target.module_id,
+        ctx,
+        {
+          subsection: target.subsection,
+          range: target.range,
+        },
+        citingHierarchy,
+      );
       if (bound) return { ...citation, target: bound };
       // Foreign module not in this build — install-time concern, leave
       // as cross_module so the runtime popover shows "X Code not
@@ -190,41 +298,95 @@ function tryBind(
   targetModuleId: ModuleId,
   ctx: BindContext,
   extras: { subsection?: string; range?: { from: string; to: string } },
+  citingHierarchy?: readonly string[],
 ): CitationTarget | null {
   const anchors = ctx.anchorsByModule.get(targetModuleId);
   if (!anchors) return null;
   const rules = ctx.rulesByModule.get(targetModuleId);
+  const families = ctx.collisionFamiliesByModule?.get(targetModuleId);
+
   for (const candidate of candidatesFor(sectionRef, rules)) {
     if (!anchors.has(candidate)) continue;
+
+    // D5-followup: if the cite was BARE (no `-N` suffix in the
+    // source) and the directly-hit candidate belongs to a collision
+    // family, run hierarchy disambiguation BEFORE returning. Without
+    // this, a bare cite to "16.9" would direct-bind to the bare
+    // section "16.9" even when the citing context strongly implies
+    // one of the disambiguator siblings ("16.9-2", "16.9-21", …)
+    // was intended.
+    //
+    // Cites that already carry a `-N` suffix are trusted as-is —
+    // the author named the specific disambiguator, no further
+    // narrowing needed.
+    if (families && isBareRef(sectionRef) && citingHierarchy) {
+      const familyKey = stripOrdinalSuffix(candidate);
+      const family = families.get(familyKey);
+      if (family) {
+        const verdict = disambiguateFamilyByHierarchy(family, citingHierarchy);
+        if (verdict.kind === "ambiguous") return null;
+        return buildBoundTarget(verdict.section.id, targetModuleId, extras, anchors, rules);
+      }
+    }
+
     // Range citations land at range.from for v1 navigation. Preserve
     // the upper bound either as a bound anchor (when `to` resolves in
     // this module) or as the raw cite text (when it doesn't); collapsing
     // both ends to `candidate` discards the citation's actual upper
     // bound, which v1.1 range-aware navigation needs to recover.
-    if (extras.range) {
-      let boundTo: string = extras.range.to;
-      for (const toCandidate of candidatesFor(extras.range.to, rules)) {
-        if (anchors.has(toCandidate)) {
-          boundTo = toCandidate;
-          break;
-        }
+    return buildBoundTarget(candidate, targetModuleId, extras, anchors, rules);
+  }
+
+  // No primary candidate hit. D5 fallback: when the cite's stripped
+  // form has a collision family in the target module (i.e. the bare
+  // cite "16.9" doesn't bind directly, but "16.9-2" / "16.9-5" /
+  // "16.9-21" all exist), pick the family member whose hierarchy
+  // matches the citing section's. This recovers the 1,671/2,060
+  // (81%) of legacy bare cites whose disambiguator dropped during
+  // the old `-N` strip but whose context still names the section
+  // uniquely. The remaining 389 collision families share their
+  // hierarchy across siblings → honest-vague (D9).
+  if (families && isBareRef(sectionRef) && citingHierarchy) {
+    const familyKey = stripOrdinalSuffix(sectionRef.toLowerCase());
+    const family = families.get(familyKey);
+    if (family) {
+      const verdict = disambiguateFamilyByHierarchy(family, citingHierarchy);
+      if (verdict.kind === "bind") {
+        return buildBoundTarget(verdict.section.id, targetModuleId, extras, anchors, rules);
       }
-      return {
-        kind: "section-ref",
-        anchor_id: candidate,
-        module_id: targetModuleId,
-        range: { from: candidate, to: boundTo },
-      };
     }
-    const out: CitationTarget = {
+  }
+  return null;
+}
+
+function buildBoundTarget(
+  candidate: string,
+  targetModuleId: ModuleId,
+  extras: { subsection?: string; range?: { from: string; to: string } },
+  anchors: AnchorIndex,
+  rules: DisplayRules | undefined,
+): CitationTarget {
+  if (extras.range) {
+    let boundTo: string = extras.range.to;
+    for (const toCandidate of candidatesFor(extras.range.to, rules)) {
+      if (anchors.has(toCandidate)) {
+        boundTo = toCandidate;
+        break;
+      }
+    }
+    return {
       kind: "section-ref",
       anchor_id: candidate,
       module_id: targetModuleId,
-      ...(extras.subsection ? { subsection: extras.subsection } : {}),
+      range: { from: candidate, to: boundTo },
     };
-    return out;
   }
-  return null;
+  return {
+    kind: "section-ref",
+    anchor_id: candidate,
+    module_id: targetModuleId,
+    ...(extras.subsection ? { subsection: extras.subsection } : {}),
+  };
 }
 
 // Build a per-module anchor index from parsed SectionFiles plus the
@@ -239,5 +401,29 @@ export function buildAnchorIndex(
   const out = new Set<string>();
   for (const s of sections) out.add(s.id);
   for (const a of tocAnchors) out.add(a.toLowerCase());
+  return out;
+}
+
+// Build the per-module collision-family index. Sections whose ids share
+// a stripped-ordinal form land in the same family; single-member
+// families are filtered out so the binder's lookup answers "is this
+// id ambiguous?" in one `Map.has` rather than a length check.
+export function buildCollisionFamilies(
+  sections: readonly SectionFile[],
+): CollisionFamilyIndex {
+  const grouped = new Map<string, SectionFile[]>();
+  for (const s of sections) {
+    const stripped = stripOrdinalSuffix(s.id);
+    let arr = grouped.get(stripped);
+    if (!arr) {
+      arr = [];
+      grouped.set(stripped, arr);
+    }
+    arr.push(s);
+  }
+  const out = new Map<string, readonly SectionFile[]>();
+  for (const [key, members] of grouped) {
+    if (members.length > 1) out.set(key, members);
+  }
   return out;
 }
