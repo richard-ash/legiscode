@@ -12,7 +12,12 @@
       ],
       "code_title": "Administrative Code",
       "defined_term_patterns": [
-        "\"([^\"]+)\"\\s+means"
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall\\s+mean",
+        "\"([^\"]+)\"\\s+is\\s+defined\\s+as",
+        "\"([^\"]+)\"\\s+are\\s+defined\\s+as",
+        "[“”]([^“”]+)[“”]\\s+means",
+        "[“”]([^“”]+)[“”]\\s+shall\\s+mean"
       ],
       "id": "sf-administrative",
       "jd_anchor": "Administrative",
@@ -26,7 +31,12 @@
       ],
       "code_title": "Building Code",
       "defined_term_patterns": [
-        "\"([^\"]+)\"\\s+means"
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall\\s+mean",
+        "\"([^\"]+)\"\\s+is\\s+defined\\s+as",
+        "\"([^\"]+)\"\\s+are\\s+defined\\s+as",
+        "[“”]([^“”]+)[“”]\\s+means",
+        "[“”]([^“”]+)[“”]\\s+shall\\s+mean"
       ],
       "display_rules": {
         "alpha_suffix": true,
@@ -47,7 +57,12 @@
       ],
       "code_title": "Business and Tax Regulations Code",
       "defined_term_patterns": [
-        "\"([^\"]+)\"\\s+means"
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall\\s+mean",
+        "\"([^\"]+)\"\\s+is\\s+defined\\s+as",
+        "\"([^\"]+)\"\\s+are\\s+defined\\s+as",
+        "[“”]([^“”]+)[“”]\\s+means",
+        "[“”]([^“”]+)[“”]\\s+shall\\s+mean"
       ],
       "id": "sf-business",
       "jd_anchor": "Business",
@@ -61,7 +76,12 @@
       ],
       "code_title": "Campaign and Governmental Conduct Code",
       "defined_term_patterns": [
-        "\"([^\"]+)\"\\s+means"
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall\\s+mean",
+        "\"([^\"]+)\"\\s+is\\s+defined\\s+as",
+        "\"([^\"]+)\"\\s+are\\s+defined\\s+as",
+        "[“”]([^“”]+)[“”]\\s+means",
+        "[“”]([^“”]+)[“”]\\s+shall\\s+mean"
       ],
       "id": "sf-campaign",
       "jd_anchor": "Campaign",
@@ -75,7 +95,12 @@
       ],
       "code_title": "Charter",
       "defined_term_patterns": [
-        "\"([^\"]+)\"\\s+means"
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall\\s+mean",
+        "\"([^\"]+)\"\\s+is\\s+defined\\s+as",
+        "\"([^\"]+)\"\\s+are\\s+defined\\s+as",
+        "[“”]([^“”]+)[“”]\\s+means",
+        "[“”]([^“”]+)[“”]\\s+shall\\s+mean"
       ],
       "display_rules": {
         "extra_prefixes": [
@@ -96,7 +121,12 @@
       ],
       "code_title": "Municipal Elections Code",
       "defined_term_patterns": [
-        "\"([^\"]+)\"\\s+means"
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall\\s+mean",
+        "\"([^\"]+)\"\\s+is\\s+defined\\s+as",
+        "\"([^\"]+)\"\\s+are\\s+defined\\s+as",
+        "[“”]([^“”]+)[“”]\\s+means",
+        "[“”]([^“”]+)[“”]\\s+shall\\s+mean"
       ],
       "id": "sf-elections",
       "jd_anchor": "Elections",
@@ -110,7 +140,12 @@
       ],
       "code_title": "Environment Code",
       "defined_term_patterns": [
-        "\"([^\"]+)\"\\s+means"
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall\\s+mean",
+        "\"([^\"]+)\"\\s+is\\s+defined\\s+as",
+        "\"([^\"]+)\"\\s+are\\s+defined\\s+as",
+        "[“”]([^“”]+)[“”]\\s+means",
+        "[“”]([^“”]+)[“”]\\s+shall\\s+mean"
       ],
       "id": "sf-environment",
       "jd_anchor": "Environment",
@@ -124,7 +159,12 @@
       ],
       "code_title": "Fire Code",
       "defined_term_patterns": [
-        "\"([^\"]+)\"\\s+means"
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall\\s+mean",
+        "\"([^\"]+)\"\\s+is\\s+defined\\s+as",
+        "\"([^\"]+)\"\\s+are\\s+defined\\s+as",
+        "[“”]([^“”]+)[“”]\\s+means",
+        "[“”]([^“”]+)[“”]\\s+shall\\s+mean"
       ],
       "id": "sf-fire",
       "jd_anchor": "Fire",
@@ -138,7 +178,12 @@
       ],
       "code_title": "Health Code",
       "defined_term_patterns": [
-        "\"([^\"]+)\"\\s+means"
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall\\s+mean",
+        "\"([^\"]+)\"\\s+is\\s+defined\\s+as",
+        "\"([^\"]+)\"\\s+are\\s+defined\\s+as",
+        "[“”]([^“”]+)[“”]\\s+means",
+        "[“”]([^“”]+)[“”]\\s+shall\\s+mean"
       ],
       "id": "sf-health",
       "jd_anchor": "Health",
@@ -152,7 +197,12 @@
       ],
       "code_title": "Housing Code",
       "defined_term_patterns": [
-        "\"([^\"]+)\"\\s+means"
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall\\s+mean",
+        "\"([^\"]+)\"\\s+is\\s+defined\\s+as",
+        "\"([^\"]+)\"\\s+are\\s+defined\\s+as",
+        "[“”]([^“”]+)[“”]\\s+means",
+        "[“”]([^“”]+)[“”]\\s+shall\\s+mean"
       ],
       "display_rules": {
         "prefix": "m",
@@ -170,7 +220,12 @@
       ],
       "code_title": "Park Code",
       "defined_term_patterns": [
-        "\"([^\"]+)\"\\s+means"
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall\\s+mean",
+        "\"([^\"]+)\"\\s+is\\s+defined\\s+as",
+        "\"([^\"]+)\"\\s+are\\s+defined\\s+as",
+        "[“”]([^“”]+)[“”]\\s+means",
+        "[“”]([^“”]+)[“”]\\s+shall\\s+mean"
       ],
       "id": "sf-park",
       "jd_anchor": "Park",
@@ -184,7 +239,12 @@
       ],
       "code_title": "Planning Code",
       "defined_term_patterns": [
-        "\"([^\"]+)\"\\s+means"
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall\\s+mean",
+        "\"([^\"]+)\"\\s+is\\s+defined\\s+as",
+        "\"([^\"]+)\"\\s+are\\s+defined\\s+as",
+        "[“”]([^“”]+)[“”]\\s+means",
+        "[“”]([^“”]+)[“”]\\s+shall\\s+mean"
       ],
       "id": "sf-planning",
       "jd_anchor": "Planning",
@@ -198,7 +258,12 @@
       ],
       "code_title": "Plumbing Code",
       "defined_term_patterns": [
-        "\"([^\"]+)\"\\s+means"
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall\\s+mean",
+        "\"([^\"]+)\"\\s+is\\s+defined\\s+as",
+        "\"([^\"]+)\"\\s+are\\s+defined\\s+as",
+        "[“”]([^“”]+)[“”]\\s+means",
+        "[“”]([^“”]+)[“”]\\s+shall\\s+mean"
       ],
       "display_rules": {
         "prefix": "p",
@@ -216,7 +281,12 @@
       ],
       "code_title": "Police Code",
       "defined_term_patterns": [
-        "\"([^\"]+)\"\\s+means"
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall\\s+mean",
+        "\"([^\"]+)\"\\s+is\\s+defined\\s+as",
+        "\"([^\"]+)\"\\s+are\\s+defined\\s+as",
+        "[“”]([^“”]+)[“”]\\s+means",
+        "[“”]([^“”]+)[“”]\\s+shall\\s+mean"
       ],
       "id": "sf-police",
       "jd_anchor": "Police",
@@ -230,7 +300,12 @@
       ],
       "code_title": "Port Code",
       "defined_term_patterns": [
-        "\"([^\"]+)\"\\s+means"
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall\\s+mean",
+        "\"([^\"]+)\"\\s+is\\s+defined\\s+as",
+        "\"([^\"]+)\"\\s+are\\s+defined\\s+as",
+        "[“”]([^“”]+)[“”]\\s+means",
+        "[“”]([^“”]+)[“”]\\s+shall\\s+mean"
       ],
       "id": "sf-port",
       "jd_anchor": "Port",
@@ -244,7 +319,12 @@
       ],
       "code_title": "Public Works Code",
       "defined_term_patterns": [
-        "\"([^\"]+)\"\\s+means"
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall\\s+mean",
+        "\"([^\"]+)\"\\s+is\\s+defined\\s+as",
+        "\"([^\"]+)\"\\s+are\\s+defined\\s+as",
+        "[“”]([^“”]+)[“”]\\s+means",
+        "[“”]([^“”]+)[“”]\\s+shall\\s+mean"
       ],
       "id": "sf-publicworks",
       "jd_anchor": "PublicWorks",
@@ -258,7 +338,12 @@
       ],
       "code_title": "Subdivision Code",
       "defined_term_patterns": [
-        "\"([^\"]+)\"\\s+means"
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall\\s+mean",
+        "\"([^\"]+)\"\\s+is\\s+defined\\s+as",
+        "\"([^\"]+)\"\\s+are\\s+defined\\s+as",
+        "[“”]([^“”]+)[“”]\\s+means",
+        "[“”]([^“”]+)[“”]\\s+shall\\s+mean"
       ],
       "id": "sf-subdivision",
       "jd_anchor": "Subdivision",
@@ -272,7 +357,12 @@
       ],
       "code_title": "Transportation Code",
       "defined_term_patterns": [
-        "\"([^\"]+)\"\\s+means"
+        "\"([^\"]+)\"\\s+means",
+        "\"([^\"]+)\"\\s+shall\\s+mean",
+        "\"([^\"]+)\"\\s+is\\s+defined\\s+as",
+        "\"([^\"]+)\"\\s+are\\s+defined\\s+as",
+        "[“”]([^“”]+)[“”]\\s+means",
+        "[“”]([^“”]+)[“”]\\s+shall\\s+mean"
       ],
       "id": "sf-transportation",
       "jd_anchor": "Transportation",
