@@ -136,10 +136,7 @@ describe("extractCitations — ordinal disambiguator suffix (D8)", () => {
     // The original "Sections 10.04.020-10.04.030" form has to keep
     // working. Both operands are depth 2; the same-dot-depth rule
     // treats the hyphen as a range delimiter.
-    const cites = extractCitations(
-      "See §§ 10.04.020-10.04.030 for the schedule.",
-      sfFullPattern,
-    );
+    const cites = extractCitations("See §§ 10.04.020-10.04.030 for the schedule.", sfFullPattern);
     const rangeCite = cites.find((c) => "range" in c.citation.target);
     expect(rangeCite?.citation.target).toEqual({
       kind: "internal",

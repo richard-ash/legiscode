@@ -451,18 +451,11 @@ describe("bindCitation — D5 hierarchy-scoped collision-family fallback", () =>
     };
   }
 
-  function makeFamilyCtx(
-    citingModuleId: string,
-    sections: SectionFile[],
-  ): BindContext {
+  function makeFamilyCtx(citingModuleId: string, sections: SectionFile[]): BindContext {
     const ids = sections.map((s) => s.id);
-    const anchorsByModule = new Map([
-      [citingModuleId, buildAnchorIndex(sections, [])],
-    ]);
+    const anchorsByModule = new Map([[citingModuleId, buildAnchorIndex(sections, [])]]);
     const rulesByModule = new Map<string, DisplayRules | undefined>([[citingModuleId, undefined]]);
-    const collisionFamiliesByModule = new Map([
-      [citingModuleId, buildCollisionFamilies(sections)],
-    ]);
+    const collisionFamiliesByModule = new Map([[citingModuleId, buildCollisionFamilies(sections)]]);
     // Sanity: every id is in the anchor set.
     for (const id of ids) {
       if (!anchorsByModule.get(citingModuleId)?.has(id)) {
@@ -610,6 +603,102 @@ describe("bindCitation — D5 hierarchy-scoped collision-family fallback", () =>
       kind: "section-ref",
       anchor_id: "16.9",
       module_id: "sf-mod",
+    });
+  });
+
+  it("Pattern A: bare cite inside Jackson Square HD binds to article10appendixb.1 not bare 1", () => {
+    // D4 regression proof. After Pattern A qualifies appendix-inner
+    // section ids ("Sec. 1" of Jackson Square HD becomes
+    // "article10appendixb.1"), a bare cite "Section 1" inside the
+    // Jackson Square hierarchy must still bind to the local section.
+    // The family index now keys ALSO by the appendix-stripped leaf "1",
+    // so families.get("1") returns all the per-district Sec. 1s; the
+    // hierarchy walk picks the one whose hierarchy matches the citing
+    // section's appendix label.
+    const hierJackson = [
+      "Planning Code",
+      "ARTICLE 10:PRESERVATION OF HISTORICAL ARCHITECTURAL AND AESTHETIC LANDMARKS",
+      "Article 10, Appendix B - Jackson Square Historic District",
+    ];
+    const hierWebster = [
+      "Planning Code",
+      "ARTICLE 10:PRESERVATION OF HISTORICAL ARCHITECTURAL AND AESTHETIC LANDMARKS",
+      "Article 10, Appendix C - Webster Street Historic District",
+    ];
+    const sections = [
+      sec("article10appendixb.1", hierJackson),
+      sec("article10appendixb.2", hierJackson),
+      sec("article10appendixc.1", hierWebster),
+      sec("article10appendixc.2", hierWebster),
+    ];
+    const ctx = makeFamilyCtx("sf-planning", sections);
+
+    const before: Citation = {
+      display_text: "Section 1",
+      target: { kind: "internal", section_id: "1" },
+    };
+    const after = bindCitation(before, ctx, hierJackson);
+
+    expect(after.target).toEqual({
+      kind: "section-ref",
+      anchor_id: "article10appendixb.1",
+      module_id: "sf-planning",
+    });
+  });
+
+  it("Pattern A: bare cite resolves to a single appendix section (singleton-family case)", () => {
+    // Regression for Codex finding: a module with only ONE appendix
+    // section at leaf id "1" (no sibling districts sharing the leaf)
+    // previously produced a singleton family that the >1 filter dropped.
+    // Bare "Section 1" cites then went vague even though the resolution
+    // was unambiguous.
+    const hierLone = ["Test Code", "ARTICLE 99", "Article 99, Appendix A - Lone District"];
+    const sections = [sec("article99appendixa.1", hierLone)];
+    const ctx = makeFamilyCtx("sf-mod", sections);
+
+    const before: Citation = {
+      display_text: "Section 1",
+      target: { kind: "internal", section_id: "1" },
+    };
+    const after = bindCitation(before, ctx, hierLone);
+
+    expect(after.target).toEqual({
+      kind: "section-ref",
+      anchor_id: "article99appendixa.1",
+      module_id: "sf-mod",
+    });
+  });
+
+  it("Pattern A: same bare cite inside Webster Street HD binds to article10appendixc.1", () => {
+    // Same fixture as above, citing context flipped. Proves the
+    // hierarchy walk picks the right appendix per citing section, not
+    // a fixed winner.
+    const hierJackson = [
+      "Planning Code",
+      "ARTICLE 10:PRESERVATION OF HISTORICAL ARCHITECTURAL AND AESTHETIC LANDMARKS",
+      "Article 10, Appendix B - Jackson Square Historic District",
+    ];
+    const hierWebster = [
+      "Planning Code",
+      "ARTICLE 10:PRESERVATION OF HISTORICAL ARCHITECTURAL AND AESTHETIC LANDMARKS",
+      "Article 10, Appendix C - Webster Street Historic District",
+    ];
+    const sections = [
+      sec("article10appendixb.1", hierJackson),
+      sec("article10appendixc.1", hierWebster),
+    ];
+    const ctx = makeFamilyCtx("sf-planning", sections);
+
+    const before: Citation = {
+      display_text: "Section 1",
+      target: { kind: "internal", section_id: "1" },
+    };
+    const after = bindCitation(before, ctx, hierWebster);
+
+    expect(after.target).toEqual({
+      kind: "section-ref",
+      anchor_id: "article10appendixc.1",
+      module_id: "sf-planning",
     });
   });
 });

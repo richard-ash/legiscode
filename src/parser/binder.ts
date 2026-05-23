@@ -64,6 +64,19 @@ function stripOrdinalSuffix(id: string): string {
   return id.replace(/-\d+[a-z]?$/i, "");
 }
 
+// Strip the Pattern A appendix-container prefix from an id, returning
+// the inner section number. "article10appendixb.1" → "1",
+// "chapter5appendixa.10" → "10". Returns null when the id isn't
+// appendix-prefixed. Used by buildCollisionFamilies so a bare cite like
+// "Section 1" inside an appendix resolves via family lookup keyed by
+// the leaf rather than the full qualified id (which only the cite's
+// own section could produce verbatim).
+const APPENDIX_PREFIX_RE = /^(?:article|chapter)[\da-z]+appendix[a-z]+\.(.+)$/i;
+function stripAppendixPrefix(id: string): string | null {
+  const m = id.match(APPENDIX_PREFIX_RE);
+  return m?.[1] ?? null;
+}
+
 function isBareRef(sectionRef: string): boolean {
   return stripOrdinalSuffix(sectionRef) === sectionRef;
 }
@@ -87,9 +100,7 @@ function hierarchiesEqual(a: readonly string[], b: readonly string[]): boolean {
 // The ancestor walk goes deepest-first so a citing section in
 // ["Code", "ARTICLE I", "DIVISION A"] disambiguates against a family
 // member at ["Code", "ARTICLE I"] before resorting to ["Code"] alone.
-type DisambiguationVerdict =
-  | { kind: "bind"; section: SectionFile }
-  | { kind: "ambiguous" };
+type DisambiguationVerdict = { kind: "bind"; section: SectionFile } | { kind: "ambiguous" };
 
 function disambiguateFamilyByHierarchy(
   family: readonly SectionFile[],
@@ -408,22 +419,39 @@ export function buildAnchorIndex(
 // a stripped-ordinal form land in the same family; single-member
 // families are filtered out so the binder's lookup answers "is this
 // id ambiguous?" in one `Map.has` rather than a length check.
-export function buildCollisionFamilies(
-  sections: readonly SectionFile[],
-): CollisionFamilyIndex {
+export function buildCollisionFamilies(sections: readonly SectionFile[]): CollisionFamilyIndex {
   const grouped = new Map<string, SectionFile[]>();
-  for (const s of sections) {
-    const stripped = stripOrdinalSuffix(s.id);
-    let arr = grouped.get(stripped);
+  function push(key: string, s: SectionFile): void {
+    let arr = grouped.get(key);
     if (!arr) {
       arr = [];
-      grouped.set(stripped, arr);
+      grouped.set(key, arr);
     }
     arr.push(s);
   }
+  for (const s of sections) {
+    push(stripOrdinalSuffix(s.id), s);
+    // Pattern A: also key by the appendix-stripped leaf so a bare cite
+    // ("Section 1") inside Jackson Square Historic District finds
+    // article10appendixb.1, article10appendixc.1, ..., as family
+    // candidates and disambiguateFamilyByHierarchy can pick the right
+    // one from the citing section's appendix hierarchy.
+    const leaf = stripAppendixPrefix(s.id);
+    if (leaf) push(stripOrdinalSuffix(leaf), s);
+  }
   const out = new Map<string, readonly SectionFile[]>();
   for (const [key, members] of grouped) {
-    if (members.length > 1) out.set(key, members);
+    // Keep singletons only when at least one member is appendix-prefixed.
+    // For natural collisions the >1 filter is a perf optimization — the
+    // binder's lookup answers "is this id ambiguous?" via Map.has. But
+    // for appendix-leaf aliases, a singleton entry IS the only way a
+    // bare cite ("Section 1") can resolve to a uniquely-named appendix
+    // section (`article10appendixb.1`) when no other section in the
+    // module shares the leaf. Without this exception, modules with a
+    // single appendix produce vague cites for every bare local ref.
+    if (members.length > 1 || members.some((m) => stripAppendixPrefix(m.id) !== null)) {
+      out.set(key, members);
+    }
   }
   return out;
 }

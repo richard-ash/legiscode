@@ -118,9 +118,7 @@ export interface CorpusValidationResult {
 export function validateCorpus(modules: readonly ParsedModule[]): CorpusValidationResult {
   const universe = buildModuleUniverse(modules);
   const collisionFamilies = buildCollisionFamiliesByModule(modules);
-  const perModule = modules.map((m) =>
-    validateModule(m, modules, universe, collisionFamilies),
-  );
+  const perModule = modules.map((m) => validateModule(m, modules, universe, collisionFamilies));
 
   const coverage: TocCoverageReport = {
     total: perModule.reduce((sum, m) => sum + m.coverage.total, 0),
@@ -183,24 +181,42 @@ function stripOrdinalSuffix(id: string): string {
   return id.replace(/-\d+[a-z]?$/i, "");
 }
 
+// Mirrors binder.ts's APPENDIX_PREFIX_RE / stripAppendixPrefix. Kept
+// in sync so the cite-resolution preview's family lookup matches what
+// the runtime binder sees.
+const APPENDIX_PREFIX_RE = /^(?:article|chapter)[\da-z]+appendix[a-z]+\.(.+)$/i;
+function stripAppendixPrefix(id: string): string | null {
+  const m = id.match(APPENDIX_PREFIX_RE);
+  return m?.[1] ?? null;
+}
+
 function buildCollisionFamiliesByModule(
   modules: readonly ParsedModule[],
 ): CollisionFamiliesByModule {
   const out: CollisionFamiliesByModule = new Map();
   for (const m of modules) {
     const grouped = new Map<string, FamilyMember[]>();
-    for (const s of m.sections) {
-      const stripped = stripOrdinalSuffix(s.id);
-      let arr = grouped.get(stripped);
+    function push(key: string, member: FamilyMember): void {
+      let arr = grouped.get(key);
       if (!arr) {
         arr = [];
-        grouped.set(stripped, arr);
+        grouped.set(key, arr);
       }
-      arr.push({ id: s.id, hierarchy: s.hierarchy });
+      arr.push(member);
+    }
+    for (const s of m.sections) {
+      const member: FamilyMember = { id: s.id, hierarchy: s.hierarchy };
+      push(stripOrdinalSuffix(s.id), member);
+      const leaf = stripAppendixPrefix(s.id);
+      if (leaf) push(stripOrdinalSuffix(leaf), member);
     }
     const families = new Map<string, readonly FamilyMember[]>();
     for (const [key, members] of grouped) {
-      if (members.length > 1) families.set(key, members);
+      // Mirror binder.ts: keep singletons for appendix-leaf aliases so a
+      // bare cite in a module with one appendix can still resolve.
+      if (members.length > 1 || members.some((m) => stripAppendixPrefix(m.id) !== null)) {
+        families.set(key, members);
+      }
     }
     out.set(m.module.id, families);
   }
@@ -369,7 +385,11 @@ function computeCitationReport(
 // collision-family index so its verdict agrees with the runtime
 // resolver's (per the design's "validator/binder agreement" property).
 function bucketVague(
-  target: { kind: "vague"; raw: string; source_target?: { kind: string; section_id?: string; module_id?: string } },
+  target: {
+    kind: "vague";
+    raw: string;
+    source_target?: { kind: string; section_id?: string; module_id?: string };
+  },
   section: SectionFile,
   collisionFamilies: CollisionFamiliesByModule,
   universe: ModuleAnchorUniverse,

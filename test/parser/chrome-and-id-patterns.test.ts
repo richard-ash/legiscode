@@ -440,6 +440,181 @@ describe("editorial-status detection (case-insensitive)", () => {
   });
 });
 
+describe("Pattern A: appendix container qualifies inner-section ids", () => {
+  // The dispatcher tracks the active Appendix container; when classifyRbox
+  // sees an `Article N, Appendix X` titled rbox, subsequent Section rboxes
+  // (whether anchored or heading-text-only) get ids of the form
+  // `articleNappendixx.<innerNum>`. Without this, the 17 SF historic
+  // districts (Article 10 Appendices B-Q) would all reuse Section 1, 2, 3...
+  // and silently collapse onto last-write-wins ids.
+
+  function appendix(id: string, anchor: string, title: string): string {
+    return `<div><span depth="3"></span><div id="rid-${id}" class="Section toc-destination rbox"><h3><a name="JD_${anchor}" id="JD_${anchor}" title="${title}"></a>APPENDIX TO ARTICLE</h3></div></div>`;
+  }
+
+  it("anchor-less inner section inside an appendix gets a qualified id", () => {
+    // Historic district pattern: appendix rbox wraps inner Section rboxes
+    // whose only id signal is heading text "SEC. 1.". Without Pattern A,
+    // every district would produce id="1" and collide.
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      appendix("appB", "Article10AppendixB", "Article 10, Appendix B"),
+      section("inB", "1", "FINDINGS.", "Body of appendix B section 1"),
+      appendix("appC", "Article10AppendixC", "Article 10, Appendix C"),
+      section("inC", "1", "FINDINGS.", "Body of appendix C section 1"),
+    );
+    const result = parseSingleModule(buffer);
+    const ids = result.sections.map((s) => s.id).filter((id) => id.includes("appendix"));
+    expect(ids).toContain("article10appendixb.1");
+    expect(ids).toContain("article10appendixc.1");
+    expect(new Set(result.sections.map((s) => s.id)).size).toBe(result.sections.length);
+  });
+
+  it("appendix label is appended to section.hierarchy", () => {
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      appendix("appB", "Article10AppendixB", "Article 10, Appendix B"),
+      section("inB", "1", "FINDINGS.", "body"),
+    );
+    const result = parseSingleModule(buffer);
+    const inner = result.sections.find((s) => s.id === "article10appendixb.1");
+    const last = inner?.hierarchy[inner.hierarchy.length - 1] ?? "";
+    expect(last).toMatch(/Article 10, Appendix B/);
+  });
+
+  it("Article hierarchy_marker clears the appendix container", () => {
+    // After Appendix B's body ends and a new ARTICLE 11 begins, sections
+    // under ARTICLE 11 must NOT carry the article10appendixb prefix.
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      appendix("appB", "Article10AppendixB", "Article 10, Appendix B"),
+      section("inB", "1", "FINDINGS.", "body"),
+      `<div><div class="rbox Article"><div><a name="JD_Article11" title="Article 11"></a>ARTICLE 11</div></div></div>`,
+      section("postArt", "20.1", "POST ARTICLE.", "body"),
+    );
+    const result = parseSingleModule(buffer);
+    const post = result.sections.find((s) => s.id === "20.1");
+    expect(post).toBeDefined();
+    expect(post?.hierarchy.some((h) => h.includes("Appendix B"))).toBe(false);
+  });
+});
+
+describe("Pattern B: shared JD anchor falls back to heading-text section number", () => {
+  // sf-building has 6 sections that all share anchor `JD_G5.106` but whose
+  // headings give distinct section numbers (5.101, 5.103, 5.104, 5.105,
+  // 5.106, 5.201). The pre-pass counts anchor keys; any key on >=2 sections
+  // triggers heading-text preference for those sections, producing distinct
+  // ids without re-introducing the 1,531-section disambiguator collapse
+  // the stripJdAnchorSuffixes comment warns about.
+
+  it("two sections sharing one anchor get distinct heading-derived ids", () => {
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      `<div id="rid-a" class="Subsection toc-destination rbox"><h5><a name="JD_G5.106" id="JD_G5.106" title="G5.106"></a>SECTION 5.101 GENERAL</h5></div>
+       <div id="rid-a-body" class="rbox Normal-Level"><div>body A</div></div>`,
+      `<div id="rid-b" class="Subsection toc-destination rbox"><h5><a name="JD_G5.106" id="JD_G5.106" title="G5.106"></a>SECTION 5.103 OTHER</h5></div>
+       <div id="rid-b-body" class="rbox Normal-Level"><div>body B</div></div>`,
+    );
+    const result = parseSingleModule(buffer);
+    const ids = result.sections.map((s) => s.id);
+    expect(ids).toContain("5.101");
+    expect(ids).toContain("5.103");
+    expect(ids).not.toContain("g5.106");
+  });
+
+  it("unique anchor with disagreeing heading text keeps the anchor-derived id", () => {
+    // Pattern B fires only on shared anchors. A unique anchor whose
+    // heading happens to read differently (e.g. `JD_117.1-fn1` with
+    // heading "SEC. 117.1.1") keeps the anchor-derived id to preserve
+    // the 1,531-section disambiguator work that stripJdAnchorSuffixes
+    // documents.
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      `<div id="rid-x" class="Section toc-destination rbox"><h5><a name="JD_117.1-fn1" id="JD_117.1-fn1" title="117.1-fn1"></a>SEC. 117.1.1 NEW ORD</h5></div>
+       <div id="rid-x-body" class="rbox Normal-Level"><div>body</div></div>`,
+    );
+    const result = parseSingleModule(buffer);
+    expect(result.sections.map((s) => s.id)).toContain("117.1-fn1");
+  });
+});
+
+describe("Pattern C: parent-slug qualification on residual collisions", () => {
+  // Two sections with the same id, both validly anchored, neither inside
+  // an appendix, but each lives under a different immediate hierarchy
+  // parent (e.g. ARTICLE 3 vs INTERPRETATIONS). Pattern A/B don't help;
+  // the post-pass qualifies each id with its parent's slug.
+
+  function articleMarker(anchor: string, label: string): string {
+    return `<div><div class="rbox Article"><div><a name="JD_${anchor}" title="${anchor}"></a>${label}</div></div></div>`;
+  }
+
+  it("two sections at id 315 under different parents get parent-slug qualified", () => {
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      articleMarker("Art3", "ARTICLE 3: ZONING"),
+      section("art3-315", "315", "STREAMLINED.", "body"),
+      articleMarker("Interp", "PLANNING CODE - INTERPRETATIONS"),
+      section("interp-315", "315", "EXEMPTION.", "body"),
+    );
+    const result = parseSingleModule(buffer);
+    const idsEndingIn315 = result.sections
+      .map((s) => s.id)
+      .filter((id) => id === "315" || id.endsWith(".315"));
+    expect(idsEndingIn315).not.toContain("315");
+    expect(idsEndingIn315.length).toBeGreaterThanOrEqual(2);
+    const slugs = idsEndingIn315.map((id) => id.replace(/\.315$/, ""));
+    expect(new Set(slugs).size).toBe(idsEndingIn315.length);
+  });
+
+  it("Pattern C purges the stale raw anchor from tocAnchors after qualification", () => {
+    // Regression for Codex finding: without this, the binder's anchor
+    // index would still contain `315` (from JD_315 in source), so a
+    // bare "Section 315" cite would bind to anchor_id "315" — but no
+    // section has that id anymore. Result: green build, broken runtime
+    // navigation.
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      articleMarker("Art3", "ARTICLE 3: ZONING"),
+      section("art3-315", "315", "STREAMLINED.", "body"),
+      articleMarker("Interp", "PLANNING CODE - INTERPRETATIONS"),
+      section("interp-315", "315", "EXEMPTION.", "body"),
+    );
+    const result = parseSingleModule(buffer);
+    expect(result.tocAnchors).not.toContain("315");
+  });
+
+  it("Pattern A: heading-text-derived title strips the SEC. prefix correctly for qualified ids", () => {
+    // Regression for Codex finding: extractSectionTitle was passed the
+    // qualified id `article10appendixb.1`, so its `^SEC\. <id>\.` regex
+    // missed against "SEC. 1. FINDINGS." and the title fell through to
+    // "SEC. 1. FINDINGS" instead of "FINDINGS".
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      `<div><span depth="3"></span><div id="rid-appB" class="Section toc-destination rbox"><h3><a name="JD_Article10AppendixB" id="JD_Article10AppendixB" title="Article 10, Appendix B"></a>APPENDIX TO ARTICLE</h3></div></div>`,
+      section("inB", "1", "FINDINGS.", "body"),
+    );
+    const result = parseSingleModule(buffer);
+    const inner = result.sections.find((s) => s.id === "article10appendixb.1");
+    expect(inner?.title).toBe("FINDINGS");
+  });
+
+  it("two sections at same id under same parent remain a true duplicate (no Pattern C masking)", () => {
+    // When the parents agree, qualification doesn't help and shouldn't
+    // mask the genuine duplicate. validateCorpus's duplicate gate must
+    // still see it. Pattern C explicitly bails out when parent slugs
+    // don't differ.
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      articleMarker("Art3", "ARTICLE 3: ZONING"),
+      section("dup1", "315", "FIRST.", "body"),
+      section("dup2", "315", "SECOND.", "body"),
+    );
+    const result = parseSingleModule(buffer);
+    const ids315 = result.sections.filter((s) => s.id === "315");
+    expect(ids315.length).toBe(2);
+  });
+});
+
 describe("multi-module TOC and cross-module citation", () => {
   it("two-module corpus: each module's TOC enumerates only its own sections", () => {
     const manifest = makeManifest([

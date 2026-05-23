@@ -379,32 +379,14 @@ function classifyRbox(el: cheerio.Cheerio<any>): RboxClassification {
     }
   }
 
-  // Subsection-class promotion lets citations like "§ 206.10" resolve, but
-  // only when the JD anchor's title is a section-shaped id. Subsection
-  // rboxes whose title is a structural label (e.g., "Article 10, Appendix
-  // O, Sec. 1" — sf-planning's appendix items) aren't valid citation
-  // targets; they get absorbed into the parent's body. Without this
-  // discrimination, those rboxes flow to parseSectionElement which fails
-  // self-validation with a non-conforming id.
-  if (rawTitle) {
-    const isSubsection = (() => {
-      for (const c of classes) {
-        if (c === "Subsection" || c === "level-Subsection") return true;
-        if (c === "Subsection-NewOrd" || c === "level-Subsection-NewOrd") return true;
-        if (c === "Subsection-Deleted" || c === "level-Subsection-Deleted") return true;
-        if (c === "SubSection" || c === "level-SubSection") return true;
-        if (c === "SubSection-NewOrd" || c === "level-SubSection-NewOrd") return true;
-        if (c === "SubSection-Deleted" || c === "level-SubSection-Deleted") return true;
-      }
-      return false;
-    })();
-    if (isSubsection && !SECTION_ID_RE.test(normalizeSectionId(rawTitle))) {
-      return {
-        kind: "consumed_by_parent",
-        reason: `subsection with non-section-shaped title "${rawTitle}"`,
-      };
-    }
-  }
+  // Subsection-class promotion lets citations like "§ 206.10" resolve.
+  // The historical rule consumed any Subsection whose title wasn't
+  // section-shaped (e.g. "Article 10, Appendix O, Sec. 1"). Pattern A
+  // moves that decision to parseSectionElement: when the section turns
+  // out to be inside an Appendix container, the long structural title
+  // is exactly what we want to derive an id from. When it's NOT inside
+  // an Appendix container, parseSectionElement's self-validation will
+  // reject the non-conforming id and emit a skip with a clear reason.
 
   // Default: it's a substantive Section (or Section that needs heading-text
   // fallback because rawTitle is empty). The Section parser path handles
@@ -436,6 +418,64 @@ function rboxLabelText(el: cheerio.Cheerio<any>): string {
   return raw;
 }
 
+// Pattern A: active Appendix container state. When set, subsequent
+// Section emissions are inside this appendix's body and inherit a
+// qualified id prefix derived from the container's anchor.
+interface AppendixContainer {
+  parent: { kind: "article" | "chapter"; number: number | string };
+  letter: string;
+  title: string;
+  /** Slug used as the id prefix, e.g. "article10appendixb". Stable across
+   *  AmLegal jurisdictions because it derives from publisher conventions
+   *  (parent kind, parent number, appendix letter) not source text. */
+  idSlug: string;
+}
+
+function buildAppendixContainer(
+  meta: Extract<RboxClassification, { kind: "appendix" }>,
+  parsed: ParsedAppendix,
+): AppendixContainer {
+  // idSlug shape: "article10appendixb", "chapter5appendixa". Concatenated
+  // without separators because the components are all single tokens and
+  // the existing SECTION_ID_RE only permits ./-/_ between alnum runs.
+  // The final id form is "<idSlug>.<innerNum>" e.g. "article10appendixb.1".
+  const idSlug = `${meta.parent.kind}${meta.parent.number}appendix${meta.letter}`;
+  return {
+    parent: meta.parent,
+    letter: meta.letter,
+    title: parsed.title,
+    idSlug,
+  };
+}
+
+// Pattern B: derive the anchor "key" for shared-anchor detection. Mirrors
+// the parser's id-extraction precedence (title attr → name attr) but
+// normalizes only enough to detect duplicates, not enough to be the
+// final id. An anchor key that appears on >1 section in the same module
+// indicates a source-anchor collision (sf-building's `JD_G5.106` ×6
+// being the discovered case); those sections should fall back to
+// heading-text section numbers instead of the anchor-derived id.
+function formatAppendixHierarchyLabel(c: AppendixContainer): string {
+  // Human-readable label that goes into section.hierarchy[]. Letter is
+  // upper-cased for display; title is the AmLegal-supplied appendix
+  // name (e.g. "Jackson Square Historic District"). Empty title falls
+  // back to just the appendix designator.
+  const letter = c.letter.toUpperCase();
+  const parentWord = c.parent.kind === "article" ? "Article" : "Chapter";
+  const base = `${parentWord} ${c.parent.number}, Appendix ${letter}`;
+  return c.title ? `${base} - ${c.title}` : base;
+}
+
+function extractAnchorKey(el: cheerio.Cheerio<any>): string {
+  const anchor = el.find("a[name^='JD_']").first();
+  if (anchor.length === 0) return "";
+  const titleAttr = (anchor.attr("title") ?? "").trim();
+  if (titleAttr) return titleAttr.toLowerCase();
+  const nameAttr = (anchor.attr("name") ?? "").trim();
+  if (nameAttr.startsWith("JD_")) return nameAttr.slice(3).toLowerCase();
+  return "";
+}
+
 function parseModuleFromBound(
   $: cheerio.CheerioAPI,
   allRboxes: any[],
@@ -452,6 +492,12 @@ function parseModuleFromBound(
   const codeTitle = bound.module.code_title;
   let currentDivision: string | null = null;
   let currentArticleOrChapter: string | null = null;
+  // Pattern A: track the active Appendix container so its inner Sections
+  // (whether anchored as `JD_ArticleNAppendixXSec.M` or heading-text-only
+  // `SEC. 1.`) get ids qualified by the container's slug, distinguishing
+  // Section 1 of Jackson Square HD from Section 1 of Webster Street HD.
+  // Cleared when a new Article/Chapter/Division marker is seen.
+  let currentAppendix: AppendixContainer | null = null;
 
   // Binary search for first rbox with offset >= bound.startOffset.
   let lo = 0;
@@ -476,6 +522,62 @@ function parseModuleFromBound(
   const metas: RboxClassification[] = [];
   for (let i = startIdx; i < endIdx; i++) {
     metas.push(classifyRbox($(allRboxes[i])));
+  }
+
+  // In-appendix tracking pre-pass: walk metas in order mirroring the
+  // dispatcher's currentAppendix logic. Pattern A only rescues
+  // anchored-but-non-section-shaped subsections when they sit inside
+  // an Appendix container. Outside an appendix, those rboxes are
+  // editorial commentary (PLANNING CODE - INTERPRETATIONS items with
+  // titles like "Interp. Sec. 101.1") that the historical consume
+  // rule absorbed into the parent's body. Without this, the parser
+  // would fail SECTION_ID_RE on those titles and emit 169 spurious
+  // skips into sf-planning.
+  const inAppendix: boolean[] = new Array(metas.length).fill(false);
+  {
+    let cur: {
+      letter: string;
+      parent: { kind: "article" | "chapter"; number: number | string };
+    } | null = null;
+    for (let j = 0; j < metas.length; j++) {
+      const m = metas[j];
+      if (!m) continue;
+      if (m.kind === "hierarchy_marker") cur = null;
+      else if (m.kind === "appendix") cur = { letter: m.letter, parent: m.parent };
+      if (cur) inAppendix[j] = true;
+    }
+  }
+  for (let j = 0; j < metas.length; j++) {
+    const m = metas[j];
+    if (!m || m.kind !== "section" || inAppendix[j]) continue;
+    const el = $(allRboxes[startIdx + j]);
+    const clsTokens = ((el.get(0) as any)?.attribs?.class ?? "").split(/\s+/);
+    const isSubsection = clsTokens.some((c: string) => /^(?:level-)?Sub[Ss]ection/.test(c));
+    if (!isSubsection) continue;
+    const anchor = el.find("a[name^='JD_']").first();
+    const title = (anchor.attr("title") ?? "").trim();
+    if (!title || SECTION_ID_RE.test(normalizeSectionId(title))) continue;
+    metas[j] = {
+      kind: "consumed_by_parent",
+      reason: `subsection with non-section-shaped title "${title}"`,
+    };
+  }
+
+  // Pattern B pre-pass: count JD anchor keys across all section-class
+  // rboxes in this module. Any key appearing on >1 section means the
+  // source itself is ambiguous (the `JD_G5.106` ×6 case in sf-building).
+  // For those sections, parseSectionElement prefers the heading-text
+  // section number over the anchor-derived id.
+  const anchorKeyCounts = new Map<string, number>();
+  for (let i = startIdx; i < endIdx; i++) {
+    const m = metas[i - startIdx];
+    if (m?.kind !== "section") continue;
+    const key = extractAnchorKey($(allRboxes[i]));
+    if (key) anchorKeyCounts.set(key, (anchorKeyCounts.get(key) ?? 0) + 1);
+  }
+  const sharedAnchorKeys = new Set<string>();
+  for (const [key, count] of anchorKeyCounts) {
+    if (count > 1) sharedAnchorKeys.add(key);
   }
 
   // A rbox is a "boundary" when it terminates the body of a preceding
@@ -550,13 +652,19 @@ function parseModuleFromBound(
         } else if (label) {
           currentArticleOrChapter = label;
         }
+        // Article/Chapter/Division boundary terminates any active appendix
+        // container; subsequent sections live under the new hierarchy node.
+        currentAppendix = null;
         break;
       }
       case "section": {
         const body = collectBody(i + 1);
-        const hierarchy = [codeTitle, currentDivision, currentArticleOrChapter].filter(
+        const baseHierarchy = [codeTitle, currentDivision, currentArticleOrChapter].filter(
           (x): x is string => x != null && x.length > 0,
         );
+        const hierarchy = currentAppendix
+          ? [...baseHierarchy, formatAppendixHierarchyLabel(currentAppendix)]
+          : baseHierarchy;
         const parsed = parseSectionElement(
           el,
           bound.module,
@@ -566,6 +674,8 @@ function parseModuleFromBound(
           body.text,
           body.htmlSpans,
           body.elements,
+          currentAppendix,
+          sharedAnchorKeys,
         );
         if (parsed.kind === "ok") {
           sections.push(parsed.section);
@@ -578,6 +688,9 @@ function parseModuleFromBound(
         const body = collectBody(i + 1);
         const parsed = parseAppendixElement(el, meta, lineMap, body.text);
         appendices.push(parsed);
+        // Pattern A: subsequent Section rboxes (until the next
+        // Article/Chapter marker or appendix) are inside this container.
+        currentAppendix = buildAppendixContainer(meta, parsed);
         break;
       }
       case "ordinance_history":
@@ -614,6 +727,81 @@ function parseModuleFromBound(
         });
         break;
       }
+    }
+  }
+
+  // Pattern C post-pass: for any id that's still shared across multiple
+  // sections after Pattern A and B applied, qualify by prepending the
+  // immediate hierarchy parent's slug when those parents differ. The
+  // discovered case is sf-planning's id="315" appearing in both
+  // ARTICLE 3:ZONING PROCEDURES and PLANNING CODE - INTERPRETATIONS;
+  // both sections have their own JD_315 anchor and heading "SEC. 315.",
+  // so neither Pattern A nor B helps. The parent slug is the cheapest
+  // honest disambiguator: it preserves identity provenance in the id
+  // itself rather than requiring a side-channel.
+  const byId = new Map<string, number[]>();
+  for (let i = 0; i < sections.length; i++) {
+    const s = sections[i];
+    if (!s) continue;
+    const arr = byId.get(s.id) ?? [];
+    arr.push(i);
+    byId.set(s.id, arr);
+  }
+  // Track the rewrite map for tocAnchors cleanup and redirect_to remap.
+  // Keys are the OLD ids (raw, post-Pattern-A/B but pre-Pattern-C);
+  // values are the set of NEW qualified ids those rewrote to. When old
+  // → multiple new (the collision case), the redirect_to remap can't
+  // pick one unambiguously and we leave it alone so a downstream resolver
+  // surfaces the broken link rather than silently picking the wrong one.
+  const idRewriteMap = new Map<string, Set<string>>();
+  for (const [, indices] of byId) {
+    if (indices.length < 2) continue;
+    // Only qualify when the immediate hierarchy parent differs across
+    // members. Same parent + same id is a genuine duplicate the
+    // duplicate_section_ids gate must surface, not silently qualify.
+    const parentSlugs = indices.map((i) => {
+      const s = sections[i];
+      const parent = s?.hierarchy[s.hierarchy.length - 1];
+      return parent ? slugify(parent) : "";
+    });
+    const distinctParents = new Set(parentSlugs.filter((p) => p.length > 0));
+    if (distinctParents.size < 2) continue;
+    for (let k = 0; k < indices.length; k++) {
+      const idx = indices[k];
+      const slug = parentSlugs[k];
+      if (idx == null || !slug) continue;
+      const s = sections[idx];
+      if (!s) continue;
+      // Prepend the parent slug. Validate it still passes SECTION_ID_RE;
+      // if not (e.g. a parent slug starts with a digit-prefix that
+      // would create an invalid sequence) the qualification is skipped
+      // and the duplicate gate will surface the unresolved collision.
+      const qualified = `${slug}.${s.id}`;
+      if (SECTION_ID_RE.test(qualified)) {
+        const oldId = s.id;
+        sections[idx] = { ...s, id: qualified };
+        const set = idRewriteMap.get(oldId) ?? new Set<string>();
+        set.add(qualified);
+        idRewriteMap.set(oldId, set);
+      }
+    }
+  }
+
+  // Pattern C followup: rewrite any section.redirect_to that pointed to
+  // a now-qualified id. When a redesignated section's `#JD_<id>` link
+  // targeted a section that Pattern C qualified, the redirect_to field
+  // retains the old un-qualified id and runtime navigation breaks. When
+  // multiple new qualified ids exist for the same old id (the actual
+  // collision), the redirect_to is ambiguous; we leave it alone rather
+  // than guess wrong, and a downstream link-resolution gate can surface
+  // the dangling reference.
+  for (let i = 0; i < sections.length; i++) {
+    const s = sections[i];
+    if (!s?.redirect_to) continue;
+    const candidates = idRewriteMap.get(s.redirect_to);
+    if (candidates && candidates.size === 1) {
+      const [only] = candidates;
+      if (only) sections[i] = { ...s, redirect_to: only };
     }
   }
 
@@ -668,6 +856,18 @@ function parseModuleFromBound(
         if (id.length > 0) tocAnchorsSet.add(id);
       }
     });
+  }
+  // Pattern C cleanup: remove raw anchor names whose corresponding
+  // section.id was rewritten. Without this, the binder's anchor index
+  // would still treat `315` as bindable even though no section has that
+  // id anymore, and the runtime resolver would fail on a green-build
+  // section-ref target. Match on normalized form so case/whitespace
+  // discrepancies between source anchor names and normalized ids align.
+  if (idRewriteMap.size > 0) {
+    for (const oldId of idRewriteMap.keys()) {
+      tocAnchorsSet.delete(oldId);
+      tocAnchorsSet.delete(oldId.toLowerCase());
+    }
   }
 
   return {
@@ -738,6 +938,8 @@ function parseSectionElement(
   bodyText: string,
   bodyHtmlSpans: SpanRecord[],
   bodyElements: cheerio.Cheerio<any>[],
+  containerAppendix: AppendixContainer | null,
+  sharedAnchorKeys: Set<string>,
 ): SectionParse {
   const node = sectionEl.get(0) as any;
   const line = offsetToLine(getStartIndex(node), lineMap);
@@ -749,8 +951,57 @@ function parseSectionElement(
   const anchorEl = sectionEl.find("a[name^='JD_']").first();
   const heading = sectionEl.find("h1, h2, h3, h4, h5, h6").first();
   const headingText = (heading.length > 0 ? heading.text() : sectionEl.text()).trim();
+  const hasJdAnchor = anchorEl.length > 0;
+  const anchorTitle = (anchorEl.attr("title") ?? "").trim();
+  const anchorName = (anchorEl.attr("name") ?? "").trim();
+  const anchorKey = anchorTitle
+    ? anchorTitle.toLowerCase()
+    : anchorName.startsWith("JD_")
+      ? anchorName.slice(3).toLowerCase()
+      : "";
 
-  let rawId = stripJdAnchorSuffixes((anchorEl.attr("title") ?? "").trim());
+  // Heading-text section number extraction. Used by:
+  //  - Pattern A: as the inner-section number when this section lives
+  //    inside an Appendix container
+  //  - Pattern B: as the preferred id when the JD anchor is shared with
+  //    another section in this module (sf-building's `JD_G5.106` ×6)
+  //  - Final fallback: when no JD anchor exists at all
+  const headingSecMatch = headingText.match(HEADING_SEC_RE);
+  const headingSecNum = headingSecMatch?.[1]?.trim() ?? "";
+
+  // === Unified id derivation, in precedence order ===
+  //
+  // Pattern A (Appendix container): when inside an appendix, qualify the
+  // id with the container's slug so Sec. 1 of Jackson Square HD is
+  // distinct from Sec. 1 of Webster Street HD. Use the heading-text
+  // inner number when present (handles anchor-less Article 10 A-N AND
+  // anchored Article 10 O-Q / Article 11 / Article 600 cases uniformly);
+  // when heading text has no SEC.N token, parse the trailing Sec.N from
+  // the anchor title (e.g. "Article 11, Appendix E, Sec. 1" → "1").
+  let rawId = "";
+  if (containerAppendix) {
+    let innerNum = headingSecNum;
+    if (!innerNum && anchorTitle) {
+      const trailing = anchorTitle.match(/Sec\.\s*([\dA-Za-z.]+)\s*$/i);
+      if (trailing?.[1]) innerNum = trailing[1];
+    }
+    if (innerNum) {
+      rawId = `${containerAppendix.idSlug}.${innerNum}`;
+    }
+  }
+
+  // Pattern B (shared anchor): the JD anchor is reused on >=2 sections
+  // in this module, so it can't uniquely identify any of them. Prefer
+  // the heading-text section number, which differs per section in the
+  // discovered case (sf-building: SECTION 5.101 vs 5.103 vs 5.106 etc.).
+  if (rawId === "" && anchorKey && sharedAnchorKeys.has(anchorKey) && headingSecNum) {
+    rawId = headingSecNum;
+  }
+
+  // Default: anchor title attribute (current behavior preserved).
+  if (rawId === "") {
+    rawId = stripJdAnchorSuffixes(anchorTitle);
+  }
   // D10 anchor-name fallback. When `title` is missing the disambiguator
   // we care about ("title=\"\" name=\"JD_16.9-2\"" is a real shape AmLegal
   // emits when the title attribute is dropped during their export step),
@@ -758,23 +1009,12 @@ function parseSectionElement(
   // stripped. Must come BEFORE the heading-text fallback: heading text
   // typically reads "SEC. 16.9." without the disambiguator, so it would
   // truncate the id back to "16.9" and reintroduce the collision.
-  if (rawId === "") {
-    const anchorName = (anchorEl.attr("name") ?? "").trim();
-    if (anchorName.startsWith("JD_")) {
-      rawId = stripJdAnchorSuffixes(anchorName.slice(3).trim());
-    }
+  if (rawId === "" && anchorName.startsWith("JD_")) {
+    rawId = stripJdAnchorSuffixes(anchorName.slice(3).trim());
   }
-  // Track whether the id came from a real JD anchor — used below to
-  // disambiguate tombstone-shaped sections that share an id with a
-  // JD-anchored sibling. anchorEl.length is the most reliable signal:
-  // when zero, the section has no JD anchor of its own and must be
-  // emitted via heading-text fallback.
-  const hasJdAnchor = anchorEl.length > 0;
-  if (rawId === "") {
-    const headingMatch = headingText.match(HEADING_SEC_RE);
-    if (headingMatch?.[1]) {
-      rawId = headingMatch[1].trim();
-    }
+  // Heading-text fallback (anchor-less section, no Appendix container).
+  if (rawId === "" && headingSecNum) {
+    rawId = headingSecNum;
   }
   if (rawId === "") {
     return {
@@ -842,7 +1082,14 @@ function parseSectionElement(
       },
     };
   }
-  const title = extractSectionTitle(headingText, rawId);
+  // Use the heading-text-derived section number (displayLabel) for title
+  // extraction, not the canonical id. For Pattern A sections, id is the
+  // qualified form `article10appendixb.1` but the heading reads "SEC. 1.
+  // FINDINGS." — extractSectionTitle's "SEC. <id>." prefix regex would
+  // miss against the qualified form and the title would retain the
+  // "SEC. 1." prefix. displayLabel always matches what's actually in the
+  // heading text when HEADING_SEC_RE matched.
+  const title = extractSectionTitle(headingText, displayLabel || rawId);
 
   // Refine editorial status from heading text. The class signature only
   // says "Section-Deleted" without disambiguating reserved / repealed /

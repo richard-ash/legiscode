@@ -54,7 +54,12 @@ const CrossModuleTargetSchema = z
 // BEFORE bind, so the source can only be one of the pre-binder
 // shapes (internal / cross_module).
 const VagueSourceTargetSchema: z.ZodType<
-  | { kind: "internal"; section_id: string; subsection?: string; range?: { from: string; to: string } }
+  | {
+      kind: "internal";
+      section_id: string;
+      subsection?: string;
+      range?: { from: string; to: string };
+    }
   | {
       kind: "cross_module";
       module_id: string;
