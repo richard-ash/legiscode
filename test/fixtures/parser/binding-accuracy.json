@@ -128,7 +128,11 @@
       "expected_cite": "§ 5270",
       "expected_target": {
         "kind": "vague",
-        "raw": "§ 5270"
+        "raw": "§ 5270",
+        "source_target": {
+          "kind": "internal",
+          "section_id": "5270"
+        }
       }
     },
     {

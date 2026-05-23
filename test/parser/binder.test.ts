@@ -20,10 +20,15 @@
 // is meaningful only with the candidates-for shape it consumes.
 
 import { describe, expect, it } from "vitest";
-import { type BindContext, bindCitation, buildAnchorIndex } from "@/parser/binder";
+import {
+  type BindContext,
+  bindCitation,
+  buildAnchorIndex,
+  buildCollisionFamilies,
+} from "@/parser/binder";
 import { extractCitations } from "@/parser/citations";
 import { candidatesFor } from "@/parser/display-rules";
-import type { Citation, DisplayRules, ModuleConfig } from "@/types";
+import type { Citation, DisplayRules, ModuleConfig, SectionFile } from "@/types";
 
 const CITATION_PATTERN =
   "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:\\([a-z0-9]+\\))*(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)";
@@ -206,7 +211,14 @@ describe("bindCitation", () => {
       target: { kind: "internal", section_id: "999" },
     };
     const after = bindCitation(before, ctx);
-    expect(after.target).toEqual({ kind: "vague", raw: "Section 999" });
+    // D9: vague reclass preserves the original target so the validator
+    // can bucket by reason (vague_external vs vague_collision_unresolvable
+    // vs vague_no_anchor). The pre-bind target is the only provenance.
+    expect(after.target).toEqual({
+      kind: "vague",
+      raw: "Section 999",
+      source_target: { kind: "internal", section_id: "999" },
+    });
   });
 
   it("sibling fallback: internal cite resolves against the one sibling module that has it", () => {
@@ -284,8 +296,13 @@ describe("bindCitation", () => {
       target: { kind: "internal", section_id: "8.509" },
     };
     const after = bindCitation(before, ctx);
-    // Ambiguous → reclassified as vague rather than guessing.
-    expect(after.target).toEqual({ kind: "vague", raw: "Section 8.509" });
+    // Ambiguous → reclassified as vague rather than guessing. D9
+    // preserves the original target on the vague output.
+    expect(after.target).toEqual({
+      kind: "vague",
+      raw: "Section 8.509",
+      source_target: { kind: "internal", section_id: "8.509" },
+    });
   });
 
   it("leaves a cross_module target intact when the target module is not in this build", () => {
@@ -411,6 +428,278 @@ describe("bindCitation", () => {
       const before: Citation = { display_text: "x", target };
       expect(bindCitation(before, ctx).target).toBe(target);
     }
+  });
+});
+
+// ─── D5 hierarchy-scoped fallback (section-id uniqueness) ──────────────────
+
+describe("bindCitation — D5 hierarchy-scoped collision-family fallback", () => {
+  // Synthetic section helper for collision-family tests. Only id and
+  // hierarchy matter for disambiguation; the rest are placeholders.
+  function sec(id: string, hierarchy: readonly string[]): SectionFile {
+    return {
+      kind: "section",
+      id,
+      display_label: id,
+      title: "T",
+      text: "body",
+      citations: [],
+      defined_terms: [],
+      hierarchy: [...hierarchy],
+      editorial_status: "active",
+      body: [],
+    };
+  }
+
+  function makeFamilyCtx(citingModuleId: string, sections: SectionFile[]): BindContext {
+    const ids = sections.map((s) => s.id);
+    const anchorsByModule = new Map([[citingModuleId, buildAnchorIndex(sections, [])]]);
+    const rulesByModule = new Map<string, DisplayRules | undefined>([[citingModuleId, undefined]]);
+    const collisionFamiliesByModule = new Map([[citingModuleId, buildCollisionFamilies(sections)]]);
+    // Sanity: every id is in the anchor set.
+    for (const id of ids) {
+      if (!anchorsByModule.get(citingModuleId)?.has(id)) {
+        throw new Error(`fixture mismatch: ${id} missing from anchors`);
+      }
+    }
+    return { citingModuleId, anchorsByModule, rulesByModule, collisionFamiliesByModule };
+  }
+
+  it("bare cite picks the family member whose hierarchy matches the citing section exactly", () => {
+    // Module has two disambiguator siblings: "16.9-2" in ARTICLE I,
+    // "16.9-5" in ARTICLE II. A bare cite to "Section 16.9" from
+    // within ARTICLE I must resolve to "16.9-2" (the same hierarchy).
+    const sections = [
+      sec("16.9-2", ["Admin Code", "ARTICLE I"]),
+      sec("16.9-5", ["Admin Code", "ARTICLE II"]),
+    ];
+    const ctx = makeFamilyCtx("sf-mod", sections);
+
+    const before: Citation = {
+      display_text: "Section 16.9",
+      target: { kind: "internal", section_id: "16.9" },
+    };
+    const after = bindCitation(before, ctx, ["Admin Code", "ARTICLE I"]);
+
+    expect(after.target).toEqual({
+      kind: "section-ref",
+      anchor_id: "16.9-2",
+      module_id: "sf-mod",
+    });
+  });
+
+  it("D5-followup: direct hit on bare id still runs disambiguation when collision family exists", () => {
+    // Both "16.9" (bare) and "16.9-2" (disambig) exist; a bare cite to
+    // "Section 16.9" from inside ARTICLE I where "16.9-2" lives must
+    // bind to "16.9-2", not the bare "16.9" sitting in ARTICLE III.
+    // Without the followup wrap, the bare "16.9" would direct-bind
+    // and the disambiguation would never run.
+    const sections = [
+      sec("16.9", ["Admin Code", "ARTICLE III"]),
+      sec("16.9-2", ["Admin Code", "ARTICLE I"]),
+    ];
+    const ctx = makeFamilyCtx("sf-mod", sections);
+
+    const before: Citation = {
+      display_text: "Section 16.9",
+      target: { kind: "internal", section_id: "16.9" },
+    };
+    const after = bindCitation(before, ctx, ["Admin Code", "ARTICLE I"]);
+
+    expect(after.target).toEqual({
+      kind: "section-ref",
+      anchor_id: "16.9-2",
+      module_id: "sf-mod",
+    });
+  });
+
+  it("disambiguator-explicit cite ('Section 16.9-2') binds the named id WITHOUT disambiguation", () => {
+    // When the cite text already carries the `-N` suffix, trust it —
+    // the author named the specific disambiguator. Even if other
+    // siblings match citing hierarchy, the explicit form wins.
+    const sections = [
+      sec("16.9-2", ["Admin Code", "ARTICLE I"]),
+      sec("16.9-3", ["Admin Code", "ARTICLE I"]),
+    ];
+    const ctx = makeFamilyCtx("sf-mod", sections);
+
+    const before: Citation = {
+      display_text: "Section 16.9-2",
+      target: { kind: "internal", section_id: "16.9-2" },
+    };
+    const after = bindCitation(before, ctx, ["Admin Code", "ARTICLE I"]);
+
+    expect(after.target).toEqual({
+      kind: "section-ref",
+      anchor_id: "16.9-2",
+      module_id: "sf-mod",
+    });
+  });
+
+  it("reclassifies as vague when multiple family members share the citing hierarchy", () => {
+    // Single-hierarchy collision family — the design's 19% honest-vague
+    // bucket. Two siblings in the same ARTICLE; no positional rule can
+    // disambiguate. D9 source_target preserved on the vague target.
+    const sections = [
+      sec("16.9-2", ["Admin Code", "ARTICLE I"]),
+      sec("16.9-5", ["Admin Code", "ARTICLE I"]),
+    ];
+    const ctx = makeFamilyCtx("sf-mod", sections);
+
+    const before: Citation = {
+      display_text: "Section 16.9",
+      target: { kind: "internal", section_id: "16.9" },
+    };
+    const after = bindCitation(before, ctx, ["Admin Code", "ARTICLE I"]);
+
+    expect(after.target).toEqual({
+      kind: "vague",
+      raw: "Section 16.9",
+      source_target: { kind: "internal", section_id: "16.9" },
+    });
+  });
+
+  it("walks ancestors when no exact hierarchy match exists", () => {
+    // Citing section is at ["Admin Code", "ARTICLE I", "DIV A"].
+    // No family member lives at that exact hierarchy, but one lives
+    // at ["Admin Code", "ARTICLE I"] (the immediate ancestor). Pick it.
+    const sections = [
+      sec("16.9-2", ["Admin Code", "ARTICLE I"]),
+      sec("16.9-5", ["Admin Code", "ARTICLE II"]),
+    ];
+    const ctx = makeFamilyCtx("sf-mod", sections);
+
+    const before: Citation = {
+      display_text: "Section 16.9",
+      target: { kind: "internal", section_id: "16.9" },
+    };
+    const after = bindCitation(before, ctx, ["Admin Code", "ARTICLE I", "DIV A"]);
+
+    expect(after.target).toEqual({
+      kind: "section-ref",
+      anchor_id: "16.9-2",
+      module_id: "sf-mod",
+    });
+  });
+
+  it("no fallback for citing sections without hierarchy info (legacy callers)", () => {
+    // bindCitation with no citingHierarchy arg falls back to direct
+    // binding only — the collision-family check is skipped because we
+    // have no way to disambiguate. This preserves legacy test fixtures
+    // that didn't supply hierarchy.
+    const sections = [
+      sec("16.9", ["Admin Code", "ARTICLE III"]),
+      sec("16.9-2", ["Admin Code", "ARTICLE I"]),
+    ];
+    const ctx = makeFamilyCtx("sf-mod", sections);
+
+    const before: Citation = {
+      display_text: "Section 16.9",
+      target: { kind: "internal", section_id: "16.9" },
+    };
+    const after = bindCitation(before, ctx);
+
+    expect(after.target).toEqual({
+      kind: "section-ref",
+      anchor_id: "16.9",
+      module_id: "sf-mod",
+    });
+  });
+
+  it("Pattern A: bare cite inside Jackson Square HD binds to article10appendixb.1 not bare 1", () => {
+    // D4 regression proof. After Pattern A qualifies appendix-inner
+    // section ids ("Sec. 1" of Jackson Square HD becomes
+    // "article10appendixb.1"), a bare cite "Section 1" inside the
+    // Jackson Square hierarchy must still bind to the local section.
+    // The family index now keys ALSO by the appendix-stripped leaf "1",
+    // so families.get("1") returns all the per-district Sec. 1s; the
+    // hierarchy walk picks the one whose hierarchy matches the citing
+    // section's appendix label.
+    const hierJackson = [
+      "Planning Code",
+      "ARTICLE 10:PRESERVATION OF HISTORICAL ARCHITECTURAL AND AESTHETIC LANDMARKS",
+      "Article 10, Appendix B - Jackson Square Historic District",
+    ];
+    const hierWebster = [
+      "Planning Code",
+      "ARTICLE 10:PRESERVATION OF HISTORICAL ARCHITECTURAL AND AESTHETIC LANDMARKS",
+      "Article 10, Appendix C - Webster Street Historic District",
+    ];
+    const sections = [
+      sec("article10appendixb.1", hierJackson),
+      sec("article10appendixb.2", hierJackson),
+      sec("article10appendixc.1", hierWebster),
+      sec("article10appendixc.2", hierWebster),
+    ];
+    const ctx = makeFamilyCtx("sf-planning", sections);
+
+    const before: Citation = {
+      display_text: "Section 1",
+      target: { kind: "internal", section_id: "1" },
+    };
+    const after = bindCitation(before, ctx, hierJackson);
+
+    expect(after.target).toEqual({
+      kind: "section-ref",
+      anchor_id: "article10appendixb.1",
+      module_id: "sf-planning",
+    });
+  });
+
+  it("Pattern A: bare cite resolves to a single appendix section (singleton-family case)", () => {
+    // Regression for Codex finding: a module with only ONE appendix
+    // section at leaf id "1" (no sibling districts sharing the leaf)
+    // previously produced a singleton family that the >1 filter dropped.
+    // Bare "Section 1" cites then went vague even though the resolution
+    // was unambiguous.
+    const hierLone = ["Test Code", "ARTICLE 99", "Article 99, Appendix A - Lone District"];
+    const sections = [sec("article99appendixa.1", hierLone)];
+    const ctx = makeFamilyCtx("sf-mod", sections);
+
+    const before: Citation = {
+      display_text: "Section 1",
+      target: { kind: "internal", section_id: "1" },
+    };
+    const after = bindCitation(before, ctx, hierLone);
+
+    expect(after.target).toEqual({
+      kind: "section-ref",
+      anchor_id: "article99appendixa.1",
+      module_id: "sf-mod",
+    });
+  });
+
+  it("Pattern A: same bare cite inside Webster Street HD binds to article10appendixc.1", () => {
+    // Same fixture as above, citing context flipped. Proves the
+    // hierarchy walk picks the right appendix per citing section, not
+    // a fixed winner.
+    const hierJackson = [
+      "Planning Code",
+      "ARTICLE 10:PRESERVATION OF HISTORICAL ARCHITECTURAL AND AESTHETIC LANDMARKS",
+      "Article 10, Appendix B - Jackson Square Historic District",
+    ];
+    const hierWebster = [
+      "Planning Code",
+      "ARTICLE 10:PRESERVATION OF HISTORICAL ARCHITECTURAL AND AESTHETIC LANDMARKS",
+      "Article 10, Appendix C - Webster Street Historic District",
+    ];
+    const sections = [
+      sec("article10appendixb.1", hierJackson),
+      sec("article10appendixc.1", hierWebster),
+    ];
+    const ctx = makeFamilyCtx("sf-planning", sections);
+
+    const before: Citation = {
+      display_text: "Section 1",
+      target: { kind: "internal", section_id: "1" },
+    };
+    const after = bindCitation(before, ctx, hierWebster);
+
+    expect(after.target).toEqual({
+      kind: "section-ref",
+      anchor_id: "article10appendixc.1",
+      module_id: "sf-planning",
+    });
   });
 });
 

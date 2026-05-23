@@ -21,6 +21,8 @@ export { validateCorpus } from "./validate-corpus";
 export type {
   CitationReport,
   CorpusValidationResult,
+  DuplicateSectionId,
+  NewlyVagueByReason,
   PerModuleValidation,
   TocCoverageReport,
   UnresolvedCitation,

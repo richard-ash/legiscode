@@ -97,11 +97,13 @@ export async function buildCorpus(opts: BuildCorpusOptions): Promise<BuildResult
     throw err;
   }
 
-  // Step 4 — corpus-level validation: TOC coverage and intra-module
-  // citation resolution gates. Pure-data; no HTML access. Per-module failures
-  // become typed BuildErrors; corpus-level totals populate BuildResult.
+  // Step 4 — corpus-level validation: TOC coverage, intra-module citation
+  // resolution, and section.id uniqueness gates. Pure-data; no HTML access.
+  // Per-module failures become typed BuildErrors; corpus-level totals
+  // populate BuildResult.
   const filtered = filterTargets(parsed, opts.only);
   validation = validateCorpus(filtered);
+  const modulesWithDuplicates = new Set<ModuleId>();
   for (const m of validation.perModule) {
     if (m.coverage.missing.length > 0) {
       errors.push({
@@ -110,6 +112,19 @@ export async function buildCorpus(opts: BuildCorpusOptions): Promise<BuildResult
         missing: m.coverage.missing,
       });
     }
+    if (m.duplicateSectionIds.length > 0) {
+      // Per D7: short-circuit writeModule for any module whose section.ids
+      // are not unique. The writer's `<sectionId>.json` filename layout
+      // collapses duplicates to a last-write winner, silently dropping
+      // every other colliding entry. A bundle on disk would already be
+      // bad data; we'd rather fail loudly than ship it.
+      errors.push({
+        kind: "duplicate_section_ids",
+        moduleId: m.moduleId,
+        duplicates: m.duplicateSectionIds,
+      });
+      modulesWithDuplicates.add(m.moduleId);
+    }
   }
   if (validation.citations.unresolvedIntra.length > 0) {
     errors.push({
@@ -117,11 +132,13 @@ export async function buildCorpus(opts: BuildCorpusOptions): Promise<BuildResult
       unresolved: validation.citations.unresolvedIntra,
     });
   }
-  // NB: even with corpus-level gate failures we continue to write per-module
-  // bundles to disk (atomicity preserved per writeModule's own contract).
-  // The corpus-level corpus-meta.json records `valid: false` with the
-  // typed errors so consumers can inspect — file presence alone is no
-  // longer the validity signal.
+  // NB: TOC coverage and citation gate failures still write per-module
+  // bundles (atomicity preserved per writeModule's own contract). Only
+  // duplicate_section_ids short-circuits the write — see modulesWithDuplicates
+  // skip below — because shipping a silently-collapsed bundle is worse than
+  // shipping no bundle at all. The corpus-level corpus-meta.json records
+  // `valid: false` with the typed errors so consumers can inspect; file
+  // presence alone is no longer the validity signal.
 
   // Step 5 — purge outputDir (D6) then write each requested module.
   // When --only is set we purge ONLY the targeted module subdirectories so
@@ -139,6 +156,17 @@ export async function buildCorpus(opts: BuildCorpusOptions): Promise<BuildResult
   }
 
   for (const ps of filtered) {
+    // Short-circuit per D7: a module with duplicate section.ids would
+    // produce a silently-collapsed bundle (multiple sections writing to
+    // the same `<sectionId>.json` path). Skip the writeModule call
+    // entirely so no per-module directory exists; corpus-meta still
+    // records `valid: false` with the duplicate_section_ids error.
+    if (modulesWithDuplicates.has(ps.module.id)) {
+      skipsByModule[ps.module.id] = ps.skipped.length;
+      totalSkips += ps.skipped.length;
+      continue;
+    }
+
     const maxSkips = opts.maxSkips ?? ps.module.max_skip_count;
 
     // Pre-check the skip gate so we can surface skip_gate_exceeded as its

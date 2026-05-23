@@ -4,7 +4,7 @@
 // nothing but a Promise<void>; failures throw AtomicWriteError carrying an
 // ExitCode.
 
-import { mkdir } from "node:fs/promises";
+import { access, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   Appendix,
@@ -147,7 +147,37 @@ async function writeSection(
   const sectionDir = join(newDir, "sections", ...pathParts);
   await mkdir(sectionDir, { recursive: true });
   await fsyncDir(sectionDir);
-  await writeJson(join(sectionDir, `${section.id}.json`), section);
+  const filePath = join(sectionDir, `${section.id}.json`);
+  // T5 defense-in-depth: refuse to overwrite an existing path. Pre-T1
+  // the writer silently last-write-wins'd colliding sections; the
+  // validateCorpus duplicate_section_ids gate (D2) now catches this at
+  // pipeline time and the orchestrator short-circuits writeModule (D7).
+  // If a future regression bypasses validation (e.g. --skip-validation
+  // debug flag) or two ParsedModules ever feed the same writeModule
+  // invocation, the writer must still refuse to drop bytes. Same
+  // invariant, second gate (per feedback_test_each_path_once).
+  try {
+    await access(filePath);
+    throw new AtomicWriteError(
+      ExitCodes.PARSE,
+      `writeSection collision: ${filePath} already exists. ` +
+        `Refusing to overwrite — two sections in this module emitted ` +
+        `the same id "${section.id}", which would silently drop bytes ` +
+        `from one of them.`,
+    );
+  } catch (err) {
+    if (err instanceof AtomicWriteError) throw err;
+    // ENOENT is the happy path — the file does not exist yet, proceed
+    // to write. Any other errno (EACCES, EIO) is a real fs failure we
+    // surface as a write error instead of swallowing.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw new AtomicWriteError(
+        ExitCodes.WRITE,
+        `writeSection probe failed for ${filePath}: ${(err as Error).message}`,
+      );
+    }
+  }
+  await writeJson(filePath, section);
 }
 
 async function writeAppendix(newDir: string, appendix: Appendix): Promise<void> {

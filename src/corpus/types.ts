@@ -12,11 +12,16 @@
 // empty placeholders until `validateCorpus` lands in @/parser.
 
 import type { ZodIssue } from "zod";
-import type { CitationReport, TocCoverageReport, UnresolvedCitation } from "@/parser";
+import type {
+  CitationReport,
+  DuplicateSectionId,
+  TocCoverageReport,
+  UnresolvedCitation,
+} from "@/parser";
 import type { ExitCode } from "@/storage";
 import type { ModuleId, ParseWarning, SectionId } from "@/types";
 
-export type { CitationReport, TocCoverageReport, UnresolvedCitation };
+export type { CitationReport, DuplicateSectionId, TocCoverageReport, UnresolvedCitation };
 
 export interface BuildCorpusOptions {
   /**
@@ -80,6 +85,11 @@ export type BuildError =
   | { kind: "skip_gate_exceeded"; moduleId: ModuleId; count: number; max: number }
   | { kind: "toc_coverage_failed"; moduleId: ModuleId; missing: readonly SectionId[] }
   | { kind: "citation_resolution_failed"; unresolved: readonly UnresolvedCitation[] }
+  | {
+      kind: "duplicate_section_ids";
+      moduleId: ModuleId;
+      duplicates: readonly DuplicateSectionId[];
+    }
   | { kind: "atomic_write_failed"; moduleId: ModuleId; errno: string }
   | { kind: "atomic_write_lock_held"; moduleId: ModuleId; reason: string }
   | { kind: "atomic_write_recovery_refused"; moduleId: ModuleId; reason: string }
@@ -132,4 +142,9 @@ export const EMPTY_CITATIONS: CitationReport = {
   resolved: 0,
   unresolvedIntra: [],
   unresolvedCross: [],
+  newly_vague_by_reason: {
+    vague_external: 0,
+    vague_collision_unresolvable: 0,
+    vague_no_anchor: 0,
+  },
 };

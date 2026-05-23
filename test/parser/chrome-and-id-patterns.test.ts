@@ -140,27 +140,30 @@ describe("chrome rbox patterns are classified consumed_by_parent", () => {
 });
 
 describe("id extraction patterns parse correctly", () => {
-  it("SEC. N. [REDESIGNATED.] heading produces clean id (no trailing period)", () => {
-    // No JD anchor — heading-text fallback. Without the trailing-period
-    // exclusion in HEADING_SEC_RE, the captured id was "23.7." with a
-    // dangling period.
+  // Updated under section-id-uniqueness: anchor-less tombstone sections
+  // (Section-Deleted rboxes that fall back to heading-text id extraction
+  // because they carry no JD anchor of their own) now suffix `-orig` so
+  // they don't collide on disk with the live section that took over the
+  // same number. The trailing-period exclusion in HEADING_SEC_RE still
+  // works — the rawId stays "23.7" before the editorial suffix is added.
+  it("SEC. N. [REDESIGNATED.] heading produces clean id (no trailing period; -orig suffix to disambiguate)", () => {
     const buffer = html(
       root("Test", "TEST CODE"),
       `<div class="Section-Deleted toc-destination rbox"><h5>SEC. 23.7.  [REDESIGNATED.]</h5></div>`,
     );
     const result = parseSingleModule(buffer);
     expect(result.skipped).toEqual([]);
-    expect(result.sections.map((s) => s.id)).toEqual(["23.7"]);
+    expect(result.sections.map((s) => s.id)).toEqual(["23.7-orig"]);
   });
 
-  it("SEC. N. [REPEALED.] heading produces clean id", () => {
+  it("SEC. N. [REPEALED.] heading produces clean id (-orig suffix to disambiguate)", () => {
     const buffer = html(
       root("Test", "TEST CODE"),
       `<div class="Section-Deleted toc-destination rbox"><h5>SEC. 28.13.  [REPEALED.]</h5></div>`,
     );
     const result = parseSingleModule(buffer);
     expect(result.skipped).toEqual([]);
-    expect(result.sections.map((s) => s.id)).toEqual(["28.13"]);
+    expect(result.sections.map((s) => s.id)).toEqual(["28.13-orig"]);
   });
 
   it("JD_<id>Note<n>* anchor title gets ' Note <n>' stripped", () => {
@@ -177,7 +180,13 @@ describe("id extraction patterns parse correctly", () => {
     expect(result.sections.map((s) => s.id)).toEqual(["4.100.1"]);
   });
 
-  it("JD_<id>-<n> anchor title gets '-<n>' stripped", () => {
+  // D11 inversion. Before the section-id-uniqueness fix this test
+  // asserted that `title="9.111-1"` collapsed to id "9.111" (the
+  // stripJdAnchorSuffixes bug). The new invariant: `-<n>` ordinals are
+  // load-bearing disambiguators the source emits to distinguish
+  // multiple Section-class rboxes sharing a dotted-number prefix, so
+  // they must survive into section.id.
+  it("JD_<id>-<n> anchor title preserves the '-<n>' ordinal disambiguator", () => {
     const buffer = html(
       root("Test", "TEST CODE"),
       `<div class="Section toc-destination rbox"><h3><a name="JD_9.111-1" id="JD_9.111-1" title="9.111-1"></a>SEC. 9.111.  HEADING.</h3></div>
@@ -185,7 +194,56 @@ describe("id extraction patterns parse correctly", () => {
     );
     const result = parseSingleModule(buffer);
     expect(result.skipped).toEqual([]);
-    expect(result.sections.map((s) => s.id)).toEqual(["9.111"]);
+    expect(result.sections.map((s) => s.id)).toEqual(["9.111-1"]);
+  });
+
+  // G1 (D6). Parser-level red test for the section.id uniqueness regression.
+  // The pre-fix `stripJdAnchorSuffixes` collapsed every `JD_X.Y-N` anchor's
+  // title (e.g. "16.9-2") down to "16.9", silently merging the ordinal-
+  // disambiguated sections that AmLegal genuinely emits as distinct entries.
+  // Empirical scope of the bug: 1,531 SF sections lost their disambiguator,
+  // 1,643 distinct ids collapsed onto 5,823 sections (45% of corpus).
+  //
+  // This test passes the parser three Section-class rboxes with anchor
+  // titles "16.9", "16.9-2", and "16.9-29A". After T3a, every disambiguator
+  // survives and the parser emits three distinct section.ids. Before T3a,
+  // the strip silently collapses them onto two ids ("16.9" twice + "16.9").
+  it("preserves JD_X-N disambiguators across multiple Section-class rboxes", () => {
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      // Plain id (no disambiguator).
+      `<div class="Section toc-destination rbox"><h3><a name="JD_16.9" id="JD_16.9" title="16.9"></a>SEC. 16.9.  FIRST.</h3></div>
+       <div class="rbox Normal-Level"><div>body one</div></div>`,
+      // Ordinal disambiguator: "-2" must NOT be stripped (current bug
+      // collapses to "16.9").
+      `<div class="Section toc-destination rbox"><h3><a name="JD_16.9-2" id="JD_16.9-2" title="16.9-2"></a>SEC. 16.9-2.  SECOND.</h3></div>
+       <div class="rbox Normal-Level"><div>body two</div></div>`,
+      // Alphanumeric disambiguator (e.g. "-29A") must survive too — same
+      // strip regex would eat the "-29" leaving a stranded "A".
+      `<div class="Section toc-destination rbox"><h3><a name="JD_16.9-29A" id="JD_16.9-29A" title="16.9-29A"></a>SEC. 16.9-29A.  THIRD.</h3></div>
+       <div class="rbox Normal-Level"><div>body three</div></div>`,
+    );
+    const result = parseSingleModule(buffer);
+
+    expect(result.skipped).toEqual([]);
+    expect(result.sections.map((s) => s.id).sort()).toEqual(["16.9", "16.9-2", "16.9-29a"]);
+  });
+
+  // G1 sibling test (D10). Parser anchor-name fallback when title is empty.
+  // The current heading-text fallback truncates disambiguators when the
+  // anchor title is missing — the new precedence is title → name
+  // (JD_-stripped) → heading text. The "Sec. 16.9" heading carries no
+  // disambiguator, but the `name` attribute does; the parser must read it.
+  it("falls back to anchor name (JD_-stripped) when title is empty", () => {
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      `<div class="Section toc-destination rbox"><h3><a name="JD_16.9-2" id="JD_16.9-2" title=""></a>SEC. 16.9.  HEADING.</h3></div>
+       <div class="rbox Normal-Level"><div>body</div></div>`,
+    );
+    const result = parseSingleModule(buffer);
+
+    expect(result.skipped).toEqual([]);
+    expect(result.sections.map((s) => s.id)).toEqual(["16.9-2"]);
   });
 
   it("parser self-validates against SECTION_ID_RE; non-conforming id is skipped with the real reason", () => {
@@ -283,7 +341,17 @@ describe("Positive controls — parser produces expected structure", () => {
     // unnavigable).
     const sec = result.sections.find((s) => s.id === "1.1");
     const vague = sec?.citations.find((c) => c.target.kind === "vague");
-    expect(vague?.target).toEqual({ kind: "vague", raw: expect.stringContaining("99.99") });
+    // D9 — vague reclass now preserves the pre-bind target so the
+    // validator can bucket by reason. Assert structurally (kind + raw)
+    // without pinning the exact source_target shape, which is covered
+    // by validate-corpus.test.ts.
+    expect(vague?.target).toMatchObject({
+      kind: "vague",
+      raw: expect.stringContaining("99.99"),
+    });
+    if (vague?.target.kind === "vague") {
+      expect(vague.target.source_target).toBeDefined();
+    }
   });
 
   it("source-anchor TOC resolution: cite to deletion-stub anchor resolves", () => {
@@ -316,7 +384,13 @@ describe("Positive controls — parser produces expected structure", () => {
     expect(validation.citations.unresolvedCross).toEqual([]);
     const sec = result.sections.find((s) => s.id === "1.1");
     const vague = sec?.citations.find((c) => c.target.kind === "vague");
-    expect(vague?.target).toEqual({ kind: "vague", raw: expect.stringContaining("5270") });
+    expect(vague?.target).toMatchObject({
+      kind: "vague",
+      raw: expect.stringContaining("5270"),
+    });
+    if (vague?.target.kind === "vague") {
+      expect(vague.target.source_target).toBeDefined();
+    }
   });
 });
 
@@ -363,6 +437,181 @@ describe("editorial-status detection (case-insensitive)", () => {
     const result = parseSingleModule(buffer);
     expect(result.sections).toHaveLength(1);
     expect(result.sections[0]?.editorial_status).toBe("redesignated");
+  });
+});
+
+describe("Pattern A: appendix container qualifies inner-section ids", () => {
+  // The dispatcher tracks the active Appendix container; when classifyRbox
+  // sees an `Article N, Appendix X` titled rbox, subsequent Section rboxes
+  // (whether anchored or heading-text-only) get ids of the form
+  // `articleNappendixx.<innerNum>`. Without this, the 17 SF historic
+  // districts (Article 10 Appendices B-Q) would all reuse Section 1, 2, 3...
+  // and silently collapse onto last-write-wins ids.
+
+  function appendix(id: string, anchor: string, title: string): string {
+    return `<div><span depth="3"></span><div id="rid-${id}" class="Section toc-destination rbox"><h3><a name="JD_${anchor}" id="JD_${anchor}" title="${title}"></a>APPENDIX TO ARTICLE</h3></div></div>`;
+  }
+
+  it("anchor-less inner section inside an appendix gets a qualified id", () => {
+    // Historic district pattern: appendix rbox wraps inner Section rboxes
+    // whose only id signal is heading text "SEC. 1.". Without Pattern A,
+    // every district would produce id="1" and collide.
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      appendix("appB", "Article10AppendixB", "Article 10, Appendix B"),
+      section("inB", "1", "FINDINGS.", "Body of appendix B section 1"),
+      appendix("appC", "Article10AppendixC", "Article 10, Appendix C"),
+      section("inC", "1", "FINDINGS.", "Body of appendix C section 1"),
+    );
+    const result = parseSingleModule(buffer);
+    const ids = result.sections.map((s) => s.id).filter((id) => id.includes("appendix"));
+    expect(ids).toContain("article10appendixb.1");
+    expect(ids).toContain("article10appendixc.1");
+    expect(new Set(result.sections.map((s) => s.id)).size).toBe(result.sections.length);
+  });
+
+  it("appendix label is appended to section.hierarchy", () => {
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      appendix("appB", "Article10AppendixB", "Article 10, Appendix B"),
+      section("inB", "1", "FINDINGS.", "body"),
+    );
+    const result = parseSingleModule(buffer);
+    const inner = result.sections.find((s) => s.id === "article10appendixb.1");
+    const last = inner?.hierarchy[inner.hierarchy.length - 1] ?? "";
+    expect(last).toMatch(/Article 10, Appendix B/);
+  });
+
+  it("Article hierarchy_marker clears the appendix container", () => {
+    // After Appendix B's body ends and a new ARTICLE 11 begins, sections
+    // under ARTICLE 11 must NOT carry the article10appendixb prefix.
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      appendix("appB", "Article10AppendixB", "Article 10, Appendix B"),
+      section("inB", "1", "FINDINGS.", "body"),
+      `<div><div class="rbox Article"><div><a name="JD_Article11" title="Article 11"></a>ARTICLE 11</div></div></div>`,
+      section("postArt", "20.1", "POST ARTICLE.", "body"),
+    );
+    const result = parseSingleModule(buffer);
+    const post = result.sections.find((s) => s.id === "20.1");
+    expect(post).toBeDefined();
+    expect(post?.hierarchy.some((h) => h.includes("Appendix B"))).toBe(false);
+  });
+});
+
+describe("Pattern B: shared JD anchor falls back to heading-text section number", () => {
+  // sf-building has 6 sections that all share anchor `JD_G5.106` but whose
+  // headings give distinct section numbers (5.101, 5.103, 5.104, 5.105,
+  // 5.106, 5.201). The pre-pass counts anchor keys; any key on >=2 sections
+  // triggers heading-text preference for those sections, producing distinct
+  // ids without re-introducing the 1,531-section disambiguator collapse
+  // the stripJdAnchorSuffixes comment warns about.
+
+  it("two sections sharing one anchor get distinct heading-derived ids", () => {
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      `<div id="rid-a" class="Subsection toc-destination rbox"><h5><a name="JD_G5.106" id="JD_G5.106" title="G5.106"></a>SECTION 5.101 GENERAL</h5></div>
+       <div id="rid-a-body" class="rbox Normal-Level"><div>body A</div></div>`,
+      `<div id="rid-b" class="Subsection toc-destination rbox"><h5><a name="JD_G5.106" id="JD_G5.106" title="G5.106"></a>SECTION 5.103 OTHER</h5></div>
+       <div id="rid-b-body" class="rbox Normal-Level"><div>body B</div></div>`,
+    );
+    const result = parseSingleModule(buffer);
+    const ids = result.sections.map((s) => s.id);
+    expect(ids).toContain("5.101");
+    expect(ids).toContain("5.103");
+    expect(ids).not.toContain("g5.106");
+  });
+
+  it("unique anchor with disagreeing heading text keeps the anchor-derived id", () => {
+    // Pattern B fires only on shared anchors. A unique anchor whose
+    // heading happens to read differently (e.g. `JD_117.1-fn1` with
+    // heading "SEC. 117.1.1") keeps the anchor-derived id to preserve
+    // the 1,531-section disambiguator work that stripJdAnchorSuffixes
+    // documents.
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      `<div id="rid-x" class="Section toc-destination rbox"><h5><a name="JD_117.1-fn1" id="JD_117.1-fn1" title="117.1-fn1"></a>SEC. 117.1.1 NEW ORD</h5></div>
+       <div id="rid-x-body" class="rbox Normal-Level"><div>body</div></div>`,
+    );
+    const result = parseSingleModule(buffer);
+    expect(result.sections.map((s) => s.id)).toContain("117.1-fn1");
+  });
+});
+
+describe("Pattern C: parent-slug qualification on residual collisions", () => {
+  // Two sections with the same id, both validly anchored, neither inside
+  // an appendix, but each lives under a different immediate hierarchy
+  // parent (e.g. ARTICLE 3 vs INTERPRETATIONS). Pattern A/B don't help;
+  // the post-pass qualifies each id with its parent's slug.
+
+  function articleMarker(anchor: string, label: string): string {
+    return `<div><div class="rbox Article"><div><a name="JD_${anchor}" title="${anchor}"></a>${label}</div></div></div>`;
+  }
+
+  it("two sections at id 315 under different parents get parent-slug qualified", () => {
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      articleMarker("Art3", "ARTICLE 3: ZONING"),
+      section("art3-315", "315", "STREAMLINED.", "body"),
+      articleMarker("Interp", "PLANNING CODE - INTERPRETATIONS"),
+      section("interp-315", "315", "EXEMPTION.", "body"),
+    );
+    const result = parseSingleModule(buffer);
+    const idsEndingIn315 = result.sections
+      .map((s) => s.id)
+      .filter((id) => id === "315" || id.endsWith(".315"));
+    expect(idsEndingIn315).not.toContain("315");
+    expect(idsEndingIn315.length).toBeGreaterThanOrEqual(2);
+    const slugs = idsEndingIn315.map((id) => id.replace(/\.315$/, ""));
+    expect(new Set(slugs).size).toBe(idsEndingIn315.length);
+  });
+
+  it("Pattern C purges the stale raw anchor from tocAnchors after qualification", () => {
+    // Regression for Codex finding: without this, the binder's anchor
+    // index would still contain `315` (from JD_315 in source), so a
+    // bare "Section 315" cite would bind to anchor_id "315" — but no
+    // section has that id anymore. Result: green build, broken runtime
+    // navigation.
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      articleMarker("Art3", "ARTICLE 3: ZONING"),
+      section("art3-315", "315", "STREAMLINED.", "body"),
+      articleMarker("Interp", "PLANNING CODE - INTERPRETATIONS"),
+      section("interp-315", "315", "EXEMPTION.", "body"),
+    );
+    const result = parseSingleModule(buffer);
+    expect(result.tocAnchors).not.toContain("315");
+  });
+
+  it("Pattern A: heading-text-derived title strips the SEC. prefix correctly for qualified ids", () => {
+    // Regression for Codex finding: extractSectionTitle was passed the
+    // qualified id `article10appendixb.1`, so its `^SEC\. <id>\.` regex
+    // missed against "SEC. 1. FINDINGS." and the title fell through to
+    // "SEC. 1. FINDINGS" instead of "FINDINGS".
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      `<div><span depth="3"></span><div id="rid-appB" class="Section toc-destination rbox"><h3><a name="JD_Article10AppendixB" id="JD_Article10AppendixB" title="Article 10, Appendix B"></a>APPENDIX TO ARTICLE</h3></div></div>`,
+      section("inB", "1", "FINDINGS.", "body"),
+    );
+    const result = parseSingleModule(buffer);
+    const inner = result.sections.find((s) => s.id === "article10appendixb.1");
+    expect(inner?.title).toBe("FINDINGS");
+  });
+
+  it("two sections at same id under same parent remain a true duplicate (no Pattern C masking)", () => {
+    // When the parents agree, qualification doesn't help and shouldn't
+    // mask the genuine duplicate. validateCorpus's duplicate gate must
+    // still see it. Pattern C explicitly bails out when parent slugs
+    // don't differ.
+    const buffer = html(
+      root("Test", "TEST CODE"),
+      articleMarker("Art3", "ARTICLE 3: ZONING"),
+      section("dup1", "315", "FIRST.", "body"),
+      section("dup2", "315", "SECOND.", "body"),
+    );
+    const result = parseSingleModule(buffer);
+    const ids315 = result.sections.filter((s) => s.id === "315");
+    expect(ids315.length).toBe(2);
   });
 });
 

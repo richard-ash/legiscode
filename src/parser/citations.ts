@@ -98,27 +98,72 @@ function splitPrefix(matched: string): PrefixSplit | null {
 // letter inside the section_id so the binder's display-rules evaluator
 // can produce the correctly-shaped anchor candidate (e.g. "b102a"). The
 // captured letter is lowercased to satisfy SectionIdSchema.
+//
+// D8 — `-N` ordinal disambiguators. The SF source uses `JD_16.9-2` /
+// `JD_16.9-29A` as canonical section anchors; the parser now preserves
+// them into section.id (T3a). Citation extraction has to bind to those
+// ids:
+//   - Single-section: "Section 16.9-2" must produce section_id "16.9-2",
+//     not the legacy "16.9" + stranded "-2".
+//   - Single-section with subsection: "Section 16.9-2(a)" must produce
+//     section_id "16.9-2" + subsection "(a)".
+//   - Range with explicit "to" / em-dash / en-dash: "Sections 16.9-2 to
+//     16.9-29A" parses as a range whose operands carry their `-N` suffix.
+//   - Range with implicit hyphen ("Sections 10.04.020-10.04.030"): still
+//     supported, but only when both operands have the same dot depth.
+//     This rules out misparsing "16.9-2" as range 16.9..2 (depth 1 vs
+//     depth 0) while keeping legitimate `10.04.020-10.04.030` (both
+//     depth 2) intact.
+const SECTION_REF_OPERAND_RE = /\d+(?:\.\d+)*[a-z]?(?:-\d+[a-z]?)?/i;
+const EXPLICIT_RANGE_RE = new RegExp(
+  `^(${SECTION_REF_OPERAND_RE.source})\\s*(?:to|[\\u2013\\u2014])\\s*(${SECTION_REF_OPERAND_RE.source})$`,
+  "i",
+);
+// Implicit-hyphen range allows ONLY operands that lack the `-N`
+// disambiguator suffix — the suffix is the very thing we are trying to
+// avoid misreading as a range delimiter.
+const IMPLICIT_HYPHEN_RANGE_RE = /^(\d+(?:\.\d+)*[a-z]?)\s*-\s*(\d+(?:\.\d+)*[a-z]?)$/i;
+const SINGLE_SECTION_RE = /^(\d+(?:\.\d+)*[a-z]?(?:-\d+[a-z]?)?)((?:\([a-z0-9]+\))*)$/i;
+
+function dotDepth(operand: string): number {
+  let count = 0;
+  for (let i = 0; i < operand.length; i++) {
+    if (operand.charCodeAt(i) === 46) count += 1; // '.'
+  }
+  return count;
+}
+
 function classifySection(
   numberText: string,
   activeModuleId: ModuleId | null,
 ): CitationTarget | null {
-  const rangeMatch = numberText.match(/^(\d+(?:\.\d+)*[a-z]?)\s*-\s*(\d+(?:\.\d+)*[a-z]?)$/i);
-  if (rangeMatch?.[1] && rangeMatch[2]) {
-    const from = rangeMatch[1].toLowerCase();
-    const to = rangeMatch[2].toLowerCase();
-    if (!looksLikeSectionId(from) || !looksLikeSectionId(to)) return null;
-    if (activeModuleId) {
-      return {
-        kind: "cross_module",
-        module_id: activeModuleId,
-        section_id: from,
-        range: { from, to },
-      };
-    }
-    return { kind: "internal", section_id: from, range: { from, to } };
+  // 1) Explicit range — "to", en-dash (–), or em-dash (—). Operands may
+  //    carry a `-N` ordinal because the delimiter is unambiguous.
+  const explicitRange = numberText.match(EXPLICIT_RANGE_RE);
+  if (explicitRange?.[1] && explicitRange[2]) {
+    return buildRange(explicitRange[1], explicitRange[2], activeModuleId);
   }
 
-  const singleMatch = numberText.match(/^(\d+(?:\.\d+)*[a-z]?)((?:\([a-z0-9]+\))*)$/i);
+  // 2) Implicit-hyphen range — only when both operands share the same
+  //    dot depth (e.g. "10.04.020-10.04.030" both depth 2). This is the
+  //    legacy AmLegal range form. Mismatched depths fall through to
+  //    single-section interpretation, which is how "16.9-2" lands as
+  //    section_id "16.9-2" instead of a misparsed range from 16.9 to 2.
+  const implicitHyphenRange = numberText.match(IMPLICIT_HYPHEN_RANGE_RE);
+  if (implicitHyphenRange?.[1] && implicitHyphenRange[2]) {
+    const fromOperand = implicitHyphenRange[1];
+    const toOperand = implicitHyphenRange[2];
+    if (dotDepth(fromOperand) === dotDepth(toOperand)) {
+      const built = buildRange(fromOperand, toOperand, activeModuleId);
+      if (built) return built;
+    }
+    // Same-dot-depth check failed (or operands didn't validate). Fall
+    // through to single-section so "16.9-2" parses cleanly.
+  }
+
+  // 3) Single section, possibly with `-N` disambiguator and/or
+  //    subsection paren groups.
+  const singleMatch = numberText.match(SINGLE_SECTION_RE);
   if (singleMatch?.[1]) {
     const sectionId = singleMatch[1].toLowerCase();
     const subsection = singleMatch[2];
@@ -138,6 +183,25 @@ function classifySection(
     };
   }
   return null;
+}
+
+function buildRange(
+  fromRaw: string,
+  toRaw: string,
+  activeModuleId: ModuleId | null,
+): CitationTarget | null {
+  const from = fromRaw.toLowerCase();
+  const to = toRaw.toLowerCase();
+  if (!looksLikeSectionId(from) || !looksLikeSectionId(to)) return null;
+  if (activeModuleId) {
+    return {
+      kind: "cross_module",
+      module_id: activeModuleId,
+      section_id: from,
+      range: { from, to },
+    };
+  }
+  return { kind: "internal", section_id: from, range: { from, to } };
 }
 
 function classifyStructural(level: StructuralLevel, numberText: string): CitationTarget | null {
