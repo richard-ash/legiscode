@@ -2,6 +2,10 @@
 node = "24.15.0"
 pnpm = "10.33.2"
 
+[tasks."git:install-hooks"]
+description = "Point this clone's core.hooksPath at .githooks/ so the commit-msg lint runs on every commit. Idempotent; run once per clone."
+run = "git config core.hooksPath .githooks && echo 'core.hooksPath -> .githooks (commit-msg lint active)'"
+
 [tasks."corpus:build"]
 description = "Build a jurisdiction module from manifest input. Usage: mise run corpus:build -- --module sf-transportation --source manifests/sf-transportation/manifest.json --output build/modules/sf-transportation/"
 run = "pnpm exec tsx scripts/sync-corpus.ts"
