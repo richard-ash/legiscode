@@ -224,5 +224,8 @@ function toDistributedManifest(
   if (module.min_section_count !== undefined) {
     out.min_section_count = module.min_section_count;
   }
+  if (module.global_definer_sections !== undefined) {
+    out.global_definer_sections = module.global_definer_sections;
+  }
   return out;
 }

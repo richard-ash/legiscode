@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ModuleIdSchema } from "./identifiers";
+import { ModuleIdSchema, SectionIdSchema } from "./identifiers";
 
 const ModuleVersionSchema = z
   .string()
@@ -125,6 +125,16 @@ export type DisplayRules = z.infer<typeof DisplayRulesSchema>;
 // 0 means the build refuses to promote a corpus that silently dropped any
 // candidate rbox. Manifests can set higher values for transitional periods,
 // but production manifests should leave it at default.
+// global_definer_sections lists section ids inside this module whose
+// extracted definitions should scope to the entire module
+// ({kind:"module"} ScopeExpr, extracted_by "manifest:declared-global"),
+// instead of defaulting to the definer section's hierarchy chain. This
+// is the only source of module-wide scope: prose-parsed scope-hint
+// inference ("as used in this Chapter") is intentionally NOT supported,
+// because a false declared-global is worse than no popover (see §9 L5
+// of the definitions-foundation plan). The L3 extractor wires the
+// behavior — L1 declares the slot so operator-maintained manifests can
+// add entries without a schema-version bump round-trip.
 export const ModuleConfigSchema = z
   .object({
     id: ModuleIdSchema,
@@ -137,6 +147,7 @@ export const ModuleConfigSchema = z
     citation_patterns: z.array(z.string().min(1)),
     defined_term_patterns: z.array(z.string().min(1)),
     display_rules: DisplayRulesSchema.optional(),
+    global_definer_sections: z.array(SectionIdSchema).optional(),
   })
   .strict();
 
@@ -196,6 +207,7 @@ export const DistributedModuleManifestSchema = z
     citation_patterns: z.array(z.string().min(1)),
     defined_term_patterns: z.array(z.string().min(1)),
     display_rules: DisplayRulesSchema.optional(),
+    global_definer_sections: z.array(SectionIdSchema).optional(),
   })
   .strict();
 

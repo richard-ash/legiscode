@@ -1,14 +1,20 @@
 import { z } from "zod";
 import { ModuleIdSchema, SectionIdSchema } from "./identifiers";
 
-// The app owns the schema. Schema-version compatibility is enforced at the
-// backend (module distribution URLs namespace by schema_version), so the app
-// at KNOWN_SCHEMA_VERSION = N only ever requests /modules/schema-N/... URLs.
-// The field is on CorpusMeta for diagnostics, not as a runtime gate. When a
-// future schema version ships, the backend serves both URL namespaces and
-// each client picks the one it can read — no cross-version reads at the
-// wire layer.
-export const KNOWN_SCHEMA_VERSION = 1;
+// The app owns the schema. Schema-version compatibility for shipped module
+// distributions is enforced at the backend (module distribution URLs
+// namespace by schema_version), so the app at KNOWN_SCHEMA_VERSION = N
+// only ever requests /modules/schema-N/... URLs from the backend.
+//
+// The --corpus-path power-user path bypasses that backend gate (custom
+// local bundles can be at any schema_version), so L2b adds a load-time
+// CorpusVersionError gate against MIN_SUPPORTED_SCHEMA_VERSION when
+// reading from --corpus-path. L1 stages the constant bump that L2b
+// will key off of: version 2 is the L1 schema with optional def_id /
+// raw / candidates_dropped on defined_term segments and the canonical
+// Definition record. L2b flips def_id required and removes the legacy
+// `term` field, completing the schema-version-2 cutover.
+export const KNOWN_SCHEMA_VERSION = 2;
 
 // CorpusEntry kinds enumerated in corpus-meta.json's `corpus_entry_kinds`
 // field, so consumers can detect kind-extension at meta-read time without

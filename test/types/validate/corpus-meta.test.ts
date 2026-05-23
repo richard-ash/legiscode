@@ -13,12 +13,12 @@ const validMeta = {
 };
 
 describe("CorpusMetaSchema", () => {
-  it("KNOWN_SCHEMA_VERSION is exported as 1", () => {
-    expect(KNOWN_SCHEMA_VERSION).toBe(1);
+  it("KNOWN_SCHEMA_VERSION is exported as 2", () => {
+    expect(KNOWN_SCHEMA_VERSION).toBe(2);
   });
 
   it("accepts a valid corpus-meta", () => {
-    expect(CorpusMetaSchema.parse(validMeta).schema_version).toBe(1);
+    expect(CorpusMetaSchema.parse(validMeta).schema_version).toBe(KNOWN_SCHEMA_VERSION);
   });
 
   it("requires source_sha256 (rejects when omitted)", () => {

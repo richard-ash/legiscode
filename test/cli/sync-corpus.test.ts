@@ -279,7 +279,7 @@ describe("sync-corpus E2E — happy path against committed jurisdiction fixture"
     expect(charterManifest.id).toBe("sf-charter");
   });
 
-  it("corpus-meta.json has schema_version=1, sha256 checksum + source_sha256, ISO 8601 snapshot_at, no skips", async () => {
+  it("corpus-meta.json has schema_version=KNOWN_SCHEMA_VERSION, sha256 checksum + source_sha256, ISO 8601 snapshot_at, no skips", async () => {
     const transportMeta = CorpusMetaSchema.parse(
       JSON.parse(
         await readFile(

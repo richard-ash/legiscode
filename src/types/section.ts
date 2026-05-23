@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CitationSchema } from "./citation";
+import { DefinitionIdSchema, type DefinitionId } from "./definitions";
 import { SectionIdSchema } from "./identifiers";
 
 // editorial_status captures AmLegal's per-section publication state.
@@ -113,10 +114,29 @@ const CitationSegmentSchema = z
   })
   .strict();
 
+// DefinedTermSegment carries both the legacy term-keyed shape and the new
+// id-keyed shape during the L1→L2b transition. L1 (this file): adds
+// optional `raw` (surface form as written), optional `def_id` (resolved
+// target), and optional `candidates_dropped` (per-occurrence runner-ups).
+// L2a: parser dual-writes — every emitted segment populates `raw` and
+// `def_id` alongside the legacy `term`. L2b: legacy `term` is removed,
+// `raw` and `def_id` flip to required, and bodyToText starts emitting
+// `raw` instead of `term`. Keeping the new fields optional in L1 means
+// existing fixtures and parser output validate unchanged.
+//
+// candidates_dropped lives on the segment, not on Definition, because
+// runner-up resolution candidates vary by reader location: the same
+// term may resolve to definer A in subtree X (with B dropped) and to B
+// in subtree Y (with A dropped). A global field on Definition would
+// conflate unrelated resolution contexts. See §9 L3 of the
+// definitions-foundation plan.
 const DefinedTermSegmentSchema = z
   .object({
     type: z.literal("defined_term"),
     term: z.string(),
+    raw: z.string().optional(),
+    def_id: DefinitionIdSchema.optional(),
+    candidates_dropped: z.array(DefinitionIdSchema).optional(),
   })
   .strict();
 
@@ -148,7 +168,13 @@ type FormatSegment = {
 type BodySegment =
   | { type: "text"; text: string }
   | { type: "citation"; raw: string; citation_index: number }
-  | { type: "defined_term"; term: string }
+  | {
+      type: "defined_term";
+      term: string;
+      raw?: string;
+      def_id?: DefinitionId;
+      candidates_dropped?: DefinitionId[];
+    }
   | { type: "subsection_label"; label: string }
   | { type: "paragraph_break" }
   | FormatSegment;

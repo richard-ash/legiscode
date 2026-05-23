@@ -181,6 +181,75 @@ describe("BodySegment via SectionFileSchema.body", () => {
     ).toBe(true);
   });
 
+  // L1 additive fields on defined_term: raw, def_id, candidates_dropped
+  // are optional during the L1+L2a dual-write window; L2b flips def_id
+  // required, removes the legacy `term` field, and switches bodyToText
+  // to emit `raw`. During L1, bodyToText still emits `term`, so the
+  // roundtrip invariant constrains text === term in fixtures.
+  it("accepts a defined_term segment with raw and def_id (L1 additive)", () => {
+    expect(
+      SectionFileSchema.safeParse({
+        ...validSection,
+        text: "Tenant",
+        body: [
+          {
+            type: "defined_term",
+            term: "Tenant",
+            raw: "Tenant",
+            def_id: "sf-housing/h401#a1b2c3d4",
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts a defined_term segment with candidates_dropped (per-occurrence runner-ups)", () => {
+    expect(
+      SectionFileSchema.safeParse({
+        ...validSection,
+        text: "City",
+        body: [
+          {
+            type: "defined_term",
+            term: "City",
+            def_id: "sf-administrative/a-100#deadbeef",
+            candidates_dropped: [
+              "sf-administrative/a-200#deadbeee",
+              "sf-administrative/a-300#deadbeed",
+            ],
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects a defined_term segment with a malformed def_id", () => {
+    expect(
+      SectionFileSchema.safeParse({
+        ...validSection,
+        text: "Person",
+        body: [{ type: "defined_term", term: "Person", def_id: "not-a-valid-id" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a defined_term segment with a malformed entry in candidates_dropped", () => {
+    expect(
+      SectionFileSchema.safeParse({
+        ...validSection,
+        text: "City",
+        body: [
+          {
+            type: "defined_term",
+            term: "City",
+            def_id: "sf-administrative/a-100#deadbeef",
+            candidates_dropped: ["bad"],
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
   it("accepts a subsection_label segment", () => {
     expect(
       SectionFileSchema.safeParse({
