@@ -56,6 +56,8 @@ function makeParsedModule(overrides: Partial<ParsedModule> = {}): ParsedModule {
     ordinanceHistories: [],
     resolutionHistories: [],
     definitions,
+    moduleDefinitions: [],
+    unresolvedReferences: [],
     skipped: [],
     warnings: [],
     corpusEntryKinds: ["section"],
