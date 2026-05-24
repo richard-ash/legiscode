@@ -104,8 +104,16 @@ export interface CorpusReadRequest {
 export interface CorpusSectionView {
   moduleId: string;
   section: SectionFile;
-  /** Display path from corpus root to this section's parent. */
-  parents: ReadonlyArray<{ code: string; name: string }>;
+  /**
+   * Display path from corpus root to this section's parent. Each entry
+   * carries the ancestor's display label (`code` / `name`) plus
+   * `sectionId`: the first contained section in display_label order
+   * (numeric-aware) so the breadcrumb renderer can dispatch
+   * `navigate({kind:"section", ref}, "primary")` without a second IPC
+   * round-trip. Module-root parents get `sectionId: null` and render as
+   * plain text — there's no module overview view to navigate to.
+   */
+  parents: ReadonlyArray<{ code: string; name: string; sectionId: SectionId | null }>;
   /** Adjacent section refs for prev/next navigation, scoped to the module. */
   prev: { moduleId: string; sectionId: string } | null;
   next: { moduleId: string; sectionId: string } | null;

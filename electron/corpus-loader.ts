@@ -60,6 +60,17 @@ interface LoadedSection {
   hierarchyTail: readonly string[];
 }
 
+/**
+ * One ancestor (chapter / article / sub-article) of a reading section.
+ * `firstSectionId` is the lexicographic-numeric minimum section.id under
+ * this ancestor, used by the breadcrumb renderer to dispatch
+ * `navigate({kind:"section", ref})` on a parent-button click without a
+ * second IPC round-trip.
+ */
+interface AncestorEntry {
+  firstSectionId: SectionId;
+}
+
 interface LoadedModule {
   id: string;
   /** Display name from manifest.json — e.g. "San Francisco Port Code". */
@@ -82,6 +93,14 @@ interface LoadedModule {
   definitions: readonly Definition[];
   /** Id-keyed lookup index for O(1) per-section projection. */
   definitionsById: DefinitionsById;
+  /**
+   * Per-section ordered ancestor list, outermost (chapter-level) first
+   * and innermost (deepest sub-article) last. Length matches the
+   * section's hierarchyTail. Each entry carries the first contained
+   * section id so the breadcrumb renderer can navigate without
+   * re-querying.
+   */
+  ancestorIndex: ReadonlyMap<SectionId, ReadonlyArray<AncestorEntry>>;
 }
 
 interface LoadedCorpus {
@@ -232,15 +251,32 @@ export function readSection(req: CorpusReadRequest): CorpusReadResult {
   const next = idx >= 0 && idx < sectionList.length - 1 ? sectionList[idx + 1] : null;
   const definitions = module ? joinDefinitionsForSection(module, loaded.section.body) : {};
 
+  // Breadcrumb sectionId: module-root parent is non-interactive (no
+  // module overview exists to navigate to), so sectionId is null. Each
+  // chapter/article ancestor points at the first contained section by
+  // id (numeric-aware) via the pre-built ancestorIndex so a parent-
+  // button click in the renderer dispatches navigate() without a second
+  // IPC round-trip.
+  const ancestorEntries = module?.ancestorIndex.get(loaded.section.id) ?? [];
+  const parents: Array<{ code: string; name: string; sectionId: SectionId | null }> = [
+    { code: module?.codeTitle ?? "", name: module?.name ?? "", sectionId: null },
+  ];
+  for (let i = 0; i < loaded.hierarchyTail.length; i++) {
+    const tailLabel = loaded.hierarchyTail[i] ?? "";
+    const ancestor = ancestorEntries[i];
+    parents.push({
+      code: tailLabel,
+      name: "",
+      sectionId: ancestor ? ancestor.firstSectionId : null,
+    });
+  }
+
   return {
     ok: true,
     value: {
       moduleId: req.moduleId,
       section: loaded.section,
-      parents: [
-        { code: module?.codeTitle ?? "", name: module?.name ?? "" },
-        ...loaded.hierarchyTail.map((h) => ({ code: h, name: "" })),
-      ],
+      parents,
       prev: prev ? { moduleId: req.moduleId, sectionId: prev.section.id } : null,
       next: next ? { moduleId: req.moduleId, sectionId: next.section.id } : null,
       definitions,
@@ -373,6 +409,7 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
 
   const definitions = await loadDefinitions(moduleDir, manifest.id);
   const definitionsById = indexDefinitionsById(definitions);
+  const ancestorIndex = buildAncestorIndex(sections);
 
   return {
     id: manifest.id,
@@ -383,7 +420,49 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
     sections,
     definitions,
     definitionsById,
+    ancestorIndex,
   };
+}
+
+/**
+ * Walk the module's sections and build a per-section ordered ancestor
+ * list, where each ancestor entry carries the first contained section
+ * id (sorted by section.id numeric-aware — sections are already in
+ * that order so we just record the first one encountered per
+ * hierarchyTail prefix).
+ *
+ * Two sections share an ancestor at depth `d` iff their
+ * `hierarchyTail.slice(0, d+1)` arrays are equal. Joining with U+0000
+ * (NULL byte — a non-printing control char the parser's hierarchy-
+ * label extraction never produces) makes the prefix into a single-
+ * string map key without risking false collisions. A printable
+ * delimiter like a space would collide between e.g.
+ * ["Article", "1 Subarticle"] and ["Article 1", "Subarticle"],
+ * silently routing a parent-button click to the wrong section.
+ */
+function buildAncestorIndex(
+  sections: readonly LoadedSection[],
+): ReadonlyMap<SectionId, ReadonlyArray<AncestorEntry>> {
+  // prefix-key → first section id encountered (sections are pre-sorted
+  // by section.id ascending, so the first wins).
+  const firstByPrefix = new Map<string, SectionId>();
+  for (const s of sections) {
+    for (let d = 0; d < s.hierarchyTail.length; d++) {
+      const key = s.hierarchyTail.slice(0, d + 1).join("\u0000");
+      if (!firstByPrefix.has(key)) firstByPrefix.set(key, s.section.id);
+    }
+  }
+  const out = new Map<SectionId, ReadonlyArray<AncestorEntry>>();
+  for (const s of sections) {
+    const entries: AncestorEntry[] = [];
+    for (let d = 0; d < s.hierarchyTail.length; d++) {
+      const key = s.hierarchyTail.slice(0, d + 1).join("\u0000");
+      const firstSectionId = firstByPrefix.get(key);
+      if (firstSectionId) entries.push({ firstSectionId });
+    }
+    out.set(s.section.id, entries);
+  }
+  return out;
 }
 
 /**

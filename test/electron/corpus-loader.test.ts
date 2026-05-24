@@ -732,6 +732,87 @@ describe("loadCorpus + listCorpus + readSection", () => {
     expect(r.value.next).toEqual({ moduleId: "sf-port", sectionId: "1.3" });
   });
 
+  it("readSection populates parents[].sectionId from the ancestor index", async () => {
+    // Breadcrumb clickability contract: module-root parent is non-
+    // interactive (sectionId === null); each chapter/article parent
+    // points at the first contained section by id (numeric-aware) so
+    // a parent-button click dispatches navigate() to a real ref.
+    await buildFixtureCorpus(dir, [
+      {
+        id: "sf-port",
+        name: "San Francisco Port Code",
+        codeTitle: "Port Code",
+        moduleVersion: "2026.04.01",
+        jurisdiction: "City and County of San Francisco",
+        sections: [
+          { id: "1.1", title: "Definitions", hierarchy: ["Port Code", "Article 1"] },
+          { id: "1.2", title: "Commission", hierarchy: ["Port Code", "Article 1"] },
+          { id: "2.1", title: "Other", hierarchy: ["Port Code", "Article 2"] },
+        ],
+      },
+    ]);
+    await loadCorpus(dir);
+    const r = readSection({ moduleId: "sf-port", sectionId: "1.2" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.parents).toEqual([
+      { code: "Port Code", name: "San Francisco Port Code", sectionId: null },
+      { code: "Article 1", name: "", sectionId: "1.1" },
+    ]);
+    // Article 2 has only 2.1 — sole member is the first contained.
+    const r2 = readSection({ moduleId: "sf-port", sectionId: "2.1" });
+    expect(r2.ok).toBe(true);
+    if (!r2.ok) return;
+    expect(r2.value.parents[1]).toEqual({
+      code: "Article 2",
+      name: "",
+      sectionId: "2.1",
+    });
+  });
+
+  it("ancestor-index prefix keys don't collide when labels contain the delimiter shape", async () => {
+    // Fortification: the prefix-key delimiter must be one that cannot
+    // appear inside a hierarchy label. A printable delimiter (e.g. a
+    // single space) would collide between these two hierarchies — both
+    // serialize to "Article 1 Subarticle" at depth 2:
+    //   ["Article",   "1 Subarticle"]   → "Article" + sep + "1 Subarticle"
+    //   ["Article 1", "Subarticle"]      → "Article 1" + sep + "Subarticle"
+    // A collision would silently route 2.1's d=1 breadcrumb to the
+    // first-contained section under "Article" (1.1), rather than
+    // "Article 1"'s own first-contained section (2.1).
+    await buildFixtureCorpus(dir, [
+      {
+        id: "sf-port",
+        name: "San Francisco Port Code",
+        codeTitle: "Port Code",
+        moduleVersion: "2026.04.01",
+        jurisdiction: "City and County of San Francisco",
+        sections: [
+          {
+            id: "1.1",
+            title: "A",
+            hierarchy: ["Port Code", "Article", "1 Subarticle"],
+          },
+          {
+            id: "2.1",
+            title: "B",
+            hierarchy: ["Port Code", "Article 1", "Subarticle"],
+          },
+        ],
+      },
+    ]);
+    await loadCorpus(dir);
+    const r1 = readSection({ moduleId: "sf-port", sectionId: "1.1" });
+    const r2 = readSection({ moduleId: "sf-port", sectionId: "2.1" });
+    expect(r1.ok && r2.ok).toBe(true);
+    if (!r1.ok || !r2.ok) return;
+    // Each section's depth-2 ancestor must point at ITSELF (each is the
+    // sole member of its own subtree). A delimiter collision would make
+    // 2.1's depth-2 entry mistakenly point at 1.1.
+    expect(r1.value.parents[2]?.sectionId).toBe("1.1");
+    expect(r2.value.parents[2]?.sectionId).toBe("2.1");
+  });
+
   it("readSection joins module definitions-v2 entries for defined-term body segments (D-DELTA-2)", async () => {
     // body[] mentions "Person"; definitions-v2 has Person → 1.1.
     // The definitions field on the response must surface the entry so

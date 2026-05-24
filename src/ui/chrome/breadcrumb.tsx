@@ -5,10 +5,11 @@
 // options (line-height, amendments-visible) — those compose around this
 // strip rather than replacing it.
 
+import type { SectionId } from "@/types";
 import { Icons } from "@/ui/icons";
 
 export interface BreadcrumbProps {
-  parents: ReadonlyArray<{ code: string; name: string }>;
+  parents: ReadonlyArray<{ code: string; name: string; sectionId: SectionId | null }>;
   sectionLabel: string | null;
 }
 

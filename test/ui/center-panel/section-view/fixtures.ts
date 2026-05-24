@@ -9,7 +9,7 @@ export function buildCorpusSectionView(
   overrides: {
     moduleId?: string;
     section?: Partial<SectionFile>;
-    parents?: ReadonlyArray<{ code: string; name: string }>;
+    parents?: CorpusSectionView["parents"];
     definitions?: CorpusSectionView["definitions"];
   } = {},
 ): CorpusSectionView {
@@ -22,7 +22,7 @@ export function buildCorpusSectionView(
     text: "",
     citations: [],
     defined_terms: [],
-    hierarchy: ["Port Code", "ARTICLE 1"],
+    hierarchy: ["Port Code", "Article 1"],
     editorial_status: "active",
     body: [],
   };
@@ -30,8 +30,8 @@ export function buildCorpusSectionView(
     moduleId,
     section: { ...sectionDefaults, ...overrides.section },
     parents: overrides.parents ?? [
-      { code: "Port Code", name: "Port Code" },
-      { code: "ARTICLE 1", name: "" },
+      { code: "Port Code", name: "Port Code", sectionId: null },
+      { code: "Article 1", name: "", sectionId: "1.1" },
     ],
     prev: null,
     next: null,
