@@ -21,14 +21,18 @@ describe("SectionView — top-level render", () => {
     render(
       <SectionView
         view={view}
-        parentsLabel="Port Code · ARTICLE 1"
+        parentsLabel="Port Code · Article 1"
         error={null}
         navigate={vi.fn()}
       />,
     );
     expect(screen.getByText("§ 1.1")).toBeInTheDocument();
     expect(screen.getByText("Definitions")).toBeInTheDocument();
-    expect(screen.getByText("Port Code · ARTICLE 1")).toBeInTheDocument();
+    // Parents kicker renders each parent as its own element via the
+    // shared Crumb component — module-root as plain text, the
+    // chapter/article ancestor as a clickable button.
+    expect(screen.getByText("Port Code")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Article 1" })).toBeInTheDocument();
   });
 
   it("iterates body[] segments into <p> chunks split on paragraph_break", () => {

@@ -46,6 +46,15 @@
 .lc-section-body[data-modifier="ctrl"] .lc-cite {
   cursor: pointer;
 }
+/* Citation spans are keyboard-reachable via tabIndex={0} + role="link",
+ * but had no visible focus state. Implicit a11y fix: 2px --accent
+ * outline at 2px offset matches every other focusable control in the
+ * section-view (popover action buttons, breadcrumb parents). */
+.lc-cite:focus-visible {
+  outline: 2px solid var(--accent, var(--blue, #89b4fa));
+  outline-offset: 2px;
+  border-radius: 2px;
+}
 
 /* ── Popover (citation + defined-term) ──────────────────────────────── */
 /* Shared chrome for the two hover popovers; the [data-popover-kind]

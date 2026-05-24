@@ -31,8 +31,8 @@ describe("SectionView — edge cases", () => {
     expect(document.querySelector(".lc-section-id")).not.toBeNull();
   });
 
-  it("empty parents kicker when parentsLabel is the empty string", () => {
-    const view = buildCorpusSectionView();
+  it("empty parents kicker when view.parents is the empty array", () => {
+    const view = buildCorpusSectionView({ parents: [] });
     render(<SectionView view={view} parentsLabel="" error={null} navigate={vi.fn()} />);
     // `.lc-doc-title` exists but contains nothing — render shouldn't crash.
     expect(document.querySelector(".lc-doc-title")?.textContent).toBe("");

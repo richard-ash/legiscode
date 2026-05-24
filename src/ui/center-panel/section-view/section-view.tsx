@@ -21,8 +21,19 @@
 // The roundtrip-invariant `bodyToText(body) === text` guarantees the
 // rendered text matches what search/export sees (enforced by
 // SectionFileSchema.superRefine at src/types/section.ts:286).
+//
+// Hover popover state: SectionView owns ONE useHoverPopover instance
+// whose payload is a discriminated union over the two surfaces that
+// share it (citation + defined-term). DefinedTerm consumes the handle
+// via SectionHoverContext rather than owning its own state machine,
+// so "one popover at a time" is enforced structurally — there's no
+// way for a cite-popover and a defined-term-popover to be visible
+// simultaneously. Both popovers render at the lc-doc-inner level
+// (outside the <p>-containing body), avoiding the
+// `<div>`-inside-`<p>` DOM-validity issue that an inline render would
+// hit.
 
-import { type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type MouseEvent, type ReactNode, useCallback } from "react";
 import type { ResolutionResult } from "@/citations/resolver";
 import type { CorpusRef } from "@/corpus/refs";
 import { parse as parseCorpusRef } from "@/corpus/refs";
@@ -32,11 +43,11 @@ import type { OpenItem } from "@/workbench";
 import type { NavigationIntent } from "@/workbench/navigate";
 import { CitationLink } from "./citation-link";
 import { CitationPopover } from "./citation-popover";
-import { DefinedTerm } from "./defined-term";
+import { Crumb } from "./crumb";
+import { DefinedTerm, DefinedTermPopover } from "./defined-term";
+import { type HoverPayload, SectionHoverContext } from "./hover-context";
 import "./section-view.css";
-
-const POPOVER_SHOW_DELAY_MS = 400;
-const POPOVER_HIDE_DELAY_MS = 200;
+import { useHoverPopover } from "./use-hover-popover";
 
 export interface SectionViewProps {
   view: CorpusSectionView | null;
@@ -99,23 +110,32 @@ export function SectionView({
   scrollContainerRef,
   onScrollY,
 }: SectionViewProps) {
-  const [hoverState, setHoverState] = useState<{
-    citation: Citation;
-    resolution: ResolutionResult;
-    anchorRect: DOMRect;
-  } | null>(null);
-  const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clearTimers = useCallback(() => {
-    if (showTimerRef.current) {
-      clearTimeout(showTimerRef.current);
-      showTimerRef.current = null;
-    }
-    if (hideTimerRef.current) {
-      clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = null;
-    }
-  }, []);
+  // Single hover-popover hook for the whole section. Citation handlers
+  // and DefinedTerm (via SectionHoverContext) dispatch into the same
+  // instance — guarantees "one popover at a time" without needing to
+  // coordinate independent timer machines across components.
+  const hover = useHoverPopover<HoverPayload>();
+
+  /**
+   * Resolve a delegated event back to the citation + anchor element it
+   * targets. Returns null when the event didn't land on a cite span or
+   * the citation index is missing — caller exits early in that case.
+   */
+  const resolveCitationFromEvent = useCallback(
+    (target: EventTarget | null): { citation: Citation; anchor: HTMLElement } | null => {
+      if (!view) return null;
+      const node = target as HTMLElement | null;
+      const anchor = node?.closest("[data-cite-kind]") as HTMLElement | null;
+      if (!anchor) return null;
+      const raw = anchor.dataset.citationIndex;
+      if (raw === undefined) return null;
+      const idx = Number(raw);
+      const citation = view.section.citations[idx];
+      if (!citation) return null;
+      return { citation, anchor };
+    },
+    [view],
+  );
 
   // VS Code citation semantics: plain click is text selection only,
   // ⌘/Ctrl-click opens the cite in a new foreground tab. The
@@ -128,117 +148,107 @@ export function SectionView({
   const onBodyClick = useCallback(
     (e: MouseEvent<HTMLDivElement>) => {
       if (!(e.metaKey || e.ctrlKey)) return;
-      if (!onCitationActivate || !view) return;
-      const target = e.target as HTMLElement | null;
-      const anchor = target?.closest("[data-cite-kind]") as HTMLElement | null;
-      if (!anchor) return;
-      const raw = anchor.dataset.citationIndex;
-      if (raw === undefined) return;
-      const idx = Number(raw);
-      const citation = view.section.citations[idx];
-      if (!citation) return;
+      if (!onCitationActivate) return;
+      const hit = resolveCitationFromEvent(e.target);
+      if (!hit) return;
       e.preventDefault();
-      clearTimers();
-      setHoverState(null);
-      onCitationActivate(citation, "primary");
+      hover.closeNow();
+      onCitationActivate(hit.citation, "primary");
     },
-    [onCitationActivate, view, clearTimers],
+    [onCitationActivate, hover, resolveCitationFromEvent],
+  );
+
+  // Keyboard activation: Enter / Mod+Enter on a focused cite span
+  // dispatches primary intent (matches ⌘-click). Space is intentionally
+  // a no-op — citation spans are spans, not buttons, and Space is text-
+  // selection / scroll territory in a paragraph context. The keydown
+  // delegate fills in a hole the citation refoundation left open: the
+  // cite span carried `tabIndex={0}` + `role="link"` from the start,
+  // but no key handler ever existed, so Enter on a focused cite was a
+  // silent no-op.
+  const onBodyKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== "Enter") return;
+      if (!onCitationActivate) return;
+      const hit = resolveCitationFromEvent(e.target);
+      if (!hit) return;
+      e.preventDefault();
+      hover.closeNow();
+      onCitationActivate(hit.citation, "primary");
+    },
+    [onCitationActivate, hover, resolveCitationFromEvent],
   );
 
   // Fired by the popover footer's "Go to definition →" button. Same
   // dispatch as ⌘-click on the cite — clear hover state first so the
   // popover doesn't linger over the freshly-opened tab.
   const onPopoverActivate = useCallback(() => {
-    if (!onCitationActivate || !hoverState) return;
-    clearTimers();
-    const citation = hoverState.citation;
-    setHoverState(null);
+    if (!onCitationActivate || !hover.state || hover.state.kind !== "citation") return;
+    const citation = hover.state.citation;
+    hover.closeNow();
     onCitationActivate(citation, "primary");
-  }, [onCitationActivate, hoverState, clearTimers]);
-
-  // Hover bridge: when the cursor crosses the 6px gap from the cite span
-  // into the popover, the cite's mouseout arms a hide timer; entering the
-  // popover cancels it so the user can read the excerpt and click the
-  // footer button. Leaving the popover re-arms the hide timer.
-  const onPopoverMouseEnter = useCallback(() => {
-    if (hideTimerRef.current) {
-      clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = null;
-    }
-  }, []);
-  const onPopoverMouseLeave = useCallback(() => {
-    hideTimerRef.current = setTimeout(() => {
-      setHoverState(null);
-    }, POPOVER_HIDE_DELAY_MS);
-  }, []);
+  }, [onCitationActivate, hover]);
 
   const onBodyMouseOver = useCallback(
     (e: MouseEvent<HTMLDivElement>) => {
-      if (!resolveCitation || !view) return;
-      const target = e.target as HTMLElement | null;
-      const anchor = target?.closest("[data-cite-kind]") as HTMLElement | null;
-      if (!anchor) return;
-      const idxRaw = anchor.dataset.citationIndex;
-      if (idxRaw === undefined) return;
-      const idx = Number(idxRaw);
-      const citation = view.section.citations[idx];
-      if (!citation) return;
-      clearTimers();
-      const anchorRect = anchor.getBoundingClientRect();
-      showTimerRef.current = setTimeout(() => {
-        const resolution = resolveCitation(citation);
-        if (resolution && resolution.kind !== "unresolvable") {
-          setHoverState({ citation, resolution, anchorRect });
-        }
-      }, POPOVER_SHOW_DELAY_MS);
+      if (!resolveCitation) return;
+      const hit = resolveCitationFromEvent(e.target);
+      if (!hit) return;
+      const resolution = resolveCitation(hit.citation);
+      if (!resolution || resolution.kind === "unresolvable") return;
+      // showOrSnap: first hover waits the 400ms intent-to-open delay;
+      // subsequent hovers (cite-to-cite, cite-to-defined-term) swap
+      // content immediately because intent is already established.
+      hover.showOrSnap({
+        kind: "citation",
+        citation: hit.citation,
+        resolution,
+        anchorElement: hit.anchor,
+      });
     },
-    [resolveCitation, view, clearTimers],
+    [resolveCitation, hover, resolveCitationFromEvent],
   );
 
   const onBodyMouseOut = useCallback(
     (e: MouseEvent<HTMLDivElement>) => {
-      const target = e.target as HTMLElement | null;
-      const anchor = target?.closest("[data-cite-kind]") as HTMLElement | null;
+      const anchor = (e.target as HTMLElement | null)?.closest(
+        "[data-cite-kind]",
+      ) as HTMLElement | null;
       if (!anchor) return;
       // mouseout fires when moving to a child; ignore intra-cite moves.
       const related = e.relatedTarget as HTMLElement | null;
       if (related && anchor.contains(related)) return;
-      if (showTimerRef.current) {
-        clearTimeout(showTimerRef.current);
-        showTimerRef.current = null;
-      }
-      if (hoverState) {
-        hideTimerRef.current = setTimeout(() => {
-          setHoverState(null);
-        }, POPOVER_HIDE_DELAY_MS);
-      }
+      hover.scheduleClose();
     },
-    [hoverState],
+    [hover],
   );
 
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape" && hoverState) setHoverState(null);
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [hoverState]);
-
-  // The popover anchors to a getBoundingClientRect taken at hover time;
-  // scrolling makes that snapshot stale and the popover floats over
-  // unrelated content. Capture-phase listener catches scroll on any
-  // ancestor scroller (scroll events don't bubble in the normal phase).
-  useEffect(() => {
-    if (!hoverState) return;
-    function onScroll() {
-      clearTimers();
-      setHoverState(null);
-    }
-    window.addEventListener("scroll", onScroll, true);
-    return () => window.removeEventListener("scroll", onScroll, true);
-  }, [hoverState, clearTimers]);
-
-  useEffect(() => () => clearTimers(), [clearTimers]);
+  // Focus / blur mirror mouseover / mouseout so keyboard users see the
+  // same hover preview that mouse users get via Tab.
+  const onBodyFocus = useCallback(
+    (e: React.FocusEvent<HTMLDivElement>) => {
+      if (!resolveCitation) return;
+      const hit = resolveCitationFromEvent(e.target);
+      if (!hit) return;
+      const resolution = resolveCitation(hit.citation);
+      if (!resolution || resolution.kind === "unresolvable") return;
+      hover.openNow({
+        kind: "citation",
+        citation: hit.citation,
+        resolution,
+        anchorElement: hit.anchor,
+      });
+    },
+    [resolveCitation, hover, resolveCitationFromEvent],
+  );
+  const onBodyBlur = useCallback(
+    (e: React.FocusEvent<HTMLDivElement>) => {
+      const anchor = (e.target as HTMLElement | null)?.closest("[data-cite-kind]");
+      if (!anchor) return;
+      hover.scheduleClose();
+    },
+    [hover],
+  );
 
   if (error) {
     return (
@@ -279,71 +289,93 @@ export function SectionView({
   const paragraphs = splitParagraphs(section.body);
 
   return (
-    <div
-      ref={scrollContainerRef}
-      onScroll={onScrollY ? (e) => onScrollY(e.currentTarget.scrollTop) : undefined}
-      className="lc-doc lc-scroll"
-      data-testid="section-view"
-    >
-      <div className="lc-doc-inner">
-        <div className="lc-doc-title">{parentsLabel}</div>
-        <h1 className="lc-section" style={{ marginBottom: 4 }}>
-          <span className="lc-section-id">§ {section.display_label}</span>
-          <span style={{ marginLeft: 12 }}>{section.title}</span>
-        </h1>
-        {section.editorial_status !== "active" ? (
-          <div className="lc-section-meta">
-            <span className="lc-status-chip" data-status={section.editorial_status}>
-              {section.editorial_status}
-            </span>
-            {section.editorial_status === "redesignated" && section.redirect_to ? (
-              <button
-                type="button"
-                className="lc-redirect-link"
-                onClick={() =>
-                  navigate(
-                    {
-                      kind: "section",
-                      ref: parseCorpusRef({ module: moduleId, section: section.redirect_to! }),
-                    },
-                    "primary",
-                  )
-                }
-              >
-                See § {section.redirect_to}
-              </button>
-            ) : null}
+    <SectionHoverContext.Provider value={hover}>
+      <div
+        ref={scrollContainerRef}
+        onScroll={onScrollY ? (e) => onScrollY(e.currentTarget.scrollTop) : undefined}
+        className="lc-doc lc-scroll"
+        data-testid="section-view"
+      >
+        <div className="lc-doc-inner">
+          <div className="lc-doc-title lc-section-kicker">
+            {view.parents.length > 0
+              ? view.parents.map((p, i) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: ordered breadcrumb path; index is a stable position
+                  <span key={`${p.code}-${i}`}>
+                    {i > 0 && <span className="lc-crumb-sep"> · </span>}
+                    <Crumb crumb={p} moduleId={moduleId} navigate={navigate} />
+                  </span>
+                ))
+              : parentsLabel}
           </div>
-        ) : null}
-        {/** biome-ignore lint/a11y/useKeyWithClickEvents: the div is a pure event-delegation seam; the inner citation span carries role="link" + tabIndex. */}
-        {/** biome-ignore lint/a11y/noStaticElementInteractions: same rationale — roles live on the citation span, not the wrapping div. */}
-        {/** biome-ignore lint/a11y/useKeyWithMouseEvents: hover preview is a progressive enhancement; keyboard users get the same dispatch behavior via Tab + ⌘+Enter on the focused span. The mouseover path is an additive affordance, not a primary control surface. */}
-        <div
-          className="lc-section-body"
-          onClick={onBodyClick}
-          onMouseOver={onBodyMouseOver}
-          onMouseOut={onBodyMouseOut}
-        >
-          {paragraphs.map((segs, pi) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: paragraphs are positional within a stable section render
-            <p key={pi} className="lc-para">
-              {renderInline(segs, ctx, `p${pi}`)}
-            </p>
-          ))}
+          <h1 className="lc-section" style={{ marginBottom: 4 }}>
+            <span className="lc-section-id">§ {section.display_label}</span>
+            <span style={{ marginLeft: 12 }}>{section.title}</span>
+          </h1>
+          {section.editorial_status !== "active" ? (
+            <div className="lc-section-meta">
+              <span className="lc-status-chip" data-status={section.editorial_status}>
+                {section.editorial_status}
+              </span>
+              {section.editorial_status === "redesignated" && section.redirect_to ? (
+                <button
+                  type="button"
+                  className="lc-redirect-link"
+                  onClick={() =>
+                    navigate(
+                      {
+                        kind: "section",
+                        ref: parseCorpusRef({ module: moduleId, section: section.redirect_to! }),
+                      },
+                      "primary",
+                    )
+                  }
+                >
+                  See § {section.redirect_to}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {/** biome-ignore lint/a11y/noStaticElementInteractions: the div is a pure event-delegation seam — roles live on the inner cite span (tabIndex={0} + role="link"), not the wrapping div. */}
+          <div
+            className="lc-section-body"
+            onClick={onBodyClick}
+            onKeyDown={onBodyKeyDown}
+            onMouseOver={onBodyMouseOver}
+            onMouseOut={onBodyMouseOut}
+            onFocus={onBodyFocus}
+            onBlur={onBodyBlur}
+          >
+            {paragraphs.map((segs, pi) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: paragraphs are positional within a stable section render
+              <p key={pi} className="lc-para">
+                {renderInline(segs, ctx, `p${pi}`)}
+              </p>
+            ))}
+          </div>
+          {hover.state?.kind === "citation" ? (
+            <CitationPopover
+              resolution={hover.state.resolution}
+              rawCite={hover.state.citation.display_text}
+              anchorElement={hover.state.anchorElement}
+              {...resolvePreview(hover.state.resolution, getCitationPreview)}
+              onActivate={onCitationActivate ? onPopoverActivate : undefined}
+              onPopoverEnter={hover.cancelClose}
+              onPopoverLeave={hover.scheduleClose}
+            />
+          ) : null}
+          {hover.state?.kind === "definedTerm" ? (
+            <DefinedTermPopover
+              definition={hover.state.definition}
+              anchorElement={hover.state.anchorElement}
+              onActivate={hover.state.onActivate}
+              onPopoverEnter={hover.cancelClose}
+              onPopoverLeave={hover.scheduleClose}
+            />
+          ) : null}
         </div>
-        {hoverState ? (
-          <CitationPopover
-            resolution={hoverState.resolution}
-            rawCite={hoverState.citation.display_text}
-            anchorRect={hoverState.anchorRect}
-            {...resolvePreview(hoverState.resolution, getCitationPreview)}
-            onActivate={onCitationActivate ? onPopoverActivate : undefined}
-            onMouseEnter={onPopoverMouseEnter}
-            onMouseLeave={onPopoverMouseLeave}
-          />
-        ) : null}
       </div>
-    </div>
+    </SectionHoverContext.Provider>
   );
 }
 

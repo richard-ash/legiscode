@@ -18,13 +18,18 @@
 //   - scroll-only → "Scrolls within this section" (informational only).
 //   - unresolvable → suppressed; nothing to show.
 
+import { useRef } from "react";
 import type { ResolutionResult } from "@/citations/resolver";
+import { MOD_KEY_LABEL } from "@/ui/platform";
+import { usePopoverPosition } from "./use-hover-popover";
 
 export interface CitationPopoverProps {
   resolution: ResolutionResult;
   rawCite: string;
-  /** Bounding rect of the cited span — popover anchors below it. */
-  anchorRect: DOMRect;
+  /** The cite span this popover is anchored to. Position is computed
+   *  from `getBoundingClientRect()` at render time so reflow between
+   *  hover and open doesn't strand the popover at a stale position. */
+  anchorElement: HTMLElement;
   /** Resolved title for the target section (when known); used in header. */
   resolvedTitle?: string;
   /** Body excerpt — first few lines of the target section, when known. */
@@ -45,24 +50,31 @@ export interface CitationPopoverProps {
 export function CitationPopover({
   resolution,
   rawCite,
-  anchorRect,
+  anchorElement,
   resolvedTitle,
   bodyExcerpt,
   onActivate,
   onPopoverEnter,
   onPopoverLeave,
 }: CitationPopoverProps) {
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  // usePopoverPosition is unconditionally called even when this branch
+  // returns null below; React's rules-of-hooks forbid the conditional
+  // form. The (top, left) values are discarded in the early-return case.
+  const { top, left } = usePopoverPosition(anchorElement, popoverRef);
+
   if (resolution.kind === "unresolvable") return null;
 
   const style: React.CSSProperties = {
     position: "fixed",
-    top: anchorRect.bottom + 6,
-    left: Math.max(8, anchorRect.left),
+    top,
+    left,
     maxWidth: 360,
   };
 
   return (
     <div
+      ref={popoverRef}
       className="lc-popover"
       role="tooltip"
       data-popover-kind="citation"
@@ -124,7 +136,7 @@ function renderFooter(resolution: ResolutionResult, onActivate: (() => void) | u
     case "navigate-structural":
       return (
         <div className="lc-popover-footer">
-          <span className="lc-popover-hint">⌘-click to open</span>
+          <span className="lc-popover-hint">{MOD_KEY_LABEL}-click to open</span>
           {onActivate ? (
             <button
               type="button"
@@ -145,7 +157,7 @@ function renderFooter(resolution: ResolutionResult, onActivate: (() => void) | u
       // popover discloses the cite kind without offering a dead button.
       return (
         <div className="lc-popover-footer">
-          <span className="lc-popover-hint">⌘-click to open</span>
+          <span className="lc-popover-hint">{MOD_KEY_LABEL}-click to open</span>
         </div>
       );
     case "scroll-only":

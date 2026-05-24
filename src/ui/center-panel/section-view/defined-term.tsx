@@ -1,10 +1,20 @@
-// Inline highlight + hover popover for a defined-term occurrence. The
+// Inline highlight + hover trigger for a defined-term occurrence. The
 // popover is rendered SYNCHRONOUSLY from the `definition` prop:
 // build-time resolution (L2a) attached a def_id to every defined_term
 // body segment, and the loader projected the canonical Definition's
 // renderable bits (term, excerpt, scope, defined_in) down to a per-section
 // lookup map (electron/corpus-loader.ts joinDefinitionsForSection), so
 // the renderer has zero IPC latency and zero flicker.
+//
+// Hover state lives on the SectionView's shared `useHoverPopover`
+// instance (via SectionHoverContext) — DefinedTerm doesn't own its own
+// state machine. The "one popover at a time" invariant is structural:
+// if a citation popover is currently visible and the user tabs to a
+// defined term, the citation popover is replaced by the defined-term
+// popover atomically. The popover itself renders at the lc-doc-inner
+// level (outside the `<p>` that contains this button), avoiding the
+// `<div>`-inside-`<p>` DOM-validity issue an inline render would
+// trigger.
 //
 // Layout mirrors the citation popover (same `.lc-popover-*` chrome)
 // so the user learns one popover anatomy. Header background is tinted
@@ -21,7 +31,8 @@
 
 import { type KeyboardEvent, type MouseEvent, useRef } from "react";
 import type { ScopeExpr, SectionId } from "@/types";
-import { computeHoverPosition, useHoverPopover } from "./use-hover-popover";
+import { useSectionHover } from "./hover-context";
+import { usePopoverPosition } from "./use-hover-popover";
 
 export interface DefinitionView {
   term: string;
@@ -43,13 +54,9 @@ export interface DefinedTermProps {
   onJump: (sectionId: SectionId) => void;
 }
 
-interface HoverPayload {
-  anchorRect: DOMRect;
-}
-
 export function DefinedTerm({ raw, definition, onJump }: DefinedTermProps) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
-  const hover = useHoverPopover<HoverPayload>();
+  const hover = useSectionHover();
   const hasTooltip = definition !== undefined;
 
   // Graceful-degrade: no in-scope definer projected to the wire shape →
@@ -57,30 +64,41 @@ export function DefinedTerm({ raw, definition, onJump }: DefinedTermProps) {
   // italic, no .lc-deftrm hover affordance). The schema-locked
   // §37.3 "Department" behavior — truthful UX over discoverability.
   if (!hasTooltip) {
-    return <span data-term={raw}>{raw}</span>;
+    return <span>{raw}</span>;
   }
 
-  const open = hover.state !== null;
+  // Open only when the shared hook is showing THIS term's popover.
+  // Compare anchorElement against this button's ref so the right
+  // <button> reports aria-expanded=true while the others stay false.
+  const open =
+    hover?.state?.kind === "definedTerm" && hover.state.anchorElement === buttonRef.current;
 
-  const captureRect = () => {
+  const dispatchOpen = (mode: "hover" | "immediate") => {
+    if (!hover) return;
     const el = buttonRef.current;
-    if (!el) return null;
-    return el.getBoundingClientRect();
+    if (!el) return;
+    const payload = {
+      kind: "definedTerm" as const,
+      definition,
+      anchorElement: el,
+      onActivate: () => {
+        hover.closeNow();
+        onJump(definition.first_use_section);
+      },
+    };
+    if (mode === "immediate") hover.openNow(payload);
+    else hover.showOrSnap(payload);
   };
 
-  const onMouseEnter = () => {
-    const anchorRect = captureRect();
-    if (anchorRect) hover.scheduleOpen({ anchorRect });
-  };
-  const onMouseLeave = () => hover.scheduleClose();
+  const onMouseEnter = () => dispatchOpen("hover");
+  const onMouseLeave = () => hover?.scheduleClose();
 
   const onFocus = () => {
     // Keyboard parity: focusing the term opens the popover without the
     // hover delay so Tab → Enter feels responsive.
-    const anchorRect = captureRect();
-    if (anchorRect) hover.openNow({ anchorRect });
+    dispatchOpen("immediate");
   };
-  const onBlur = () => hover.scheduleClose();
+  const onBlur = () => hover?.scheduleClose();
 
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
     // useHoverPopover owns Escape; Enter on the focused term navigates
@@ -88,67 +106,72 @@ export function DefinedTerm({ raw, definition, onJump }: DefinedTermProps) {
     // button-activate (which fires onClick → same navigation).
     if (e.key === "Enter") {
       e.preventDefault();
-      hover.closeNow();
+      hover?.closeNow();
       onJump(definition.first_use_section);
     }
   };
 
   const onClick = () => {
-    hover.closeNow();
+    hover?.closeNow();
     onJump(definition.first_use_section);
   };
 
+  // aria-label only when the visible text and canonical term diverge —
+  // an inflection like "vessels" vs canonical "Vessel". When they
+  // match, the button text itself is the accessible name and the
+  // explicit label would duplicate (and sometimes pronounce
+  // differently from) the visible text.
+  const ariaLabel = raw === definition.term ? undefined : definition.term;
+
   return (
-    <>
-      <button
-        ref={buttonRef}
-        type="button"
-        className="lc-deftrm"
-        data-term={definition.term}
-        aria-label={definition.term}
-        aria-haspopup="true"
-        aria-expanded={open}
-        onClick={onClick}
-        onMouseEnter={onMouseEnter}
-        onMouseLeave={onMouseLeave}
-        onFocus={onFocus}
-        onBlur={onBlur}
-        onKeyDown={onKeyDown}
-      >
-        {raw}
-      </button>
-      {hover.state ? (
-        <DefinedTermPopover
-          definition={definition}
-          anchorRect={hover.state.anchorRect}
-          onPopoverEnter={hover.cancelClose}
-          onPopoverLeave={hover.scheduleClose}
-          onActivate={() => {
-            hover.closeNow();
-            onJump(definition.first_use_section);
-          }}
-        />
-      ) : null}
-    </>
+    <button
+      ref={buttonRef}
+      type="button"
+      className="lc-deftrm"
+      data-term={definition.term}
+      aria-label={ariaLabel}
+      aria-haspopup="true"
+      aria-expanded={open}
+      onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      onKeyDown={onKeyDown}
+    >
+      {raw}
+    </button>
   );
 }
 
-interface DefinedTermPopoverProps {
+export interface DefinedTermPopoverProps {
   definition: DefinitionView;
-  anchorRect: DOMRect;
+  /** The button element this popover is anchored to. Position is
+   *  computed from `getBoundingClientRect()` at render time so reflow
+   *  between hover and open doesn't strand the popover at a stale
+   *  position. */
+  anchorElement: HTMLElement;
   onPopoverEnter: () => void;
   onPopoverLeave: () => void;
   onActivate: () => void;
 }
 
-function DefinedTermPopover({
+/**
+ * Defined-term popover. Rendered by SectionView (not DefinedTerm) so
+ * the `<div>` doesn't end up nested inside the `<p>` that contains the
+ * triggering button. SectionView reads the hover-popover state and
+ * mounts this component when the active payload's kind is
+ * "definedTerm".
+ */
+export function DefinedTermPopover({
   definition,
-  anchorRect,
+  anchorElement,
   onPopoverEnter,
   onPopoverLeave,
   onActivate,
 }: DefinedTermPopoverProps) {
-  const { top, left } = computeHoverPosition(anchorRect);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const { top, left } = usePopoverPosition(anchorElement, popoverRef);
   const style: React.CSSProperties = {
     position: "fixed",
     top,
@@ -164,6 +187,7 @@ function DefinedTermPopover({
   };
   return (
     <div
+      ref={popoverRef}
       className="lc-popover"
       role="tooltip"
       data-popover-kind="defined-term"
@@ -181,7 +205,7 @@ function DefinedTermPopover({
         <div className="lc-popover-excerpt">{definition.excerpt}</div>
       </div>
       <div className="lc-popover-footer">
-        <span className="lc-popover-hint">Defined in</span>
+        <span className="lc-popover-hint">Click to navigate</span>
         <button type="button" className="lc-popover-action" onClick={onActionClick}>
           Go to § {definition.first_use_section} →
         </button>
