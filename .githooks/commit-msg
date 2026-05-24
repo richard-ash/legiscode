@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# commit-msg hook — mechanical enforcement of docs/GIT.md.
+#
+# Catches: subject length, capitalization, trailing period, Conventional
+# Commits prefix, missing blank line, body wrap.
+# Does NOT catch: imperative mood, scope, body content. Those still need
+# a human (or agent) walking the checklist in docs/GIT.md.
+
+set -euo pipefail
+# Force C collation so [A-Z] / [[:upper:]] glob ranges behave predictably
+# (under en_US.UTF-8, bash bracket ranges can fold case).
+export LC_ALL=C
+
+MSG_FILE="${1:-}"
+[ -n "$MSG_FILE" ] && [ -f "$MSG_FILE" ] || exit 0
+
+# Read non-comment lines into an array, dropping leading blanks.
+LINES=()
+while IFS= read -r line; do
+  case "$line" in
+    \#*) continue ;;
+    *) LINES+=("$line") ;;
+  esac
+done < "$MSG_FILE"
+while [ "${#LINES[@]}" -gt 0 ] && [ -z "${LINES[0]}" ]; do
+  LINES=("${LINES[@]:1}")
+done
+
+# Empty message — let git's default behavior handle it.
+[ "${#LINES[@]}" -eq 0 ] && exit 0
+
+SUBJECT="${LINES[0]}"
+
+# Skip auto-generated messages we don't control.
+case "$SUBJECT" in
+  "Merge "*|"Revert "*|"fixup! "*|"squash! "*|"amend! "*) exit 0 ;;
+esac
+
+FAIL=0
+red()    { if [ -t 2 ]; then printf '\033[31m%s\033[0m' "$1"; else printf '%s' "$1"; fi; }
+yellow() { if [ -t 2 ]; then printf '\033[33m%s\033[0m' "$1"; else printf '%s' "$1"; fi; }
+err()    { printf '%s %s\n' "$(red ✗)" "$1" >&2; FAIL=1; }
+warn()   { printf '%s %s\n' "$(yellow !)" "$1" >&2; }
+
+# 1. Subject length: ≤50 target, ≤72 hard cap.
+SLEN=${#SUBJECT}
+if [ "$SLEN" -gt 72 ]; then
+  err "Subject is $SLEN characters (hard cap: 72). Rewrite it shorter."
+elif [ "$SLEN" -gt 50 ]; then
+  warn "Subject is $SLEN characters (target: ≤50). Try harder before reaching for the 72 cap."
+fi
+
+# 2. Capitalized first letter.
+case "$SUBJECT" in
+  [A-Z]*) ;;
+  *) err "Subject must start with a capital letter." ;;
+esac
+
+# 3. No trailing period.
+case "$SUBJECT" in
+  *.) err "Subject must not end with a period." ;;
+esac
+
+# 4. No Conventional Commits prefix.
+if printf '%s' "$SUBJECT" | grep -qE '^(feat|fix|chore|refactor|docs|style|test|perf|build|ci|revert)(\([^)]+\))?!?:'; then
+  prefix=$(printf '%s' "$SUBJECT" | grep -oE '^[a-z]+')
+  err "No Conventional Commits prefix. Drop '${prefix}:' and write the subject as a sentence."
+fi
+
+# 5. Blank line between subject and body (only if a body exists).
+if [ "${#LINES[@]}" -ge 2 ] && [ -n "${LINES[1]}" ]; then
+  err "Missing blank line between subject and body."
+fi
+
+# 6. Body wrap at 72 (URLs and trailer lines are exempt).
+for i in "${!LINES[@]}"; do
+  [ "$i" -eq 0 ] && continue
+  line="${LINES[$i]}"
+  [ -z "$line" ] && continue
+  llen=${#line}
+  [ "$llen" -le 72 ] && continue
+
+  case "$line" in
+    *http://*|*https://*) continue ;;
+    "See: "*|"See also: "*|"Resolves: "*|"Fixes: "*|"Refs: "*|"Co-authored-by:"*) continue ;;
+  esac
+
+  snippet="${line:0:60}"
+  err "Body line is $llen characters (wrap at 72): '${snippet}…'"
+done
+
+if [ "$FAIL" -ne 0 ]; then
+  printf '\nCommit aborted. See docs/GIT.md for the full checklist.\n' >&2
+  printf 'To bypass deliberately (rare): git commit --no-verify\n' >&2
+  exit 1
+fi
+
+exit 0

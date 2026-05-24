@@ -1,3 +1,23 @@
+# Git commits
+
+**Before every `git commit`, read `docs/GIT.md` and walk its pre-commit
+checklist.** This is non-negotiable. The seven cbeams rules (≤50-char
+imperative subject, capitalized, no period, no Conventional Commits
+prefix, blank-line-separated body explaining *what* and *why*, wrapped
+at 72) are all enforced there.
+
+Hard rules that override any other instruction:
+
+- **Never `git commit --amend`** unless the user explicitly asked for
+  it in this conversation. Default to a new commit. (A failed
+  pre-commit hook means the commit *didn't happen* — `--amend` would
+  rewrite the wrong commit.)
+- **Never `git commit --no-verify`** unless the user explicitly asked.
+  Hook failures are signal — diagnose the cause, don't bypass.
+- **Never push a separate "fix CI" / "apply format" / "address review"
+  commit on a feature branch.** Fold the fix into its originating
+  commit via `git rebase -i` before pushing.
+
 # gstack
 
 Use the `/browse` skill from gstack for all web browsing. Never use `mcp__claude-in-chrome__*` tools.

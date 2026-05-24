@@ -45,6 +45,16 @@ runs:
         ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
       run: pnpm install --frozen-lockfile
 
+    # Electron 42 no longer downloads its runtime in postinstall. Run the
+    # official bin once so its lazy runtime install is complete before
+    # Playwright's _electron.launch() resolves electron/index.js.
+    - name: Install Electron runtime
+      shell: bash
+      env:
+        ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
+        electron_config_cache: ${{ github.workspace }}/.cache/electron
+      run: pnpm exec electron --version
+
     - name: Build hermetic corpus from SF fixture
       shell: bash
       run: mise run corpus:build -- --source test/fixtures/sf/jurisdiction.json --output build/modules-full
