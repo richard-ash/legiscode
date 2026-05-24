@@ -15,6 +15,7 @@ export * from "./ordinance";
 export * from "./ordinance-history";
 export * from "./parsed-module";
 export * from "./resolution-history";
+export * from "./scope";
 export * from "./section";
 export * from "./source-location";
 export * from "./text-diff";

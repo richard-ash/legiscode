@@ -345,3 +345,23 @@ Two TODO items collapse into one operational action: a Derek dogfood session to 
 - **Owner:** Operational — not a branch. Track session date once scheduled.
 
 ---
+
+## Definitions foundation (feat/definitions-foundation 2026-05-22, PR #28)
+
+End-to-end refoundation of the defined-term graph from a term-keyed dictionary to a build-time-resolved, addressable Definition[] graph. Plan: `~/.gstack/projects/legiscode/richardash-feat-definitions-foundation-plan-20260522.html`. The 4-PR sequencing (L1, L2a, L2b, L3) is folded into one branch per the user's "no half-states" directive — the feature ships as a complete unit or not at all.
+
+**What shipped:**
+
+- **L1 schema** — `ScopeExpr` (hierarchy / module / cross_module discriminated union), canonical `Definition` record with stable `<module>/<section>#<sha8(term)>` id, `body_anchor` char offsets, `extracted_by` provenance. `KNOWN_SCHEMA_VERSION` bumped 1 → 2.
+- **L2a builder** — parser pass writes Definition[] per module, attaches `def_id` + `raw` to every `defined_term` body segment via per-occurrence resolver (precedence: hierarchy > module; longest matching prefix wins; section_id tiebreak). Self-suppression at body_anchor. Per-module `unresolved_references.json` audit artifact.
+- **L2b cutover** — loader reads `definitions-v2.json` (ModuleDefinitionsSchema-validated, whole-file hard-fail); renderer keys popover lookup off `def_id`; legacy `term` field on body segments removed; bodyToText emits `raw`. `--corpus-path` schema-version gate against `MIN_SUPPORTED_SCHEMA_VERSION` so stale bundles fail with a clear "rebuild your corpus" message routed through `boot-overlay.tsx`.
+- **L3 patterns** — every SF module's `defined_term_patterns` now includes shall-mean, is-defined-as, are-defined-as, and curly-quoted-means variants alongside the original quoted-means.
+
+**L3 follow-ups (operator curation, not blocking the foundation PR):**
+
+- **Populate `global_definer_sections` per module.** L1 added the manifest slot; L2a wires `{kind:"module"}` scope and `extracted_by:"manifest:declared-global"` when a section id is listed. The user-visible OOS-drop in sf-administrative (87% → low single digits per the plan §7 L3) requires the operator to identify which sections actually define module-wide terms ("City", "Director", "Department"). Workflow: build the corpus, run `pnpm exec tsx scripts/definitions-coverage.ts`, look at `unresolved_references.json` for high-OOS modules, identify the canonical definers, declare them in `manifests/sf/jurisdiction.json`, rebuild, re-measure. Owner: micro-PR direct to main once the operator session happens.
+- **List-style + bare-term-capitalized-leading-noun patterns.** Plan §7 L3 lists these among the patterns to add, but each has subtleties the current per-section regex extractor doesn't handle well — list-style needs structural-context awareness (paragraph-leading `(a) "X" means...`), bare-term-capitalized-leading-noun has high false-positive risk without scope filtering. Defer until the coverage report tells us they're load-bearing. Owner: post-merge follow-up.
+- **Coverage-script promotion to operator gate** (was T5 in the plan). Promote `scripts/definitions-coverage.ts` to a `mise run validate:full` threshold gate that asserts the OOS-drop target post-L3. Per CI gate split decision (plan §5): operator-driven, not in PR CI. Owner: micro-PR after manifest globals are curated.
+- **v2 missed-phrasing finder** (was T6 in the plan, explicit P3 follow-up). Filter prepositional false positives from the "candidates we should have caught" suggestions. Owner: deferred to the post-L3 follow-up plan.
+
+---

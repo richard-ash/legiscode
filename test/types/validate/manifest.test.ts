@@ -82,6 +82,30 @@ describe("ModuleConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  // L1 — global_definer_sections slot: manifests can declare which
+  // sections inside this module produce module-wide Definitions
+  // ({kind:"module"}, extracted_by "manifest:declared-global"). L1
+  // declares the slot; L3 wires the extractor.
+  it("accepts an optional global_definer_sections list", () => {
+    const parsed = ModuleConfigSchema.parse({
+      ...validModule,
+      global_definer_sections: ["a-100", "a-200"],
+    });
+    expect(parsed.global_definer_sections).toEqual(["a-100", "a-200"]);
+  });
+
+  it("global_definer_sections defaults to undefined when omitted (optional)", () => {
+    expect(ModuleConfigSchema.parse(validModule).global_definer_sections).toBeUndefined();
+  });
+
+  it("rejects bad section ids inside global_definer_sections", () => {
+    const result = ModuleConfigSchema.safeParse({
+      ...validModule,
+      global_definer_sections: ["a-100", "INVALID ID"],
+    });
+    expect(result.success).toBe(false);
+  });
+
   it("rejects source.path on a ModuleConfig (jurisdiction-level only)", () => {
     const result = ModuleConfigSchema.safeParse({
       ...validModule,
@@ -388,5 +412,13 @@ describe("DistributedModuleManifestSchema", () => {
     const { jurisdiction: _omit, ...withoutJurisdiction } = validDistributed;
     const result = DistributedModuleManifestSchema.safeParse(withoutJurisdiction);
     expect(result.success).toBe(false);
+  });
+
+  it("accepts an optional global_definer_sections list", () => {
+    const parsed = DistributedModuleManifestSchema.parse({
+      ...validDistributed,
+      global_definer_sections: ["a-100"],
+    });
+    expect(parsed.global_definer_sections).toEqual(["a-100"]);
   });
 });

@@ -171,14 +171,107 @@ describe("BodySegment via SectionFileSchema.body", () => {
     expect(result.success).toBe(false);
   });
 
-  it("accepts a defined_term segment", () => {
+  // L2b cutover: defined_term segments REQUIRE raw + def_id; the
+  // legacy `term` field is gone, and bodyToText emits `raw`. The
+  // roundtrip invariant constrains text === raw in fixtures.
+  it("accepts a defined_term segment with raw and def_id", () => {
+    expect(
+      SectionFileSchema.safeParse({
+        ...validSection,
+        text: "Tenant",
+        body: [
+          {
+            type: "defined_term",
+            raw: "Tenant",
+            def_id: "sf-housing/h401#a1b2c3d4",
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts a defined_term segment with candidates_dropped (per-occurrence runner-ups)", () => {
+    expect(
+      SectionFileSchema.safeParse({
+        ...validSection,
+        text: "City",
+        body: [
+          {
+            type: "defined_term",
+            raw: "City",
+            def_id: "sf-administrative/a-100#deadbeef",
+            candidates_dropped: [
+              "sf-administrative/a-200#deadbeee",
+              "sf-administrative/a-300#deadbeed",
+            ],
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects a defined_term segment missing def_id", () => {
     expect(
       SectionFileSchema.safeParse({
         ...validSection,
         text: "Person",
-        body: [{ type: "defined_term", term: "Person" }],
+        body: [{ type: "defined_term", raw: "Person" }],
       }).success,
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  it("rejects a defined_term segment missing raw", () => {
+    expect(
+      SectionFileSchema.safeParse({
+        ...validSection,
+        text: "Person",
+        body: [{ type: "defined_term", def_id: "sf-housing/h401#a1b2c3d4" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a defined_term segment carrying the legacy term field (strict mode)", () => {
+    expect(
+      SectionFileSchema.safeParse({
+        ...validSection,
+        text: "Person",
+        body: [
+          {
+            type: "defined_term",
+            term: "Person",
+            raw: "Person",
+            def_id: "sf-housing/h401#a1b2c3d4",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a defined_term segment with a malformed def_id", () => {
+    expect(
+      SectionFileSchema.safeParse({
+        ...validSection,
+        text: "Person",
+        body: [{ type: "defined_term", raw: "Person", def_id: "not-a-valid-id" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a defined_term segment with a malformed entry in candidates_dropped", () => {
+    expect(
+      SectionFileSchema.safeParse({
+        ...validSection,
+        text: "City",
+        body: [
+          {
+            type: "defined_term",
+            raw: "City",
+            def_id: "sf-administrative/a-100#deadbeef",
+            candidates_dropped: ["bad"],
+          },
+        ],
+      }).success,
+    ).toBe(false);
   });
 
   it("accepts a subsection_label segment", () => {
@@ -416,7 +509,7 @@ describe("bodyToText helper", () => {
         { type: "text", text: "see " },
         { type: "citation", raw: "§ 1.01", citation_index: 0 },
         { type: "text", text: " ('" },
-        { type: "defined_term", term: "Person" },
+        { type: "defined_term", raw: "Person", def_id: "sf-housing/h401#a1b2c3d4" },
         { type: "text", text: "')" },
         { type: "paragraph_break" },
         { type: "subsection_label", label: "(a)" },

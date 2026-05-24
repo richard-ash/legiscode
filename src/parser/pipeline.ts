@@ -38,10 +38,10 @@ import {
   buildCollisionFamilies,
   type CollisionFamilyIndex,
 } from "./binder";
-import { buildBodySegments } from "./build-body-segments";
+import { buildBodySegments, type UnresolvedReferenceReport } from "./build-body-segments";
 import { type CitationMatch, extractCitations } from "./citations";
-import { extractDefinedTerms } from "./defined-terms";
-import { computeDefinitions } from "./definitions";
+import { type DefinedTermMatch, extractDefinedTerms } from "./defined-terms";
+import { buildModuleDefinitions } from "./definitions";
 import { ParseAbortError, parseExport as parseExportRaw, type SpanRecord } from "./parse-html";
 
 // Known raw-parser strategies. Adding a new jurisdiction adds a token here
@@ -158,28 +158,31 @@ function buildParsedModule(
   // Three-pass section build (CT1 + CT4):
   //
   //   Pass 1 — per section: extract citations + defined terms (positions
-  //            retained for Pass 3), build a body-less SectionFile,
-  //            schema-validate. Skips on validation failure.
-  //   Pass 2 — module-wide: compute the defined-term dictionary so
-  //            occurrences anywhere in the module become highlightable in
-  //            any section's body[].
+  //            retained for Pass 2 and Pass 3), build a body-less
+  //            SectionFile, schema-validate. Skips on validation failure.
+  //   Pass 2 — module-wide: build the canonical Definition[] graph
+  //            (id-keyed, scoped, anchored) from every section's
+  //            extracted matches plus the manifest's
+  //            global_definer_sections list. Persisted as
+  //            definitions-v2.json.
   //   Pass 3 — per section: call buildBodySegments using Pass-1
-  //            extraction outputs + Pass-2 dictionary; re-validate the
-  //            section with the populated body[]. Schema failure here
-  //            indicates a buildBodySegments bug, so we skip with a
-  //            descriptive reason — the 0%-skip-rate gate then surfaces
-  //            it as a build failure.
+  //            extraction outputs + Pass-2's canonical Definition[]. The
+  //            per-occurrence resolver inside buildBodySegments attaches
+  //            def_id to each defined_term segment, drops self-suppressed
+  //            occurrences, and records unresolved references for the
+  //            per-module audit artifact.
   //
-  // We cannot inline body-building in Pass 1 because Pass 2's dictionary
-  // requires every section's defined_terms to be known, which means all
-  // of Pass 1 must finish first.
+  // We cannot inline body-building in Pass 1 because Pass 2's graph
+  // requires every section's matches to be known first.
   interface SectionDraft {
     section: SectionFile;
     htmlSpans: readonly SpanRecord[];
     citationMatches: readonly CitationMatch[];
+    definedTermMatches: readonly DefinedTermMatch[];
     rawSection: (typeof raw.sections)[number];
   }
   const drafts: SectionDraft[] = [];
+  const unresolvedReferences: UnresolvedReferenceReport[] = [];
 
   // Pass 1
   for (const ps of raw.sections) {
@@ -241,19 +244,33 @@ function buildParsedModule(
       section: validated.data,
       htmlSpans: ps.htmlSpans,
       citationMatches,
+      definedTermMatches,
       rawSection: ps,
     });
   }
 
-  // Pass 2: build the module-wide defined-term dictionary. Keys are
-  // every term that any section in this module locally defines; the
-  // body builder uses set-membership to mark occurrences.
-  const localDefinitions = computeDefinitions(drafts.map((d) => d.section));
-  const moduleDefinedTerms = new Set(Object.keys(localDefinitions));
+  // Pass 2: canonical Definition[] graph. Each Definition is
+  // addressable (id), anchored (body_anchor char offsets into
+  // section.text), scoped (default to definer's hierarchy prefix;
+  // module manifest globals override), and provenance-tagged
+  // (extracted_by names the source pattern). Persisted as
+  // definitions-v2.json.
+  const globalDefinerSections = new Set<SectionId>(module.global_definer_sections ?? []);
+  const moduleDefinitions = buildModuleDefinitions(
+    module,
+    drafts.map((d) => ({
+      moduleId: module.id,
+      section: d.section,
+      matches: d.definedTermMatches,
+      globalDefinerSections,
+    })),
+  );
 
   // Pass 3: build body[] per section, attach via a fresh validated
   // SectionFile (the superRefine on citation_index re-runs against
-  // the populated body[]).
+  // the populated body[]). The per-occurrence resolver inside
+  // buildBodySegments attaches def_id to each defined_term and
+  // reports unresolved occurrences for the per-module audit artifact.
   for (const draft of drafts) {
     const citationMatchesWithIndex = draft.citationMatches.map((cm, idx) => ({
       ...cm,
@@ -263,7 +280,9 @@ function buildParsedModule(
       text: draft.section.text,
       htmlSpans: draft.htmlSpans,
       citationMatches: citationMatchesWithIndex,
-      moduleDefinedTerms,
+      moduleDefinitions,
+      readerSection: { id: draft.section.id, hierarchy: draft.section.hierarchy },
+      onUnresolvedReference: (report) => unresolvedReferences.push(report),
     });
     const withBody = { ...draft.section, body };
     const finalValidated = SectionFileSchema.safeParse(withBody);
@@ -362,12 +381,8 @@ function buildParsedModule(
     appendices,
     ordinanceHistories,
     resolutionHistories,
-    // Reuse Pass-2's dictionary. drafts (input) ⊇ sections (output) — they
-    // diverge only on Pass-3 failures, which fail the 0%-skip gate before
-    // the build ships. Recomputing would also drop a now-skipped section's
-    // defined-term from the map even though the surviving sections' body[]
-    // already references it.
-    definitions: localDefinitions,
+    moduleDefinitions,
+    unresolvedReferences,
     skipped,
     // Warnings: the parse-html-level InterCodeLink resolver returns these,
     // but it isn't yet wired into parseExport's per-module slice. Empty for

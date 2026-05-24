@@ -72,12 +72,17 @@ describe("DefinedTermSchema", () => {
     expect(DefinedTermSchema.safeParse("Director  of  Transportation").success).toBe(false);
   });
 
-  it("rejects > 200 chars", () => {
-    expect(DefinedTermSchema.safeParse("x".repeat(201)).success).toBe(false);
+  it("accepts long terms — legal corpora include very long defined labels", () => {
+    // Real example: "Section 41B.6 of the Administrative Code, as that
+    // Section 41B.6 existed as of June 3, 2019" (~90 chars). Regex
+    // over-captures can run hundreds of chars; they're inert at runtime
+    // (the body scanner uses \b<term>\b — a runaway capture can only
+    // match its own source position), so no length cap is enforced.
+    expect(DefinedTermSchema.safeParse("x".repeat(2000)).success).toBe(true);
   });
 
   it("does not transform inputs (round-trip identity for accepted keys)", () => {
-    const inputs = ["Director of Transportation", "10.04.020", "Bicycle", "x".repeat(200)];
+    const inputs = ["Director of Transportation", "10.04.020", "Bicycle", "x".repeat(500)];
     for (const input of inputs) {
       const parsed = DefinedTermSchema.parse(input);
       expect(parsed).toBe(input);

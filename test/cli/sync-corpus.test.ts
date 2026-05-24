@@ -6,9 +6,9 @@ import { computeChecksum } from "@/storage";
 import {
   AppendixSchema,
   CorpusMetaSchema,
-  DefinitionsFileSchema,
   DistributedModuleManifestSchema,
   KNOWN_SCHEMA_VERSION,
+  ModuleDefinitionsSchema,
   OrdinanceHistorySchema,
   ResolutionHistorySchema,
   SectionFileSchema,
@@ -46,7 +46,8 @@ describe("sync-corpus E2E — happy path against committed jurisdiction fixture"
     const out = join(firstBuild.outputBase, "sf-transportation");
     expect((await stat(out)).isDirectory()).toBe(true);
     expect((await stat(join(out, "manifest.json"))).isFile()).toBe(true);
-    expect((await stat(join(out, "definitions.json"))).isFile()).toBe(true);
+    expect((await stat(join(out, "definitions-v2.json"))).isFile()).toBe(true);
+    expect((await stat(join(out, "unresolved_references.json"))).isFile()).toBe(true);
     expect((await stat(join(out, "corpus-meta.json"))).isFile()).toBe(true);
     const sections = await readdir(
       join(out, "sections", "transportation-code", "division-i", "article-1"),
@@ -241,18 +242,18 @@ describe("sync-corpus E2E — happy path against committed jurisdiction fixture"
     expect(transportMeta.corpus_entry_kinds).toEqual(["section"]);
   });
 
-  it("definitions.json validates as a record for each module", async () => {
-    DefinitionsFileSchema.parse(
+  it("definitions-v2.json validates as ModuleDefinitions[] for each module", async () => {
+    ModuleDefinitionsSchema.parse(
       JSON.parse(
         await readFile(
-          join(firstBuild.outputBase, "sf-transportation", "definitions.json"),
+          join(firstBuild.outputBase, "sf-transportation", "definitions-v2.json"),
           "utf8",
         ),
       ),
     );
-    DefinitionsFileSchema.parse(
+    ModuleDefinitionsSchema.parse(
       JSON.parse(
-        await readFile(join(firstBuild.outputBase, "sf-charter", "definitions.json"), "utf8"),
+        await readFile(join(firstBuild.outputBase, "sf-charter", "definitions-v2.json"), "utf8"),
       ),
     );
   });
@@ -279,7 +280,7 @@ describe("sync-corpus E2E — happy path against committed jurisdiction fixture"
     expect(charterManifest.id).toBe("sf-charter");
   });
 
-  it("corpus-meta.json has schema_version=1, sha256 checksum + source_sha256, ISO 8601 snapshot_at, no skips", async () => {
+  it("corpus-meta.json has schema_version=KNOWN_SCHEMA_VERSION, sha256 checksum + source_sha256, ISO 8601 snapshot_at, no skips", async () => {
     const transportMeta = CorpusMetaSchema.parse(
       JSON.parse(
         await readFile(
@@ -340,7 +341,8 @@ describe("sync-corpus determinism — only snapshot_at varies", () => {
         expect(b.equals(a)).toBe(true);
       };
       await compare("manifest.json");
-      await compare("definitions.json");
+      await compare("definitions-v2.json");
+      await compare("unresolved_references.json");
     }
   });
 });

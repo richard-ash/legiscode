@@ -1,14 +1,26 @@
 import { z } from "zod";
 import { ModuleIdSchema, SectionIdSchema } from "./identifiers";
 
-// The app owns the schema. Schema-version compatibility is enforced at the
-// backend (module distribution URLs namespace by schema_version), so the app
-// at KNOWN_SCHEMA_VERSION = N only ever requests /modules/schema-N/... URLs.
-// The field is on CorpusMeta for diagnostics, not as a runtime gate. When a
-// future schema version ships, the backend serves both URL namespaces and
-// each client picks the one it can read — no cross-version reads at the
-// wire layer.
-export const KNOWN_SCHEMA_VERSION = 1;
+// The app owns the schema. Schema-version compatibility for shipped module
+// distributions is enforced at the backend (module distribution URLs
+// namespace by schema_version), so the app at KNOWN_SCHEMA_VERSION = N
+// only ever requests /modules/schema-N/... URLs from the backend.
+//
+// The --corpus-path power-user path bypasses that backend gate (custom
+// local bundles can be at any schema_version), so the loader compares
+// each module's corpus-meta.schema_version against
+// MIN_SUPPORTED_SCHEMA_VERSION and fails loudly when a stale bundle
+// would otherwise crash downstream on field-shape mismatches.
+//
+// KNOWN_SCHEMA_VERSION = 2: definitions graph is canonical Definition[]
+// (id, body_anchor, scope, extracted_by); defined_term body segments
+// require def_id + raw; legacy term-keyed DefinitionsFile is gone.
+// MIN_SUPPORTED_SCHEMA_VERSION starts equal to KNOWN_SCHEMA_VERSION —
+// there are no older schema versions in the wild yet. When the app
+// learns to read additive future versions, bump KNOWN above MIN; when
+// it stops supporting older shapes, bump MIN to match.
+export const KNOWN_SCHEMA_VERSION = 2;
+export const MIN_SUPPORTED_SCHEMA_VERSION = 2;
 
 // CorpusEntry kinds enumerated in corpus-meta.json's `corpus_entry_kinds`
 // field, so consumers can detect kind-extension at meta-read time without

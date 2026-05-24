@@ -26,15 +26,27 @@
 // from the outer format(bold) and the citation child renders as a link
 // inside the bolded run.
 
-import type { Citation } from "@/types";
+import type { Citation, Definition, DefinitionId, SectionId } from "@/types";
 import type { SpanRecord } from "./parse-html";
+import { buildCandidatesByTerm, resolveDefinitionForOccurrence } from "./resolve-definition";
 
 // A primary annotation — the non-format spans that tile `text`. Each
 // has a position range; gaps between primaries become `text` segments
-// at emit time.
+// at emit time. defined_term primaries start with just `term` (from
+// the occurrence scanner); the per-occurrence resolver pass attaches
+// def_id + raw (or drops the primary to a text gap when unresolved or
+// self-suppressed).
 type Primary =
   | { kind: "citation"; start: number; end: number; raw: string; citation_index: number }
-  | { kind: "defined_term"; start: number; end: number; term: string }
+  | {
+      kind: "defined_term";
+      start: number;
+      end: number;
+      term: string;
+      def_id?: DefinitionId;
+      raw?: string;
+      candidates_dropped?: DefinitionId[];
+    }
   | { kind: "subsection_label"; start: number; end: number; label: string }
   | { kind: "paragraph_break"; start: number; end: number };
 
@@ -45,10 +57,32 @@ type Primary =
 type Segment =
   | { type: "text"; text: string }
   | { type: "citation"; raw: string; citation_index: number }
-  | { type: "defined_term"; term: string }
+  | {
+      type: "defined_term";
+      raw: string;
+      def_id: DefinitionId;
+      candidates_dropped?: DefinitionId[];
+    }
   | { type: "subsection_label"; label: string }
   | { type: "paragraph_break" }
   | { type: "format"; style: "bold" | "italic" | "list" | "listItem"; children: Segment[] };
+
+export interface UnresolvedReferenceReport {
+  /** The matched term text. */
+  term: string;
+  /** Reader section the occurrence is in. */
+  reader_section: SectionId;
+  /** Surface text at the occurrence (== term for L1-L3; differs when
+   * morphology lands post-L3). */
+  raw_text: string;
+  /** Paragraph-bounded text around the occurrence — enough context for
+   * an operator to judge whether the occurrence really should resolve. */
+  surrounding_excerpt: string;
+  /** Definition ids that share this term but were out of scope. Lets
+   * the operator spot scope-attribution misses (e.g., a "City" definer
+   * exists but its hierarchy doesn't cover this reader). */
+  out_of_scope_candidate_ids: DefinitionId[];
+}
 
 export interface BuildBodySegmentsInput {
   /** Normalized section text. Spans index into this string. */
@@ -66,11 +100,25 @@ export interface BuildBodySegmentsInput {
     end: number;
     citation_index: number;
   }[];
-  /** Module-wide set of terms defined somewhere in the module. The
-   * builder scans `text` for occurrences of any of these terms and
-   * emits defined_term segments. (CT4 — section-locally-defined terms
-   * are a subset of this dictionary.) */
-  moduleDefinedTerms: ReadonlySet<string>;
+  /**
+   * Canonical Definition[] for the entire module. Per-occurrence
+   * resolution (L2a) consults this index to find the in-scope
+   * Definition for each defined_term occurrence, attaches def_id to
+   * the emitted segment, and records dropped runner-up candidates.
+   * The set of recognizable terms is derived from this array.
+   */
+  moduleDefinitions: readonly Definition[];
+  /**
+   * Reader section context — id for self-suppression, hierarchy chain
+   * for the precedence rule.
+   */
+  readerSection: { id: SectionId; hierarchy: readonly string[] };
+  /**
+   * Called once per defined_term occurrence that has no in-scope
+   * Definition. Caller aggregates these into unresolved_references.json
+   * per module so the operator-driven coverage report can audit them.
+   */
+  onUnresolvedReference?: (report: UnresolvedReferenceReport) => void;
 }
 
 // Subsection label detection: paragraph-leading `(a)`, `(b)(2)`,
@@ -218,13 +266,18 @@ function buildPrimaryLeaves(text: string, primaries: Primary[]): PositionedLeaf[
           segment: { type: "citation", raw: p.raw, citation_index: p.citation_index },
         });
         break;
-      case "defined_term":
-        out.push({
-          start: p.start,
-          end: p.end,
-          segment: { type: "defined_term", term: p.term },
-        });
+      case "defined_term": {
+        // After resolveDefinedTermOccurrences, every defined_term primary
+        // that survived has def_id + raw populated; the unresolved/
+        // self-suppressed ones were dropped to text gaps upstream.
+        if (p.def_id === undefined || p.raw === undefined) continue;
+        const segment: Segment = { type: "defined_term", raw: p.raw, def_id: p.def_id };
+        if (p.candidates_dropped !== undefined && p.candidates_dropped.length > 0) {
+          segment.candidates_dropped = p.candidates_dropped;
+        }
+        out.push({ start: p.start, end: p.end, segment });
         break;
+      }
       case "subsection_label":
         out.push({
           start: p.start,
@@ -383,9 +436,112 @@ function filterFormatSpansCrossingPrimaries(
   });
 }
 
+// MAX_EXCERPT_LENGTH duplicated from definitions.ts intentionally —
+// the unresolved-reference surrounding excerpt has the same shape and
+// budget as the canonical Definition excerpt. Two callers, one
+// constant; per the feedback_test_each_path_once rule each module
+// tests its own bound rather than sharing a dependency for a
+// single-purpose helper.
+const MAX_EXCERPT_LENGTH = 500;
+
+function paragraphExcerpt(text: string, from: number, to: number): string {
+  const prevNewline = text.lastIndexOf("\n", Math.max(0, from - 1));
+  const paragraphStart = prevNewline === -1 ? 0 : prevNewline + 1;
+  const nextNewline = text.indexOf("\n", to);
+  const paragraphEnd = nextNewline === -1 ? text.length : nextNewline;
+  let excerpt = text.slice(paragraphStart, paragraphEnd).trim();
+  if (excerpt.length > MAX_EXCERPT_LENGTH) {
+    excerpt = `${excerpt.slice(0, MAX_EXCERPT_LENGTH - 1)}…`;
+  }
+  return excerpt;
+}
+
+// Run the per-occurrence resolver over defined_term primaries. For each
+// match:
+//   - winner exists, self-suppression NOT triggered → attach
+//     def_id/raw/candidates_dropped to the primary, keep it
+//   - winner exists, self-suppression triggered → drop the primary
+//     (the canonical defining clause renders as plain text, per §9 L9)
+//   - no winner → drop the primary, fire onUnresolvedReference
+//
+// Dropped primaries leave a gap that buildPrimaryLeaves fills with a
+// text segment.
+function resolveDefinedTermOccurrences(
+  primaries: Primary[],
+  text: string,
+  moduleDefinitions: readonly Definition[],
+  readerSection: { id: SectionId; hierarchy: readonly string[] },
+  onUnresolvedReference: ((report: UnresolvedReferenceReport) => void) | undefined,
+): Primary[] {
+  const candidatesByTerm = buildCandidatesByTerm(moduleDefinitions);
+  const out: Primary[] = [];
+  for (const p of primaries) {
+    if (p.kind !== "defined_term") {
+      out.push(p);
+      continue;
+    }
+    const result = resolveDefinitionForOccurrence(
+      p.term,
+      { id: readerSection.id, hierarchy: readerSection.hierarchy },
+      candidatesByTerm,
+    );
+    if (result.winner === null) {
+      // Unresolved: out-of-scope or no candidates. Emit an audit row
+      // (text gap fills in via buildPrimaryLeaves), drop the primary.
+      const allCandidatesForTerm = candidatesByTerm.get(p.term) ?? [];
+      onUnresolvedReference?.({
+        term: p.term,
+        reader_section: readerSection.id,
+        raw_text: text.slice(p.start, p.end),
+        surrounding_excerpt: paragraphExcerpt(text, p.start, p.end),
+        out_of_scope_candidate_ids: allCandidatesForTerm.map((c) => c.id),
+      });
+      continue;
+    }
+    // Self-suppression: the canonical defining clause at body_anchor
+    // renders as plain text (§9 L9). Other occurrences of the same
+    // term in the same section stay tagged.
+    if (
+      result.winner.defined_in === readerSection.id &&
+      p.start === result.winner.body_anchor.start &&
+      p.end === result.winner.body_anchor.end
+    ) {
+      continue;
+    }
+    const annotated: Primary = {
+      kind: "defined_term",
+      start: p.start,
+      end: p.end,
+      term: p.term,
+      raw: text.slice(p.start, p.end),
+      def_id: result.winner.id,
+    };
+    if (result.dropped.length > 0) {
+      annotated.candidates_dropped = result.dropped.map((d) => d.id);
+    }
+    out.push(annotated);
+  }
+  return out;
+}
+
 export function buildBodySegments(input: BuildBodySegmentsInput): Segment[] {
-  const { text, htmlSpans, citationMatches, moduleDefinedTerms } = input;
+  const {
+    text,
+    htmlSpans,
+    citationMatches,
+    moduleDefinitions,
+    readerSection,
+    onUnresolvedReference,
+  } = input;
   if (text.length === 0) return [];
+
+  // Derive the term-set the occurrence scanner cares about from the
+  // canonical Definition[] (every distinct term that's defined
+  // somewhere in the module). Module-wide so a section in Chapter X
+  // can highlight a term defined in Chapter Y; per-occurrence
+  // resolution filters by scope in the next step.
+  const moduleDefinedTerms = new Set<string>();
+  for (const d of moduleDefinitions) moduleDefinedTerms.add(d.term);
 
   // Step 1: collect all primary annotations.
   const primaries: Primary[] = [];
@@ -413,13 +569,27 @@ export function buildBodySegments(input: BuildBodySegmentsInput): Segment[] {
   // Step 2: resolve overlaps per CQ2.
   const resolved = resolveOverlaps(primaries);
 
+  // Step 2.5 (L2a): per-occurrence definition resolution. Drops
+  // unresolved and self-suppressed defined_term primaries; attaches
+  // def_id/raw/candidates_dropped to those that resolve cleanly.
+  // Dropped primaries leave gaps that buildPrimaryLeaves fills with
+  // text segments — the canonical clause in a definer section
+  // therefore renders as plain text per §9 L9.
+  const withResolution = resolveDefinedTermOccurrences(
+    resolved,
+    text,
+    moduleDefinitions,
+    readerSection,
+    onUnresolvedReference,
+  );
+
   // Step 3: build leaf list (primary + text gaps).
-  const leaves = buildPrimaryLeaves(text, resolved);
+  const leaves = buildPrimaryLeaves(text, withResolution);
 
   // Step 4: wrap with format spans (everything except paragraph_break).
   // Filter out format spans that cross non-text primary boundaries —
   // those would force sliceSegment to double-emit the primary segment.
   const formatOnly = htmlSpans.filter((s) => s.format !== "paragraph_break");
-  const safeFormats = filterFormatSpansCrossingPrimaries(formatOnly, resolved);
+  const safeFormats = filterFormatSpansCrossingPrimaries(formatOnly, withResolution);
   return wrapWithFormatSpans(leaves, safeFormats);
 }
