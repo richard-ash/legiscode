@@ -12,12 +12,9 @@ Reconciled 2026-05-19: 9 of 18 plan branches merged (Phase 2 complete). Every it
 
 - **CR-roman — Structural citations in Roman numerals not captured.** The widened regex only matches `\d+` so "Article V" / "Chapter XII" miss. SF Charter's articles are predominantly Roman, so a meaningful fraction of `Article N`-style citations slip past the parser. Fix: extend the structural-prefix pattern with a Roman alternation (`\b[IVXLCDM]+\b`) and add a Roman→Arabic normalizer to the `structural` target so the resolver can look up the chapter node consistently. Owner: unowned; queue for v1.1.
 - **CR-structural-lookup — `findStructuralRef` is best-effort.** Currently walks the corpus tree looking for chapter nodes whose `code` starts with `{LEVEL} {N}` (trying both arabic and Roman). Doesn't handle hyphenated identifiers, multi-segment numbers (e.g. "Chapter 12.4"), or cross-module structural references. Fix: build a structural index at corpus-load time keyed by `(module, level, number)` — same shape the renderer wants. Owner: unowned; queue for v1.1.
-- **CR-popover-content — Popover body is empty for resolved cites.** The popover renders header + footer correctly but doesn't yet fetch the target section's title or first-paragraph excerpt; the App-side `resolveCitation` returns only the verb-shaped `ResolutionResult`, not the section content. Fix: extend the existence oracle with a `lookupTitle(ref)` (and optional `lookupExcerpt(ref)`) so the popover can render the resolved title + body excerpt per the 2026-05-19 mockup. Owner: unowned; near-term polish, before the public Phase-3 demo.
 - **CR-unresolved-cross — RESOLVED in Phase 4 refoundation.** The 9,308 unresolved-cross bucket collapsed to 2,332, all of which are cites to external CA/US modules genuinely not in this build. The intra-unresolved gate now means "0" for real (binder reclassifies bindable-shape-but-actually-unbindable cites as `vague` rather than dumping to cross-unresolved). Cross-module slips moved into the binder's sibling-fallback pass. Owner: shipped via PR #25.
 - **CR-charter-appendix — RESOLVED in Phase 4 refoundation.** SF Charter appendix sections (`a8.559`, `d3.750`) and the `a`/`d` prefix fallback are now manifest-driven via the `display_rules.extra_prefixes` knob, applied uniformly through the binder. The hardcoded validate-corpus.ts hack was deleted. Owner: shipped via PR #25.
-- **CR-shell-openExternal-unused — `shell:openExternal` IPC is registered but has no caller.** The 2026-05-20 refoundation removed every renderer-side call site (popover ⌘-click on not-installed modules is a no-op by design). The handler stays for a future "Open at source →" affordance on the popover. Fix: either ship the affordance or remove the IPC. Owner: unowned.
-- **CR-popover-unit-tests — `citation-popover.tsx` (new file, 124 lines) has no dedicated unit test.** The four kind-discriminated body branches (module-not-installed, scroll-only, navigate-*, unresolvable→null) and footer rendering are only covered indirectly via App-level integration tests. Fix: add `test/ui/center-panel/section-view/citation-popover.test.tsx` exercising each branch with `render({ result, anchorRect })`. Owner: unowned; v1.1 polish.
-- **CR-hover-dispatch-tests — `section-view.tsx` hover dispatch has no test.** The 400ms show timer, 200ms hide timer, Escape-key handler, mouseover→resolveCitation→setHoverState wiring, and anchorRect positioning are unverified by unit or e2e tests. Fix: add a `section-view-hover.test.tsx` using `vi.useFakeTimers()` to assert the show/hide timing contract. Owner: unowned; v1.1 polish.
+- **CR-open-at-source — "Open at source →" footer affordance is not wired.** The dormant `shell:openExternal` IPC needs a renderer-side consumer; the section-view-polish plan originally scoped this for #19 but A5 verification surfaced the blocker: AmLegal URLs use opaque numeric RecordIDs (`0-0-0-14202#JD_Ch.23Art.V`) rather than the section's `display_label`, so URL substitution via a manifest pattern can't produce correct deep links. Fix is a parser-side anchor-capture pass that stashes the per-section RecordID at parse time, plus a manifest field carrying the AmLegal jurisdiction slug. Once that ships, the affordance lands on both popovers (citation footer + defined-term footer) with the existing `shell:openExternal` IPC as the dispatch path. Owner: follow-up PR; supersedes the previous CR-shell-openExternal-unused framing.
 
 ---
 
@@ -76,28 +73,8 @@ Re-introductions bundled into the new `feat/section-view-polish` (#19) tail bran
   fields and the parser doesn't extract them yet. Owner split: **schema + parser
   extraction lands as a micro-PR direct to main** (small, additive); **renderer-side
   consumption** lands in `feat/section-view-polish` (#19).
-- **Clickable breadcrumb parent navigation.** Cut 2026-05-07 from feat/section-view
-  via /plan-eng-review outside-voice (codex). The original D4 plan had clickable
-  parent labels dispatching to a file-tree imperative `scrollAndReveal(rowId)` API
-  with ancestor expansion + virtualizer-timing handling — 80-150 LOC for a secondary
-  affordance with real edge cases. Cut because non-clickable parents are usable in
-  the wedge and `feat/tabs` (#7, now merged) plus the nav pipeline make the right
-  plumbing obvious. Owner: `feat/section-view-polish` (#19) — the nav pipeline
-  question is now answered, so this can dispatch through the same route layer rather
-  than imperatively into the file-tree.
-- **Defined-term tooltip: rank multi-section definitions for readability.**
-  Surfaced 2026-05-09 while reviewing §11.1 ("DEFINITIONS" in sf-cable). The
-  tooltip currently lists every defining section in section-id order — for
-  common terms ("City") that's 5+ entries spanning unrelated chapters, with
-  no signal which one applies in the current reading context. Three polish
-  passes worth doing before public release:
-    1. **Group by chapter scope.** "In this chapter: § 11.1" then "Elsewhere
-       in this code: § 15.1, § 22a.2, …".
-    2. **Sort by likelihood-of-applies.** Same-module first, then alphabetic
-       by chapter, then cross-module last.
-    3. **Truncate long lists.** First 3 rows + "Show 2 more" disclosure when
-       count > 4.
-  None are wedge blockers; bundle as one focused PR. Owner: `feat/section-view-polish` (#19).
+- **Clickable breadcrumb parent navigation. SHIPPED in `feat/section-view-polish` (PR #27).** The wire shape gained `parents[].sectionId: SectionId | null`; the loader pre-computes the first contained section per ancestor at load time via `buildAncestorIndex`; both breadcrumb surfaces (chrome strip + in-section kicker) render via the shared `BreadcrumbCrumb` component so the click target / aria-label / module-root-non-interactive rule can't drift. Module-root parents render as plain text (no module overview view to navigate to).
+- **Defined-term tooltip: scope-aware single-definer popover. SUPERSEDED by `feat/definitions-foundation` (PR #28) + `feat/section-view-polish` (PR #27).** The original "rank the multi-definer list" framing died with the foundation work — per-occurrence build-time resolution picks a single canonical Definition per `defined_term` occurrence, so the tooltip never shows a list. The follow-up PR rebuilt the popover layout (green-tinted header, scope-resolved excerpt body, single-definer action) on top of the new wire shape. The §37.3 "Department" case (no in-scope definer) gracefully degrades to inline prose with no decoration.
 - **Pre-launch CI gate on `mise run validate:full`.** Surfaced 2026-05-07 by
   /plan-eng-review outside-voice (codex). Today `validate:full` is operator-driven
   (per `mise.toml` task description: "Operator-driven, NOT in CI"). The wedge can
@@ -330,7 +307,7 @@ Hover over a citation link → small floating panel shows the cited section's ti
 `feat/command-palette` (#10) shipped the perf rewrite + field-weighted scorer + `:def` subtype + ⌘+Enter background-tab + F-palette regression test + perf budget. Three follow-ups intentionally deferred:
 
 - **Playwright e2e perf check for palette + file-tree + section-view.** This PR ships a hermetic vitest perf budget (`rank()` p95 < 8ms over a 12k-item synthetic fixture). That catches scorer / haystack regressions, but it does NOT measure real-Electron + real-React + virt overhead + GC under load. Owner of the e2e gate: `feat/release-pipeline` (#17) — the natural home for pre-release perf instrumentation. Concrete spec: open the bundled corpus, simulate 20 keystrokes in ⌘P, assert keystroke→paint p95 < 50ms. Same infra amortizes across file-tree and section-view scroll perf gates.
-- **Multi-definer disambiguation UX within a module.** D5 in this PR's plan ships per-(term, module) rows so cross-module collisions stay distinct. But intra-module collisions (e.g. the same module defines a term in 4+ sections) today get summarized as "+N more" with first-definer navigation — the user can't pick *which* definer. Same shape problem as the defined-term tooltip (`TODOS.md` line 89-101). Bundle the UX as one focused PR with the tooltip work. Owner: `feat/section-view-polish` (#19).
+- **Multi-definer disambiguation UX within a module.** D5 in this PR's plan ships per-(term, module) rows so cross-module collisions stay distinct. But intra-module collisions (e.g. the same module defines a term in 4+ sections) today get summarized as "+N more" with first-definer navigation — the user can't pick *which* definer. With the definitions-foundation cutover (PR #28) the palette aggregation still works off the term-keyed surface; the deeper question (one row per Definition, or one row per term with a disclosure) is a UX call that needs Derek-feedback signal before locking. Owner: unowned; queue alongside a future palette-polish PR once usage signal is in.
 - **Cross-restart `q` persistence.** v1 persists `q` across ⌘P toggles within a session via the `useCommandPalette` hook. Cross-restart persistence (last query, recents) belongs in `feat/sqlite-state` (#14) — the branch that owns all persistence concerns. Same place per-tab history would have landed if it weren't retired.
 
 ---
