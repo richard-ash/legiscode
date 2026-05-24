@@ -34,7 +34,7 @@ describe("CitationPopover — header + body", () => {
     render(
       <CitationPopover resolution={navigateSection()} rawCite="§ 1.01" anchorRect={ANCHOR_RECT} />,
     );
-    const header = document.querySelector(".lc-cite-popover-header");
+    const header = document.querySelector(".lc-popover-header");
     expect(header?.textContent).toContain("🔗");
     expect(header?.textContent).toContain("§ 1.01");
   });
@@ -63,7 +63,7 @@ describe("CitationPopover — header + body", () => {
       />,
     );
     expect(screen.queryByText(/Notwithstanding/)).toBeNull();
-    expect(document.querySelector(".lc-cite-popover-excerpt")).toBeNull();
+    expect(document.querySelector(".lc-popover-excerpt")).toBeNull();
   });
 });
 
@@ -144,7 +144,7 @@ describe("CitationPopover — footer action", () => {
         onActivate={vi.fn()}
       />,
     );
-    expect(document.querySelector(".lc-cite-popover-footer")).toBeNull();
+    expect(document.querySelector(".lc-popover-footer")).toBeNull();
   });
 
   it("returns null for unresolvable resolutions", () => {

@@ -47,8 +47,11 @@
   cursor: pointer;
 }
 
-/* ── Citation popover (hover) ───────────────────────────────────────── */
-.lc-cite-popover {
+/* ── Popover (citation + defined-term) ──────────────────────────────── */
+/* Shared chrome for the two hover popovers; the [data-popover-kind]
+ * attribute on the root and [data-kind] on the header drive the
+ * citation-vs-defined-term tint variations below. */
+.lc-popover {
   background: var(--bg-surface0);
   border: 1px solid var(--border-soft);
   border-radius: 6px;
@@ -59,7 +62,7 @@
   z-index: 50;
   overflow: hidden;
 }
-.lc-cite-popover-header {
+.lc-popover-header {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -70,37 +73,46 @@
   font-size: 12px;
   color: var(--peach, var(--yellow, #d4a36a));
 }
-.lc-cite-popover-icon {
+/* Defined-term popover header — same recipe as the citation header but
+   tinted green so the inline dashed underline (also --green) and the
+   popover share a visual identity. Mirrors the locked design-review
+   decision: color-mix at 10% over transparent, same as the citation
+   header recipe above. */
+.lc-popover-header[data-kind="def"] {
+  background: color-mix(in oklab, var(--green) 10%, transparent);
+  color: var(--green);
+}
+.lc-popover-icon {
   font-size: 11px;
 }
-.lc-cite-popover-raw {
+.lc-popover-raw {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.lc-cite-popover-body {
+.lc-popover-body {
   padding: 10px;
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-.lc-cite-popover-title {
+.lc-popover-title {
   font-weight: 600;
   color: var(--text);
 }
-.lc-cite-popover-excerpt {
+.lc-popover-excerpt {
   color: var(--subtext1);
   font-size: 12px;
   line-height: 1.45;
   max-height: 6em;
   overflow: hidden;
 }
-.lc-cite-popover-note {
+.lc-popover-note {
   color: var(--overlay1);
   font-size: 12px;
   font-style: italic;
 }
-.lc-cite-popover-footer {
+.lc-popover-footer {
   padding: 6px 10px;
   border-top: 1px solid var(--border-soft);
   display: flex;
@@ -108,10 +120,10 @@
   font-size: 11px;
   color: var(--overlay1);
 }
-.lc-cite-popover-hint {
+.lc-popover-hint {
   font-family: var(--font-mono);
 }
-.lc-cite-popover-action {
+.lc-popover-action {
   appearance: none;
   background: transparent;
   border: 0;
@@ -122,10 +134,10 @@
   cursor: pointer;
   font-family: var(--font-mono);
 }
-.lc-cite-popover-action:hover {
+.lc-popover-action:hover {
   text-decoration: underline;
 }
-.lc-cite-popover-action:focus-visible {
+.lc-popover-action:focus-visible {
   outline: 2px solid var(--blue, #89b4fa);
   outline-offset: 2px;
   border-radius: 2px;
@@ -153,59 +165,10 @@ button.lc-deftrm {
   text-align: inherit;
   vertical-align: baseline;
 }
-.lc-deftrm-tooltip {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 10px;
-  min-width: 160px;
-  background: var(--bg-surface0);
-  border: 1px solid var(--border-soft);
-  border-radius: 4px;
-  font-style: normal;
-  font-family: var(--font-sans);
-  font-size: 12px;
-  color: var(--subtext1);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-}
-/* Hover bridge: fills the 6px visual gap between the tooltip body and
-   the highlighted term so the mouse can travel from the term into the
-   tooltip without `mouseleave` firing on `.lc-deftrm` (which would
-   close the tooltip before the user can click a jump-link). The
-   pseudo-element is a descendant of `.lc-deftrm-tooltip`, which is a
-   descendant of `.lc-deftrm`, so the browser's relatedTarget stays
-   inside the parent during the traversal. */
-.lc-deftrm-tooltip::after {
-  content: "";
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  height: 6px;
-}
-.lc-deftrm-tooltip-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--overlay1);
-}
-.lc-deftrm-tooltip-link {
-  background: none;
-  border: none;
-  padding: 2px 0;
-  text-align: left;
-  color: var(--blue);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  cursor: pointer;
-}
-.lc-deftrm-tooltip-link:hover {
-  text-decoration: underline;
-}
+/* Defined-term popover reuses the .lc-popover-* class family for
+   consistent chrome (border, body padding, footer split). The header
+   gets `data-kind="def"` to swap the peach tint for green so the
+   popover and the inline dashed underline share a visual identity. */
 
 /* ── Subsection labels ──────────────────────────────────────────────── */
 .lc-subsection-label {

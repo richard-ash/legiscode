@@ -9,6 +9,8 @@ import {
   bodyText,
   buildCorpusSectionView,
   citationInternal,
+  testDefId,
+  testDefinitionView,
 } from "./fixtures";
 
 describe("SectionView — top-level render", () => {
@@ -63,6 +65,9 @@ describe("SectionView — top-level render", () => {
           bodyDefinedTerm("Person"),
           bodyText("')"),
         ],
+      },
+      definitions: {
+        [testDefId("Person")]: testDefinitionView("Person"),
       },
     });
     render(<SectionView view={view} parentsLabel="" error={null} navigate={vi.fn()} />);

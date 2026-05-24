@@ -37,9 +37,9 @@ export interface CitationPopoverProps {
   /** Cursor entered the popover. Parent cancels the pending hide timer
    *  so the popover stays open while the user reads the excerpt and
    *  reaches the "Go to definition →" button. */
-  onMouseEnter?: () => void;
+  onPopoverEnter?: () => void;
   /** Cursor left the popover. Parent re-arms the hide timer. */
-  onMouseLeave?: () => void;
+  onPopoverLeave?: () => void;
 }
 
 export function CitationPopover({
@@ -49,8 +49,8 @@ export function CitationPopover({
   resolvedTitle,
   bodyExcerpt,
   onActivate,
-  onMouseEnter,
-  onMouseLeave,
+  onPopoverEnter,
+  onPopoverLeave,
 }: CitationPopoverProps) {
   if (resolution.kind === "unresolvable") return null;
 
@@ -63,18 +63,18 @@ export function CitationPopover({
 
   return (
     <div
-      className="lc-cite-popover"
+      className="lc-popover"
       role="tooltip"
-      data-resolution-kind={resolution.kind}
+      data-popover-kind="citation"
       style={style}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      onMouseEnter={onPopoverEnter}
+      onMouseLeave={onPopoverLeave}
     >
-      <div className="lc-cite-popover-header">
-        <span className="lc-cite-popover-icon" aria-hidden>
+      <div className="lc-popover-header">
+        <span className="lc-popover-icon" aria-hidden>
           🔗
         </span>
-        <span className="lc-cite-popover-raw">{rawCite}</span>
+        <span className="lc-popover-raw">{rawCite}</span>
       </div>
 
       {renderBody(resolution, { resolvedTitle, bodyExcerpt })}
@@ -91,15 +91,15 @@ function renderBody(
   switch (resolution.kind) {
     case "module-not-installed":
       return (
-        <div className="lc-cite-popover-body">
-          <div className="lc-cite-popover-title">{resolution.displayName}</div>
-          <div className="lc-cite-popover-note">Not downloaded</div>
+        <div className="lc-popover-body">
+          <div className="lc-popover-title">{resolution.displayName}</div>
+          <div className="lc-popover-note">Not downloaded</div>
         </div>
       );
     case "scroll-only":
       return (
-        <div className="lc-cite-popover-body">
-          <div className="lc-cite-popover-note">
+        <div className="lc-popover-body">
+          <div className="lc-popover-note">
             Scrolls within this section ({resolution.subsection})
           </div>
         </div>
@@ -108,13 +108,9 @@ function renderBody(
     case "navigate-appendix":
     case "navigate-structural":
       return (
-        <div className="lc-cite-popover-body">
-          {ctx.resolvedTitle ? (
-            <div className="lc-cite-popover-title">{ctx.resolvedTitle}</div>
-          ) : null}
-          {ctx.bodyExcerpt ? (
-            <div className="lc-cite-popover-excerpt">{ctx.bodyExcerpt}</div>
-          ) : null}
+        <div className="lc-popover-body">
+          {ctx.resolvedTitle ? <div className="lc-popover-title">{ctx.resolvedTitle}</div> : null}
+          {ctx.bodyExcerpt ? <div className="lc-popover-excerpt">{ctx.bodyExcerpt}</div> : null}
         </div>
       );
     case "unresolvable":
@@ -127,12 +123,12 @@ function renderFooter(resolution: ResolutionResult, onActivate: (() => void) | u
     case "navigate-section":
     case "navigate-structural":
       return (
-        <div className="lc-cite-popover-footer">
-          <span className="lc-cite-popover-hint">⌘-click to open</span>
+        <div className="lc-popover-footer">
+          <span className="lc-popover-hint">⌘-click to open</span>
           {onActivate ? (
             <button
               type="button"
-              className="lc-cite-popover-action"
+              className="lc-popover-action"
               onClick={onActivate}
               // Tooltip role on the parent excludes interactive descendants
               // from the accessibility tree by spec, but the button still
@@ -148,8 +144,8 @@ function renderFooter(resolution: ResolutionResult, onActivate: (() => void) | u
       // Appendix viewer is v1.1; render the hint without an action so the
       // popover discloses the cite kind without offering a dead button.
       return (
-        <div className="lc-cite-popover-footer">
-          <span className="lc-cite-popover-hint">⌘-click to open</span>
+        <div className="lc-popover-footer">
+          <span className="lc-popover-hint">⌘-click to open</span>
         </div>
       );
     case "scroll-only":

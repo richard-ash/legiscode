@@ -16,6 +16,8 @@ import {
   bodyText,
   buildCorpusSectionView,
   citationInternal,
+  testDefId,
+  testDefinitionView,
 } from "./fixtures";
 
 describe("SectionView — edge cases", () => {
@@ -113,12 +115,17 @@ describe("SectionView — edge cases", () => {
     // Per CQ2 the parser already resolved overlap precedence; the
     // renderer just iterates. This case asserts a sequence of citation
     // followed by defined_term in the same paragraph renders both.
+    // Definition supplied so the defined-term hits the inline-highlight
+    // branch (.lc-deftrm) rather than the graceful-degrade path.
     const view = buildCorpusSectionView({
       section: {
         text: "§ 1.01 Person",
         citations: [citationInternal("§ 1.01", "1.01")],
         defined_terms: ["Person"],
         body: [bodyCitation("§ 1.01", 0), bodyText(" "), bodyDefinedTerm("Person")],
+      },
+      definitions: {
+        [testDefId("Person")]: testDefinitionView("Person"),
       },
     });
     render(<SectionView view={view} parentsLabel="" error={null} navigate={vi.fn()} />);
