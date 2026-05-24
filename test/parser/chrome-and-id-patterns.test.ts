@@ -595,7 +595,9 @@ describe("Pattern C: parent-slug qualification on residual collisions", () => {
     );
     const result = parseSingleModule(buffer);
     const inner = result.sections.find((s) => s.id === "article10appendixb.1");
-    expect(inner?.title).toBe("FINDINGS");
+    // Title prettifier (src/corpus/pretty-title.ts) runs at parse time, so
+    // the ALL-CAPS source title ships as Title Case.
+    expect(inner?.title).toBe("Findings");
   });
 
   it("two sections at same id under same parent remain a true duplicate (no Pattern C masking)", () => {
