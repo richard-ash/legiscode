@@ -110,7 +110,7 @@ Re-introductions bundled into the new `feat/section-view-polish` (#19) tail bran
 - **Parser emits definitions.json keys with stray whitespace.** Surfaced
   2026-05-08 while implementing feat/section-view's D-DELTA-2 (loader joins
   module's definitions.json into corpus:read). The operator-built dev corpus
-  (`build/modules-full/`) carries ≥6 modules whose `definitions.json` has keys
+  (`build/modules/`) carries ≥6 modules whose `definitions.json` has keys
   with leading newlines (e.g. `"\nCity"`) or trailing spaces (e.g. `"...third
   party "`) that violate `DefinedTermSchema`'s `^\S(?:.*\S)?$` regex. The loader
   soft-fails per-key (logs once per module summarizing the dropped keys, projects

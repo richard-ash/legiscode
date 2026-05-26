@@ -66,7 +66,7 @@ crosses the typed IPC bridge.
                 ┌─────────────────────────────────────────────────────────┐
                 │  Bundled corpus (read-only at runtime)                 │
                 │  process.resourcesPath/corpus/ in prod                  │
-                │  build/modules-full/ in dev                            │
+                │  build/modules/ in dev                            │
                 │  Layout owned by @/storage's writeModule()             │
                 └─────────────────────────────────────────────────────────┘
 ```

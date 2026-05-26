@@ -10,7 +10,7 @@
 // segment incorrectly, this fails. It runs against the committed test
 // fixture (sf-charter + sf-transportation, 10 sections); the
 // operator-driven `mise run validate:full` extends the same invariant
-// to the full ~11,659 production sections via build/modules-full/.
+// to the full ~11,659 production sections via build/modules/.
 
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";

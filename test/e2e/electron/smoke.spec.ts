@@ -38,7 +38,7 @@ test("electron app boots into a populated chrome shell", async () => {
     expect(rootHtml.length).toBeGreaterThan(0);
 
     // 3. Structure tree populated with corpus codes. The fixture corpus at
-    //    build/modules-full/ has 18 SF code modules; assert at least one
+    //    build/modules/ has 18 SF code modules; assert at least one
     //    rather than pinning the exact count so the test survives corpus
     //    regeneration.
     const codeCountText = await window.locator(".lc-leftpanel-title-count").first().textContent();

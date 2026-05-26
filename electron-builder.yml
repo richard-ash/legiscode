@@ -5,7 +5,7 @@
 #
 # `directories.buildResources: build-resources/` is deliberate (D18). The
 # default `build/` collides with the gitignored corpus output dir at
-# `build/modules-full/`; renaming keeps `/build/` purely generated.
+# `build/modules/`; renaming keeps `/build/` purely generated.
 appId: app.legiscode.desktop
 productName: LegisCode
 directories:
@@ -19,7 +19,7 @@ files:
 # what electron/corpus-loader.ts:resolveCorpusPath() falls back to in packaged
 # builds. Without this, packaged launches boot into BootOverlay variant=corpus.
 extraResources:
-  - from: build/modules-full
+  - from: build/modules
     to: corpus
 asar: true
 

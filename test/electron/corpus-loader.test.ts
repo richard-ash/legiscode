@@ -160,7 +160,7 @@ describe("resolveCorpusPath", () => {
     expect(path).toBe("/env/corpus");
   });
 
-  it("uses build/modules-full in dev", () => {
+  it("uses build/modules in dev", () => {
     const path = resolveCorpusPath({
       argv: ["node", "main.js"],
       env: {},
@@ -168,7 +168,7 @@ describe("resolveCorpusPath", () => {
       resourcesPath: "/ignored",
       projectRoot: "/repo",
     });
-    expect(path).toBe("/repo/build/modules-full");
+    expect(path).toBe("/repo/build/modules");
   });
 
   it("uses process.resourcesPath/corpus in prod", () => {

@@ -14,14 +14,14 @@ what the parser produces; this file documents how to operate the gate.
 mise run validate:full
 
 # 3. Inspect the corpus-level meta.
-jq . build/modules-full/corpus-meta.json
+jq . build/modules/corpus-meta.json
 ```
 
 Pass criteria — every field below MUST be true for the corpus to be
 considered valid:
 
 - `exitCode` is `0`
-- `valid` is `true` in `build/modules-full/corpus-meta.json`
+- `valid` is `true` in `build/modules/corpus-meta.json`
 - `skips.total` is `0` across every module
 - `coverage.missing` is `[]` per module
 - `citations.unresolvedIntra` is `[]`
@@ -80,7 +80,7 @@ build wall-clock in `snapshot_at`. To compare snapshots across runs:
 openssl dgst -sha256 build/downloads/sf.html
 
 # Pull what the most recent build recorded
-jq -r .source_sha256 build/modules-full/corpus-meta.json
+jq -r .source_sha256 build/modules/corpus-meta.json
 ```
 
 Both values should match. A mismatch means either the source changed

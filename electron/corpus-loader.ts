@@ -103,7 +103,7 @@ let state: LoaderState | null = null;
  * Resolve the corpus root directory. Precedence:
  *   1. `--corpus-path=<path>` from argv (absolute or cwd-relative)
  *   2. `LEGISCODE_CORPUS_PATH` env var
- *   3. dev:  `<projectRoot>/build/modules-full/`
+ *   3. dev:  `<projectRoot>/build/modules/`
  *      prod: `<process.resourcesPath>/corpus/`
  */
 export function resolveCorpusPath(opts: {
@@ -126,7 +126,7 @@ export function resolveCorpusPath(opts: {
   }
   return opts.isPackaged
     ? join(opts.resourcesPath, "corpus")
-    : join(opts.projectRoot, "build", "modules-full");
+    : join(opts.projectRoot, "build", "modules");
 }
 
 /**
