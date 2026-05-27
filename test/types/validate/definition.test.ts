@@ -65,6 +65,41 @@ describe("DefinitionIdSchema", () => {
     expect(DEFINITION_ID_RE.test("sf-housing/h401#a1b2c3d4")).toBe(true);
     expect(DEFINITION_ID_RE.test("bad")).toBe(false);
   });
+
+  // Load-bearing for section-view's defined_term render path: the renderer
+  // reads `ctx.definitions[def_id]` as a naked object lookup, which is safe
+  // ONLY because no valid DefinitionId can collide with an Object.prototype
+  // key. The `<module>/<section>#<sha8>` shape contains `/` and `#`, which
+  // appear in none of the prototype property names. If this regex is ever
+  // widened to allow keys lacking those separators, the renderer becomes
+  // vulnerable to prototype-chain reads and must restore its Object.hasOwn
+  // guard. Pin the invariant here so the regression turns red.
+  it.each([
+    "__proto__",
+    "toString",
+    "constructor",
+    "hasOwnProperty",
+    "valueOf",
+    "isPrototypeOf",
+    "propertyIsEnumerable",
+    "toLocaleString",
+    "__defineGetter__",
+    "__defineSetter__",
+    "__lookupGetter__",
+    "__lookupSetter__",
+  ])("rejects %s (Object.prototype-key safety)", (key) => {
+    expect(DEFINITION_ID_RE.test(key)).toBe(false);
+  });
+
+  // Exhaustiveness backstop: any Object.prototype key V8 adds in the
+  // future (or that an older Node runtime exposes) must also be rejected.
+  // Pairs with the explicit list above — the list names the canonical
+  // danger surface for human readers; this guard catches additions.
+  it("rejects every Object.prototype own-property name", () => {
+    for (const key of Object.getOwnPropertyNames(Object.prototype)) {
+      expect(DEFINITION_ID_RE.test(key)).toBe(false);
+    }
+  });
 });
 
 describe("formatDefinitionId", () => {

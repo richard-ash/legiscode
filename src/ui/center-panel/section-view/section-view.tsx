@@ -473,14 +473,11 @@ function renderSegment(seg: BodySegment, ctx: RenderCtx, key: string): ReactNode
     }
     case "defined_term": {
       // L2b cutover: lookup keyed by def_id (build-time-resolved per
-      // occurrence) instead of by term. Object.hasOwn guard: definitions
-      // arrives as a plain object after IPC's JSON round-trip, so a
-      // def_id colliding with an Object.prototype name (theoretically
-      // impossible given the sha8 suffix, but the guard costs nothing)
-      // would otherwise read an inherited property.
-      const definition = Object.hasOwn(ctx.definitions, seg.def_id)
-        ? ctx.definitions[seg.def_id]
-        : undefined;
+      // occurrence). The loader owns prototype-key safety (Object.create(null)
+      // on the producer side; DEFINITION_ID_RE rejects every Object.prototype
+      // name by construction), so a missing def_id reads as `undefined` here
+      // and falls through to DefinedTerm's graceful-degrade branch.
+      const definition = ctx.definitions[seg.def_id];
       return <DefinedTerm key={key} raw={seg.raw} definition={definition} onJump={ctx.onJump} />;
     }
     case "subsection_label": {
