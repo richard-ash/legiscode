@@ -85,6 +85,12 @@ export interface SectionViewProps {
   scrollContainerRef?: (el: HTMLElement | null) => void;
   /** Called on every scroll event with the container's scrollTop. */
   onScrollY?: (y: number) => void;
+  /** When this view is the active tab's panel, the tab host passes its
+   *  ARIA wiring so role=tabpanel lives on the actual scroll container
+   *  (.lc-doc). Folding the role onto .lc-doc avoids a wrapper element
+   *  that would otherwise break the `.lc-center` flex chain that pins
+   *  the TabStrip and Breadcrumb above the scroll viewport. */
+  tabPanel?: { id: string; labelledBy: string };
 }
 
 interface RenderCtx {
@@ -109,7 +115,11 @@ export function SectionView({
   getCitationPreview,
   scrollContainerRef,
   onScrollY,
+  tabPanel,
 }: SectionViewProps) {
+  const tabPanelAttrs = tabPanel
+    ? { role: "tabpanel" as const, id: tabPanel.id, "aria-labelledby": tabPanel.labelledBy }
+    : null;
   // Single hover-popover hook for the whole section. Citation handlers
   // and DefinedTerm (via SectionHoverContext) dispatch into the same
   // instance — guarantees "one popover at a time" without needing to
@@ -252,7 +262,7 @@ export function SectionView({
 
   if (error) {
     return (
-      <div className="lc-doc lc-scroll" data-testid="section-view">
+      <div {...tabPanelAttrs} className="lc-doc lc-scroll" data-testid="section-view">
         <div className="lc-doc-inner">
           <div className="lc-section-error" role="alert">
             <div className="lc-section-error-title">Couldn't load this section</div>
@@ -265,7 +275,7 @@ export function SectionView({
 
   if (!view) {
     return (
-      <div className="lc-doc lc-scroll">
+      <div {...tabPanelAttrs} className="lc-doc lc-scroll">
         <div className="lc-doc-inner">
           <div className="lc-doc-title">No section selected</div>
         </div>
@@ -291,6 +301,7 @@ export function SectionView({
   return (
     <SectionHoverContext.Provider value={hover}>
       <div
+        {...tabPanelAttrs}
         ref={scrollContainerRef}
         onScroll={onScrollY ? (e) => onScrollY(e.currentTarget.scrollTop) : undefined}
         className="lc-doc lc-scroll"

@@ -105,3 +105,62 @@ test("TAB2 — smoke: open §A, open §B, both visible, switch back via click", 
     rmSync(userDataDir, { recursive: true, force: true });
   }
 });
+
+test("TAB-PIN — TabStrip + Breadcrumb stay pinned while .lc-doc scrolls", async () => {
+  // Regression guard for the .lc-center flex-chain pin. jsdom can't run
+  // layout, so test/ui/tabs/scroll-pins-strip.test.tsx only verifies
+  // CSS rules + DOM shape. This e2e runs real Chromium against a long
+  // section and asserts the chrome stays at its initial Y after the
+  // scroller advances. The bug class is "a wrapper between .lc-center
+  // and .lc-doc breaks the chain, OR .lc-center isn't height-anchored
+  // to its panel" — the structural unit test misses both unless paired
+  // with a real-layout check at this altitude.
+  const userDataDir = freshUserDataDir();
+  const { app, window: page } = await launchApp({
+    userDataDir,
+    env: {
+      LEGISCODE_E2E_MOCK_CORPUS_READ: "long",
+      LEGISCODE_CORPUS_PATH: HERMETIC_CORPUS,
+    },
+  });
+  try {
+    // Wait for the long-section body to land in the DOM. The synthetic
+    // 200-paragraph body is ~30x viewport height, so scrollTop has plenty
+    // of headroom.
+    await page.waitForSelector(".lc-section-body p", { timeout: 10_000 });
+
+    const tabsRow = page.locator(".lc-tabs-row");
+    const breadcrumb = page.locator(".lc-breadcrumb");
+    const doc = page.locator(".lc-doc");
+
+    const beforeTabsTop = (await tabsRow.boundingBox())?.y;
+    const beforeBreadcrumbTop = (await breadcrumb.boundingBox())?.y;
+    if (beforeTabsTop === undefined || beforeBreadcrumbTop === undefined) {
+      throw new Error("pinned chrome has no bounding box pre-scroll");
+    }
+
+    // Advance the scroller. Direct scrollTop assignment is synchronous
+    // and skips smooth-scroll ambiguity — mirrors file-tree-sticky.spec.
+    await doc.evaluate((el) => {
+      el.scrollTop = 800;
+    });
+    // Confirm the scroller actually moved — guards against the assertion
+    // passing because nothing happened.
+    const scrollTop = await doc.evaluate((el) => el.scrollTop);
+    expect(scrollTop).toBeGreaterThan(0);
+
+    const afterTabsTop = (await tabsRow.boundingBox())?.y;
+    const afterBreadcrumbTop = (await breadcrumb.boundingBox())?.y;
+    if (afterTabsTop === undefined || afterBreadcrumbTop === undefined) {
+      throw new Error("pinned chrome has no bounding box post-scroll");
+    }
+
+    // The chrome is pinned by the flex chain — any vertical drift means
+    // the chain re-broke. Allow zero tolerance: this is not animated.
+    expect(afterTabsTop).toBe(beforeTabsTop);
+    expect(afterBreadcrumbTop).toBe(beforeBreadcrumbTop);
+  } finally {
+    await app.close();
+    rmSync(userDataDir, { recursive: true, force: true });
+  }
+});
