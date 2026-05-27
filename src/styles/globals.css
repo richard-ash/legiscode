@@ -468,10 +468,12 @@ input {
 .lc-tabs {
   display: flex;
   align-items: stretch;
-  background: var(--bg-mantle);
-  border-bottom: 1px solid var(--border-soft);
+  /* background + border-bottom moved up to .lc-tabs-row so the chevron
+   * sibling sits flush against the same row (X8 lock; commit 5). The
+   * scroller itself stays transparent and owns only the horizontal
+   * overflow + the equal-share flex distribution. */
   overflow-x: auto;
-  flex-shrink: 0;
+  flex: 1 1 0;
   min-width: 0;
   scrollbar-width: none;
 }
@@ -615,6 +617,84 @@ input {
   font-feature-settings: "tabular-nums";
 }
 
+/* Overflow menu row — same skeleton as .lc-menu-row but mono + per-row
+ * close button on the right edge. The marker reserves an 8px gutter so
+ * inactive rows don't shift relative to the active one (V3 lock). */
+.lc-overflow-row {
+  font-family: var(--font-mono);
+  font-size: var(--ui-sm);
+  padding-right: 8px;
+  gap: 8px;
+  justify-content: flex-start;
+}
+.lc-overflow-row-marker {
+  color: var(--blue);
+  width: 8px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.lc-overflow-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lc-overflow-row-close {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--overlay0);
+  border-radius: 3px;
+  opacity: 1;
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.lc-overflow-row-close:hover {
+  background: var(--bg-surface1);
+  color: var(--text);
+}
+
+/* ===== Tabs-row wrapper + overflow chevron ===== */
+/* The wrapper holds the scroller (.lc-tabs) and the chevron sibling
+ * (.lc-tabs-chevron). Putting the chevron OUTSIDE the measured scroller
+ * is load-bearing: a ResizeObserver on .lc-tabs comparing scrollWidth >
+ * clientWidth would feed back on itself if the chevron lived inside.
+ * Background + bottom border live here so both children inherit the row
+ * styling (V4 lock; X8 lock). */
+.lc-tabs-row {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-mantle);
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.lc-tabs-chevron {
+  width: 28px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-left: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--overlay1);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    color 50ms ease-out,
+    background 50ms ease-out;
+}
+.lc-tabs-chevron:hover,
+.lc-tabs-chevron[aria-expanded="true"] {
+  background: var(--bg-surface1);
+  color: var(--text);
+}
 
 /* ===== Empty state (no tabs open) ===== */
 .lc-empty {

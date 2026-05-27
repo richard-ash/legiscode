@@ -28,6 +28,7 @@ import {
   useState,
 } from "react";
 import { usePopoverPosition } from "@/ui/center-panel/section-view/use-hover-popover";
+import { Icons } from "@/ui/icons";
 
 export interface TabMenuRow {
   /** Stable identity used as the React key + as the row's key for the
@@ -202,3 +203,191 @@ function focusRowAt(root: HTMLElement | null, idx: number): void {
   el?.focus();
 }
 
+// ── Overflow menu ────────────────────────────────────────────────────
+
+export interface OverflowMenuRow {
+  /** Stable identity for the row's per-item state (`itemIdentity` from
+   *  open-items.ts). Per X9 lock: row actions key on identity, not
+   *  captured index, so the menu stays consistent across row × closures. */
+  id: string;
+  /** Label rendered in the row (`§ 10.04.020 · Sales Tax Definitions`). */
+  label: string;
+  /** True when this row corresponds to the strip's active tab — gets
+   *  the • marker treatment. */
+  isActive: boolean;
+}
+
+export interface OverflowMenuProps {
+  anchorElement: HTMLElement | null;
+  /** Rows in open-order (D1 lock — mirror the strip, not MRU). */
+  rows: readonly OverflowMenuRow[];
+  /** ARIA label including the open-tab count (D1 lock — replaces the
+   *  omitted "Open tabs · N" header for screen readers). */
+  ariaLabel: string;
+  /** Activate the row identified by `id`. */
+  onActivate: (id: string) => void;
+  /** Close the row identified by `id` without first activating it. */
+  onCloseRow: (id: string) => void;
+  /** Fired on Escape / outside click / parent's own state turn-off. */
+  onClose: () => void;
+}
+
+/**
+ * Overflow list mode — a popover variant that renders open tabs with
+ * always-visible per-row close buttons. Sibling to TabPopover; both
+ * share the menu/menuitem ARIA shape, dismiss semantics, and roving
+ * tabindex, but the row markup diverges enough to keep two render
+ * functions instead of branching one.
+ *
+ * Per X10 lock: clicking a row dispatches `onActivate(id)` only —
+ * TabStrip's existing useLayoutEffect handles scrolling the activated
+ * row into view; no separate scroll call here.
+ */
+export function OverflowMenu({
+  anchorElement,
+  rows,
+  ariaLabel,
+  onActivate,
+  onCloseRow,
+  onClose,
+}: OverflowMenuProps) {
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const { top, left } = usePopoverPosition(anchorElement, popoverRef);
+  const [focusedIdx, setFocusedIdx] = useState(0);
+
+  // Clamp focus when rows shrink (per-row close shortens the list).
+  useEffect(() => {
+    if (focusedIdx >= rows.length && rows.length > 0) setFocusedIdx(rows.length - 1);
+  }, [rows.length, focusedIdx]);
+
+  // Initial focus: land on the active row if there is one (so the
+  // user sees "where they are"); otherwise the first row. Mount-only
+  // — re-running this effect when `rows` mutates would yank focus back
+  // every time a row closes mid-interaction.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: deliberate mount-only initial-focus pass; subsequent rows changes shouldn't yank focus
+  useLayoutEffect(() => {
+    const el = popoverRef.current;
+    if (!el) return;
+    const activeIdx = rows.findIndex((r) => r.isActive);
+    const target = activeIdx >= 0 ? activeIdx : 0;
+    setFocusedIdx(target);
+    focusRowAt(el, target);
+  }, []);
+
+  useEffect(() => {
+    function onMouseDown(e: globalThis.MouseEvent) {
+      const el = popoverRef.current;
+      if (!el) return;
+      const target = e.target as Node | null;
+      if (target && el.contains(target)) return;
+      if (target && anchorElement?.contains(target)) return;
+      onClose();
+    }
+    document.addEventListener("mousedown", onMouseDown, true);
+    return () => document.removeEventListener("mousedown", onMouseDown, true);
+  }, [anchorElement, onClose]);
+
+  useEffect(() => {
+    function onKey(e: globalThis.KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+        anchorElement?.focus();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [anchorElement, onClose]);
+
+  const onRowKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLDivElement>, idx: number, rowId: string) => {
+      switch (e.key) {
+        case "ArrowDown": {
+          e.preventDefault();
+          if (rows.length === 0) return;
+          const next = (idx + 1) % rows.length;
+          setFocusedIdx(next);
+          focusRowAt(popoverRef.current, next);
+          return;
+        }
+        case "ArrowUp": {
+          e.preventDefault();
+          if (rows.length === 0) return;
+          const next = (idx - 1 + rows.length) % rows.length;
+          setFocusedIdx(next);
+          focusRowAt(popoverRef.current, next);
+          return;
+        }
+        case "Home": {
+          e.preventDefault();
+          if (rows.length === 0) return;
+          setFocusedIdx(0);
+          focusRowAt(popoverRef.current, 0);
+          return;
+        }
+        case "End": {
+          e.preventDefault();
+          if (rows.length === 0) return;
+          const last = rows.length - 1;
+          setFocusedIdx(last);
+          focusRowAt(popoverRef.current, last);
+          return;
+        }
+        case "Enter":
+        case " ": {
+          e.preventDefault();
+          onActivate(rowId);
+          return;
+        }
+      }
+    },
+    [rows.length, onActivate],
+  );
+
+  const style: CSSProperties = { top, left };
+
+  return (
+    <div
+      ref={popoverRef}
+      className="lc-menu-popover"
+      role="menu"
+      aria-label={ariaLabel}
+      style={style}
+    >
+      {rows.map((row, idx) => (
+        <div
+          key={row.id}
+          role="menuitem"
+          tabIndex={idx === focusedIdx ? 0 : -1}
+          data-row-idx={idx}
+          data-row-id={row.id}
+          className={`lc-menu-row lc-overflow-row${row.isActive ? " is-active" : ""}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onActivate(row.id);
+          }}
+          onKeyDown={(e) => onRowKeyDown(e, idx, row.id)}
+          onFocus={() => setFocusedIdx(idx)}
+        >
+          <span className="lc-overflow-row-marker" aria-hidden="true">
+            {row.isActive ? "•" : ""}
+          </span>
+          <span className="lc-overflow-row-title">{row.label}</span>
+          <button
+            type="button"
+            aria-label={`Close ${row.label}`}
+            className="lc-overflow-row-close"
+            tabIndex={-1}
+            onClick={(e) => {
+              e.stopPropagation();
+              onCloseRow(row.id);
+            }}
+          >
+            <Icons.Close size={10} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}

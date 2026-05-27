@@ -28,10 +28,11 @@ import {
 import type { CorpusRef } from "@/corpus/refs";
 import { hash as refHash } from "@/corpus/refs";
 import type { CorpusTreeNode } from "@/corpus/wire";
-import type { OpenItem, OpenItemsState } from "@/workbench/open-items";
+import { Icons } from "@/ui/icons";
+import { itemIdentity, type OpenItem, type OpenItemsState } from "@/workbench/open-items";
 import { reorderItems, setActiveIndex } from "@/workbench/open-items";
 import { Tab, type TabCloseMode, tabSortableId } from "./tab";
-import { TabPopover, type TabMenuRow } from "./tab-popover";
+import { OverflowMenu, type OverflowMenuRow, TabPopover, type TabMenuRow } from "./tab-popover";
 
 export interface TabStripProps {
   openItems: OpenItemsState;
@@ -56,12 +57,8 @@ export interface TabStripProps {
  * unmounts the previous popover.
  */
 type OpenMenuState =
-<<<<<<< ours
-  | { kind: "context"; anchorEl: HTMLElement; index: number }
-=======
   | { kind: "context"; anchorEl: HTMLElement; identity: string }
   | { kind: "overflow"; anchorEl: HTMLElement }
->>>>>>> theirs
   | null;
 
 const MIDDLE_DOT = "·";
@@ -76,7 +73,13 @@ export function TabStrip({
   closeAll,
 }: TabStripProps) {
   const listRef = useRef<HTMLDivElement>(null);
+  const chevronRef = useRef<HTMLButtonElement>(null);
   const [openMenu, setOpenMenu] = useState<OpenMenuState>(null);
+  // Tracks whether .lc-tabs is overflowing (scrollWidth > clientWidth).
+  // Drives whether the chevron renders at all. Re-evaluated by a
+  // ResizeObserver on the scroller and a useEffect on items.length so
+  // tab open/close flips the chevron without waiting for a layout pass.
+  const [hasOverflow, setHasOverflow] = useState(false);
   const { items, activeIndex } = openItems;
 
   const sensors = useSensors(
@@ -133,7 +136,6 @@ export function TabStrip({
         case "right":
           closeToRight(index);
           return;
-        case "self":
         default:
           closeAt(index);
       }
@@ -154,15 +156,47 @@ export function TabStrip({
     ) {
       setOpenMenu(null);
     }
-<<<<<<< ours
-  }, [items.length, openMenu]);
-=======
     // Overflow menu auto-closes when the strip empties.
     if (openMenu.kind === "overflow" && items.length === 0) {
       setOpenMenu(null);
     }
   }, [items, openMenu]);
->>>>>>> theirs
+
+  // Detect strip overflow via ResizeObserver on the scroller plus a
+  // best-effort items.length fallback (the ResizeObserver fires when
+  // either the scroller's clientWidth changes — panel resize — or the
+  // scrollWidth changes via a child mutation; on some browsers child
+  // mutations don't trigger an RO callback, so the length effect
+  // re-checks). Defer one rAF on initial mount so the scroller has its
+  // final width before the comparison runs.
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const update = () => {
+      const overflow = list.scrollWidth - list.clientWidth > 1;
+      setHasOverflow(overflow);
+    };
+    const raf = window.requestAnimationFrame(update);
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(update);
+      ro.observe(list);
+    }
+    return () => {
+      window.cancelAnimationFrame(raf);
+      ro?.disconnect();
+    };
+  }, []);
+  // Re-evaluate overflow when items add/remove. RO fires on size change
+  // but children-added isn't size on every engine, so this is the safety
+  // net. items.length is the deliberate trigger — read from listRef
+  // inside, but the effect must re-fire on count change.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: items.length is the deliberate trigger; nothing else inside reads it
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    setHasOverflow(list.scrollWidth - list.clientWidth > 1);
+  }, [items.length]);
 
   const onMenuClose = useCallback(() => {
     setOpenMenu(null);
@@ -210,6 +244,49 @@ export function TabStrip({
     rows.push({ id: "close-all", label: "Close All Tabs", shortcut: "⌘K W" });
     return rows;
   }, [openMenu, items]);
+
+  // Overflow rows: every open item, keyed by itemIdentity (X9 lock —
+  // row actions key on identity, not captured index, so a row close
+  // while the menu is open doesn't strand the remaining rows on stale
+  // indexes).
+  const overflowRows = useMemo<readonly OverflowMenuRow[]>(() => {
+    return items.map((it, idx) => ({
+      id: itemIdentity(it),
+      label: buildTitle(it, titleMap),
+      isActive: idx === activeIndex,
+    }));
+  }, [items, titleMap, activeIndex]);
+
+  const onChevronClick = useCallback(() => {
+    setOpenMenu((prev) => {
+      if (prev?.kind === "overflow") return null;
+      const anchor = chevronRef.current;
+      if (!anchor) return prev;
+      return { kind: "overflow", anchorEl: anchor };
+    });
+  }, []);
+
+  const onOverflowActivate = useCallback(
+    (rowId: string) => {
+      setOpenMenu(null);
+      const idx = items.findIndex((it) => itemIdentity(it) === rowId);
+      if (idx < 0) return;
+      // X10 lock — setActiveIndex only; the existing useLayoutEffect at
+      // tab-strip.tsx scrolls the activated tab into view, no separate
+      // scroll call required.
+      setOpenItems((prev) => setActiveIndex(prev, idx));
+    },
+    [items, setOpenItems],
+  );
+
+  const onOverflowCloseRow = useCallback(
+    (rowId: string) => {
+      const idx = items.findIndex((it) => itemIdentity(it) === rowId);
+      if (idx < 0) return;
+      closeAt(idx);
+    },
+    [items, closeAt],
+  );
 
   // Bare arrow keys / Home / End within the tablist. No modifier guard —
   // they only fire when a tab has focus (the tablist's tabIndex roving
@@ -272,41 +349,70 @@ export function TabStrip({
 
   if (items.length === 0) return null;
 
+  const overflowMenuOpen = openMenu?.kind === "overflow";
+
   return (
     <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-      <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
-        <div
-          ref={listRef}
-          role="tablist"
-          aria-orientation="horizontal"
-          aria-label="Open sections"
-          className="lc-tabs"
-          onKeyDown={onKeyDown}
-        >
-          {items.map((it, idx) => {
-            const isActive = idx === activeIndex;
-            const fullTitle = buildTitle(it, titleMap);
-            return (
-              <Tab
-                key={tabSortableId(it)}
-                item={it}
-                index={idx}
-                isActive={isActive}
-                title={fullTitle}
-                fullTitle={fullTitle}
-                onActivate={onActivate}
-                onClose={onTabClose}
-                onContextMenuOpen={onContextMenuOpen}
-              />
-            );
-          })}
-        </div>
-      </SortableContext>
+      <div className="lc-tabs-row">
+        <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
+          <div
+            ref={listRef}
+            role="tablist"
+            aria-orientation="horizontal"
+            aria-label="Open sections"
+            className="lc-tabs"
+            onKeyDown={onKeyDown}
+          >
+            {items.map((it, idx) => {
+              const isActive = idx === activeIndex;
+              const fullTitle = buildTitle(it, titleMap);
+              return (
+                <Tab
+                  key={tabSortableId(it)}
+                  item={it}
+                  index={idx}
+                  isActive={isActive}
+                  title={fullTitle}
+                  fullTitle={fullTitle}
+                  onActivate={onActivate}
+                  onClose={onTabClose}
+                  onContextMenuOpen={onContextMenuOpen}
+                />
+              );
+            })}
+          </div>
+        </SortableContext>
+        {hasOverflow ? (
+          <button
+            ref={chevronRef}
+            type="button"
+            className="lc-tabs-chevron"
+            // D1 lock — interpolated count replaces the omitted "Open
+            // tabs · N" header row; screen readers still hear the count.
+            aria-label={`Show all ${items.length} open tabs`}
+            aria-haspopup="menu"
+            aria-expanded={overflowMenuOpen}
+            onClick={onChevronClick}
+          >
+            <Icons.ChevronDown size={13} />
+          </button>
+        ) : null}
+      </div>
       {openMenu && openMenu.kind === "context" ? (
         <TabPopover
           anchorElement={openMenu.anchorEl}
           rows={menuRows}
           onAction={onMenuAction}
+          onClose={onMenuClose}
+        />
+      ) : null}
+      {openMenu && openMenu.kind === "overflow" ? (
+        <OverflowMenu
+          anchorElement={openMenu.anchorEl}
+          rows={overflowRows}
+          ariaLabel={`Open tabs (${items.length})`}
+          onActivate={onOverflowActivate}
+          onCloseRow={onOverflowCloseRow}
           onClose={onMenuClose}
         />
       ) : null}

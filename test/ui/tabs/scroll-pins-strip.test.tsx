@@ -56,8 +56,10 @@ describe("scroll-chain CSS contract — TabStrip + Breadcrumb stay pinned", () =
     expect(body).toMatch(/min-height:\s*0\b/);
   });
 
-  it(".lc-tabs holds via flex-shrink:0 (pinned upstream of .lc-doc)", () => {
-    expect(ruleBody(".lc-tabs")).toMatch(/flex-shrink:\s*0\b/);
+  it(".lc-tabs-row holds via flex-shrink:0 (pinned upstream of .lc-doc)", () => {
+    // The wrapper carries the pin; .lc-tabs inside is a horizontal flex
+    // item whose flex-shrink no longer matters for vertical pinning.
+    expect(ruleBody(".lc-tabs-row")).toMatch(/flex-shrink:\s*0\b/);
   });
 
   it(".lc-breadcrumb holds via flex-shrink:0 (pinned upstream of .lc-doc)", () => {
