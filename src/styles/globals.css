@@ -493,8 +493,13 @@ input {
   cursor: pointer;
   position: relative;
   white-space: nowrap;
-  flex: 0 1 auto;
-  min-width: 0;
+  /* Equal-share sizing — inactive tabs split available width evenly so
+   * opening a new tab doesn't reflow the strip. Under pressure each
+   * shrinks to min-width 60px (icon + a few chars + close button); past
+   * that the strip overflows and the chevron menu becomes the load-
+   * bearing navigation aid. */
+  flex: 1 1 0;
+  min-width: 60px;
   max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -509,6 +514,12 @@ input {
 .lc-tab.is-active {
   background: var(--bg-base);
   color: var(--text);
+  /* 2× share + zero shrink keeps the active title readable even with
+   * 15+ tabs crammed in. max-width 360 stops a lone active tab from
+   * stretching across an otherwise empty strip. */
+  flex: 2 0 auto;
+  min-width: 220px;
+  max-width: 360px;
 }
 .lc-tab.is-active::after {
   content: "";

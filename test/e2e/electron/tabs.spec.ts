@@ -21,6 +21,7 @@ function freshUserDataDir(): string {
 }
 
 const HERMETIC_CORPUS = resolve(import.meta.dirname, "..", "..", "fixtures", "corpus-min");
+const HERMETIC_CORPUS_DEEP = resolve(import.meta.dirname, "..", "..", "fixtures", "corpus-deep");
 
 test("TAB1 — tab list + active tab persist across app restart", async () => {
   const userDataDir = freshUserDataDir();
@@ -159,6 +160,53 @@ test("TAB-PIN — TabStrip + Breadcrumb stay pinned while .lc-doc scrolls", asyn
     // the chain re-broke. Allow zero tolerance: this is not animated.
     expect(afterTabsTop).toBe(beforeTabsTop);
     expect(afterBreadcrumbTop).toBe(beforeBreadcrumbTop);
+  } finally {
+    await app.close();
+    rmSync(userDataDir, { recursive: true, force: true });
+  }
+});
+
+test("TAB-SIZE — active tab stays at least 220px wide at N=15", async () => {
+  // jsdom can't compute layout, so the sizing CSS contract test
+  // (test/ui/tabs/sizing.test.tsx) only verifies the declared rules.
+  // The load-bearing claim is behavioral: at high tab count, the active
+  // tab still gets enough width to read a typical section label
+  // (e.g. "§ 10.04.020 · Sales Tax Definitions"). Pre-seed localStorage
+  // with 15 OpenItems against corpus-deep, reload, then assert the
+  // active tab's bounding box width.
+  const userDataDir = freshUserDataDir();
+  const { app, window: page } = await launchApp({
+    userDataDir,
+    env: { LEGISCODE_CORPUS_PATH: HERMETIC_CORPUS_DEEP },
+  });
+  try {
+    // Wait until corpus has loaded so localStorage write isn't clobbered
+    // by the cold-start hydration.
+    await page.waitForSelector('[role="tree"]', { timeout: 15_000 });
+
+    const items = Array.from({ length: 15 }, (_, i) => ({
+      kind: "section" as const,
+      ref: { module: "sf-deep", section: `1.${i + 1}` },
+    }));
+    await page.evaluate((openItems) => {
+      window.localStorage.setItem(
+        "legiscode.openItems",
+        JSON.stringify({ items: openItems, activeIndex: 7 }),
+      );
+    }, items);
+    await page.reload({ waitUntil: "load" });
+
+    const sectionList = page.getByRole("tablist", { name: "Open sections" });
+    await expect(sectionList.getByRole("tab")).toHaveCount(15, { timeout: 15_000 });
+
+    const active = sectionList.locator('[role="tab"][aria-selected="true"]');
+    await expect(active).toHaveCount(1);
+    const box = await active.boundingBox();
+    expect(box).not.toBeNull();
+    // 220px = the readable-label floor locked in commit 2's CSS. If a
+    // future change drops the `flex: 2 0 auto` rule, every tab equalizes
+    // and this assertion fires loud at N=15.
+    expect(box!.width).toBeGreaterThanOrEqual(220);
   } finally {
     await app.close();
     rmSync(userDataDir, { recursive: true, force: true });
