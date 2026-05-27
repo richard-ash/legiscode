@@ -30,7 +30,7 @@ import { hash as refHash } from "@/corpus/refs";
 import type { CorpusTreeNode } from "@/corpus/wire";
 import type { OpenItem, OpenItemsState } from "@/workbench/open-items";
 import { reorderItems, setActiveIndex } from "@/workbench/open-items";
-import { Tab, tabSortableId } from "./tab";
+import { Tab, type TabCloseMode, tabSortableId } from "./tab";
 import { TabPopover, type TabMenuRow } from "./tab-popover";
 
 export interface TabStripProps {
@@ -118,6 +118,27 @@ export function TabStrip({
       setOpenMenu({ kind: "context", anchorEl, identity: itemIdentity(it) });
     },
     [items],
+  );
+
+  // Router for the extended `onClose(index, mode?)` signature emitted by
+  // Tab (plain click / middle-click / Cmd-Alt-click). 'self' takes the
+  // single-tab path; 'others' / 'right' route to the bulk-close hook
+  // wrappers so buffer bookkeeping stays in one place.
+  const onTabClose = useCallback(
+    (index: number, mode: TabCloseMode = "self") => {
+      switch (mode) {
+        case "others":
+          closeOthers(index);
+          return;
+        case "right":
+          closeToRight(index);
+          return;
+        case "self":
+        default:
+          closeAt(index);
+      }
+    },
+    [closeAt, closeOthers, closeToRight],
   );
 
   // Auto-close the open context menu when the targeted tab disappears
@@ -274,8 +295,7 @@ export function TabStrip({
                 title={fullTitle}
                 fullTitle={fullTitle}
                 onActivate={onActivate}
-                onClose={closeAt}
-                onAuxClose={closeAt}
+                onClose={onTabClose}
                 onContextMenuOpen={onContextMenuOpen}
               />
             );

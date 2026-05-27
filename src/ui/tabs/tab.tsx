@@ -13,6 +13,13 @@ import { type CSSProperties, type KeyboardEvent, type MouseEvent, memo, useCallb
 import { Icons } from "@/ui/icons";
 import { itemIdentity, type OpenItem } from "@/workbench/open-items";
 
+/** Bulk-close mode dispatched from the close-X click handler. `'self'`
+ *  (default) closes just this tab; `'others'` and `'right'` resolve to
+ *  the matching pure mutator. The strip routes these to the hook
+ *  wrappers so the recently-closed buffer bookkeeping stays in one
+ *  place. */
+export type TabCloseMode = "self" | "others" | "right";
+
 export interface TabProps {
   item: OpenItem;
   index: number;
@@ -21,10 +28,11 @@ export interface TabProps {
   /** Full title surfaced via native `title` attr for truncated text. */
   fullTitle: string;
   onActivate: (index: number) => void;
-  onClose: (index: number) => void;
-  /** Middle-click — close without activate. (Same dispatch shape as
-   *  `onClose`; named separately so a future divergence stays local.) */
-  onAuxClose: (index: number) => void;
+  /** Close from any path on this tab — plain close-X click, middle-
+   *  click, or modifier-click on the close-X (Cmd/Ctrl → 'others',
+   *  Alt → 'right'). Same callback so the strip owns the routing in
+   *  one place. */
+  onClose: (index: number, mode?: TabCloseMode) => void;
   /** Open the right-click bulk-close menu anchored to this tab. Called
    *  with the tab DOM node so the popover can position against it. Fires
    *  on right-click (contextmenu), Shift+F10, and the dedicated
@@ -41,7 +49,6 @@ function TabImpl({
   fullTitle,
   onActivate,
   onClose,
-  onAuxClose,
   onContextMenuOpen,
 }: TabProps) {
   const id = tabSortableId(item);
@@ -62,19 +69,27 @@ function TabImpl({
 
   const onMouseDown = useCallback(
     (e: MouseEvent<HTMLDivElement>) => {
-      // Middle-click anywhere on the tab closes it.
+      // Middle-click anywhere on the tab closes just it. Same dispatch
+      // shape as plain close — no bulk-close branching for middle-click.
       if (e.button === 1) {
         e.preventDefault();
-        onAuxClose(index);
+        onClose(index);
       }
     },
-    [index, onAuxClose],
+    [index, onClose],
   );
 
   const onCloseClick = useCallback(
     (e: MouseEvent<HTMLButtonElement>) => {
       e.stopPropagation();
-      onClose(index);
+      // Cmd/Ctrl-click → Close Others; Alt-click → Close to the Right.
+      // `metaKey || ctrlKey` covers macOS ⌘ and Windows/Linux Ctrl so
+      // the gesture works the same on every Electron host (X7 lock).
+      // Cmd+Alt → 'others' wins (modifier precedence).
+      let mode: TabCloseMode = "self";
+      if (e.metaKey || e.ctrlKey) mode = "others";
+      else if (e.altKey) mode = "right";
+      onClose(index, mode);
     },
     [index, onClose],
   );
