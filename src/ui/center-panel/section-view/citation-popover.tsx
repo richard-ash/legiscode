@@ -18,13 +18,18 @@
 //   - scroll-only → "Scrolls within this section" (informational only).
 //   - unresolvable → suppressed; nothing to show.
 
+import { useRef } from "react";
 import type { ResolutionResult } from "@/citations/resolver";
+import { MOD_KEY_LABEL } from "@/ui/platform";
+import { usePopoverPosition } from "./use-hover-popover";
 
 export interface CitationPopoverProps {
   resolution: ResolutionResult;
   rawCite: string;
-  /** Bounding rect of the cited span — popover anchors below it. */
-  anchorRect: DOMRect;
+  /** The cite span this popover is anchored to. Position is computed
+   *  from `getBoundingClientRect()` at render time so reflow between
+   *  hover and open doesn't strand the popover at a stale position. */
+  anchorElement: HTMLElement;
   /** Resolved title for the target section (when known); used in header. */
   resolvedTitle?: string;
   /** Body excerpt — first few lines of the target section, when known. */
@@ -37,44 +42,51 @@ export interface CitationPopoverProps {
   /** Cursor entered the popover. Parent cancels the pending hide timer
    *  so the popover stays open while the user reads the excerpt and
    *  reaches the "Go to definition →" button. */
-  onMouseEnter?: () => void;
+  onPopoverEnter?: () => void;
   /** Cursor left the popover. Parent re-arms the hide timer. */
-  onMouseLeave?: () => void;
+  onPopoverLeave?: () => void;
 }
 
 export function CitationPopover({
   resolution,
   rawCite,
-  anchorRect,
+  anchorElement,
   resolvedTitle,
   bodyExcerpt,
   onActivate,
-  onMouseEnter,
-  onMouseLeave,
+  onPopoverEnter,
+  onPopoverLeave,
 }: CitationPopoverProps) {
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  // usePopoverPosition is unconditionally called even when this branch
+  // returns null below; React's rules-of-hooks forbid the conditional
+  // form. The (top, left) values are discarded in the early-return case.
+  const { top, left } = usePopoverPosition(anchorElement, popoverRef);
+
   if (resolution.kind === "unresolvable") return null;
 
   const style: React.CSSProperties = {
     position: "fixed",
-    top: anchorRect.bottom + 6,
-    left: Math.max(8, anchorRect.left),
+    top,
+    left,
     maxWidth: 360,
   };
 
   return (
     <div
-      className="lc-cite-popover"
+      ref={popoverRef}
+      className="lc-popover"
       role="tooltip"
-      data-resolution-kind={resolution.kind}
+      data-popover-kind="citation"
       style={style}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      onMouseEnter={onPopoverEnter}
+      onMouseLeave={onPopoverLeave}
     >
-      <div className="lc-cite-popover-header">
-        <span className="lc-cite-popover-icon" aria-hidden>
+      <div className="lc-popover-header">
+        <span className="lc-popover-icon" aria-hidden>
           🔗
         </span>
-        <span className="lc-cite-popover-raw">{rawCite}</span>
+        <span className="lc-popover-raw">{rawCite}</span>
       </div>
 
       {renderBody(resolution, { resolvedTitle, bodyExcerpt })}
@@ -91,15 +103,15 @@ function renderBody(
   switch (resolution.kind) {
     case "module-not-installed":
       return (
-        <div className="lc-cite-popover-body">
-          <div className="lc-cite-popover-title">{resolution.displayName}</div>
-          <div className="lc-cite-popover-note">Not downloaded</div>
+        <div className="lc-popover-body">
+          <div className="lc-popover-title">{resolution.displayName}</div>
+          <div className="lc-popover-note">Not downloaded</div>
         </div>
       );
     case "scroll-only":
       return (
-        <div className="lc-cite-popover-body">
-          <div className="lc-cite-popover-note">
+        <div className="lc-popover-body">
+          <div className="lc-popover-note">
             Scrolls within this section ({resolution.subsection})
           </div>
         </div>
@@ -108,13 +120,9 @@ function renderBody(
     case "navigate-appendix":
     case "navigate-structural":
       return (
-        <div className="lc-cite-popover-body">
-          {ctx.resolvedTitle ? (
-            <div className="lc-cite-popover-title">{ctx.resolvedTitle}</div>
-          ) : null}
-          {ctx.bodyExcerpt ? (
-            <div className="lc-cite-popover-excerpt">{ctx.bodyExcerpt}</div>
-          ) : null}
+        <div className="lc-popover-body">
+          {ctx.resolvedTitle ? <div className="lc-popover-title">{ctx.resolvedTitle}</div> : null}
+          {ctx.bodyExcerpt ? <div className="lc-popover-excerpt">{ctx.bodyExcerpt}</div> : null}
         </div>
       );
     case "unresolvable":
@@ -127,12 +135,12 @@ function renderFooter(resolution: ResolutionResult, onActivate: (() => void) | u
     case "navigate-section":
     case "navigate-structural":
       return (
-        <div className="lc-cite-popover-footer">
-          <span className="lc-cite-popover-hint">⌘-click to open</span>
+        <div className="lc-popover-footer">
+          <span className="lc-popover-hint">{MOD_KEY_LABEL}-click to open</span>
           {onActivate ? (
             <button
               type="button"
-              className="lc-cite-popover-action"
+              className="lc-popover-action"
               onClick={onActivate}
               // Tooltip role on the parent excludes interactive descendants
               // from the accessibility tree by spec, but the button still
@@ -148,8 +156,8 @@ function renderFooter(resolution: ResolutionResult, onActivate: (() => void) | u
       // Appendix viewer is v1.1; render the hint without an action so the
       // popover discloses the cite kind without offering a dead button.
       return (
-        <div className="lc-cite-popover-footer">
-          <span className="lc-cite-popover-hint">⌘-click to open</span>
+        <div className="lc-popover-footer">
+          <span className="lc-popover-hint">{MOD_KEY_LABEL}-click to open</span>
         </div>
       );
     case "scroll-only":

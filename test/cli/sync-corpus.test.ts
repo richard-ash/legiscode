@@ -104,7 +104,7 @@ describe("sync-corpus E2E — happy path against committed jurisdiction fixture"
     expect(section.id).toBe("1.1");
     expect(section.title.toUpperCase()).toContain("DEFINITIONS");
     expect(section.text).toContain("Director of Transportation");
-    expect(section.hierarchy).toEqual(["Transportation Code", "DIVISION I.", "ARTICLE 1:"]);
+    expect(section.hierarchy).toEqual(["Transportation Code", "Division I.", "Article 1:"]);
   });
 
   it("transportation section 1.5 captures the severability prose", async () => {
@@ -136,7 +136,7 @@ describe("sync-corpus E2E — happy path against committed jurisdiction fixture"
     const section = SectionFileSchema.parse(JSON.parse(await readFile(path, "utf8")));
     expect(section.id).toBe("1.100");
     expect(section.title.toUpperCase()).toContain("NAME AND BOUNDARIES");
-    expect(section.hierarchy).toEqual(["Charter", "DIVISION I.", "ARTICLE I:"]);
+    expect(section.hierarchy).toEqual(["Charter", "Division I.", "Article I:"]);
   });
 
   it("[Reserved.] section 1.102 emits with editorial_status: reserved", async () => {

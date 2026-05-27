@@ -57,7 +57,7 @@ runs:
 
     - name: Build hermetic corpus from SF fixture
       shell: bash
-      run: mise run corpus:build -- --source test/fixtures/sf/jurisdiction.json --output build/modules-full
+      run: mise run corpus:build -- --source test/fixtures/sf/jurisdiction.json --output build/modules
 
     - name: Build Electron app
       shell: bash

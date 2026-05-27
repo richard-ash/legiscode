@@ -470,7 +470,12 @@ export function App() {
             titleMap={titleMap}
             closeAt={closeTabAt}
           />
-          <Breadcrumb parents={section?.parents ?? []} sectionLabel={sectionLabel} />
+          <Breadcrumb
+            parents={section?.parents ?? []}
+            sectionLabel={sectionLabel}
+            moduleId={section?.moduleId}
+            navigate={navigate}
+          />
           {active ? (
             <TabContent
               item={active}

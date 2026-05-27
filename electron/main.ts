@@ -254,7 +254,7 @@ function buildSyntheticLongSection(
         // biome-ignore lint/suspicious/noExplicitAny: synthetic body shape matches BodySegment but bypasses zod
         body: body as any,
       },
-      parents: [{ code: "E2E", name: "" }],
+      parents: [{ code: "E2E", name: "", sectionId: null }],
       prev: null,
       next: null,
       definitions: {},

@@ -613,6 +613,44 @@ input {
   color: var(--text);
 }
 
+/* Shared crumb chrome — used by both the chrome breadcrumb strip and
+ * the in-section kicker at the top of section-view. .lc-crumb-text
+ * is the non-interactive variant (module root); .lc-crumb-button is
+ * the interactive variant that dispatches navigate() on click. */
+.lc-crumb-text {
+  color: inherit;
+}
+.lc-crumb-button {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.lc-crumb-button:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+.lc-crumb-button:focus-visible {
+  outline: 2px solid var(--accent, var(--blue, #89b4fa));
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* In-section kicker: a horizontal flex strip so the crumb buttons and
+ * the · separators sit on a single line. The .lc-doc-title typography
+ * (uppercase, letter-spaced) still applies; this layer just owns the
+ * row layout. */
+.lc-section-kicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0;
+}
+
 /* ===== Center document ===== */
 .lc-center {
   flex: 1;

@@ -185,7 +185,7 @@ function buildPopulatedApi(): Api {
             editorial_status: "active" as const,
             body: [],
           },
-          parents: [{ code: "Port Code", name: "" }],
+          parents: [{ code: "Port Code", name: "", sectionId: null }],
           prev: null,
           next: null,
           definitions: {},
@@ -559,7 +559,7 @@ function buildPopulatedApiWithCitations(
               // biome-ignore lint/suspicious/noExplicitAny: test fixture shape passthrough
               body: (override?.body ?? []) as any,
             },
-            parents: [{ code: "Port Code", name: "" }],
+            parents: [{ code: "Port Code", name: "", sectionId: null }],
             prev: null,
             next: null,
             definitions: {},

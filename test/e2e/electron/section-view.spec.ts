@@ -29,7 +29,7 @@ function freshUserDataDir(): string {
 // leaf sections (one default-active, one recovery target); they don't
 // exercise parser output or real-corpus structure. Pointing the loader
 // here via LEGISCODE_CORPUS_PATH decouples SV1/SV2 from whatever the
-// CI corpus build produces under build/modules-full, which fixed an
+// CI corpus build produces under build/modules, which fixed an
 // SV1-breaking divergence where the CI corpus's deeply-nested hierarchy
 // kept leaf rows hidden until the user expanded multiple parents.
 const HERMETIC_CORPUS = resolve(import.meta.dirname, "..", "..", "fixtures", "corpus-min");

@@ -287,17 +287,17 @@ describe("SectionView — hover popover lifecycle", () => {
 
   it("⌘-click on a cite dismisses an already-visible hover popover", () => {
     const { link, onCitationActivate, internal } = renderWithHover();
-    expect(document.querySelector(".lc-cite-popover")).not.toBeNull();
+    expect(document.querySelector(".lc-popover")).not.toBeNull();
     fireEvent.click(link, { metaKey: true });
     expect(onCitationActivate).toHaveBeenCalledWith(internal, "primary");
-    expect(document.querySelector(".lc-cite-popover")).toBeNull();
+    expect(document.querySelector(".lc-popover")).toBeNull();
     vi.useRealTimers();
   });
 
   it("plain click (no modifier) does not dismiss the hover popover", () => {
     const { link } = renderWithHover();
     fireEvent.click(link);
-    expect(document.querySelector(".lc-cite-popover")).not.toBeNull();
+    expect(document.querySelector(".lc-popover")).not.toBeNull();
     vi.useRealTimers();
   });
 
@@ -308,7 +308,7 @@ describe("SectionView — hover popover lifecycle", () => {
   // user loses access to the excerpt and "Go to definition →" button.
   it("keeps the popover open when the cursor moves from the cite into the popover", () => {
     const { link } = renderWithHover();
-    const popover = document.querySelector(".lc-cite-popover") as HTMLElement;
+    const popover = document.querySelector(".lc-popover") as HTMLElement;
     expect(popover).not.toBeNull();
     // Cursor leaves the cite heading toward the popover.
     fireEvent.mouseOut(link, { relatedTarget: popover });
@@ -318,25 +318,25 @@ describe("SectionView — hover popover lifecycle", () => {
     act(() => {
       vi.advanceTimersByTime(1000);
     });
-    expect(document.querySelector(".lc-cite-popover")).not.toBeNull();
+    expect(document.querySelector(".lc-popover")).not.toBeNull();
     vi.useRealTimers();
   });
 
   it("dismisses the popover after the hide delay when the cursor leaves it", () => {
     const { link } = renderWithHover();
-    const popover = document.querySelector(".lc-cite-popover") as HTMLElement;
+    const popover = document.querySelector(".lc-popover") as HTMLElement;
     fireEvent.mouseOut(link, { relatedTarget: popover });
     fireEvent.mouseEnter(popover);
     act(() => {
       vi.advanceTimersByTime(1000);
     });
-    expect(document.querySelector(".lc-cite-popover")).not.toBeNull();
+    expect(document.querySelector(".lc-popover")).not.toBeNull();
     // Cursor leaves the popover. Hide timer re-arms.
     fireEvent.mouseLeave(popover);
     act(() => {
       vi.advanceTimersByTime(300);
     });
-    expect(document.querySelector(".lc-cite-popover")).toBeNull();
+    expect(document.querySelector(".lc-popover")).toBeNull();
     vi.useRealTimers();
   });
 
@@ -346,9 +346,9 @@ describe("SectionView — hover popover lifecycle", () => {
   // user can re-hover to get a fresh anchor.
   it("dismisses the popover when the page scrolls", () => {
     renderWithHover();
-    expect(document.querySelector(".lc-cite-popover")).not.toBeNull();
+    expect(document.querySelector(".lc-popover")).not.toBeNull();
     fireEvent.scroll(window);
-    expect(document.querySelector(".lc-cite-popover")).toBeNull();
+    expect(document.querySelector(".lc-popover")).toBeNull();
     vi.useRealTimers();
   });
 });
@@ -394,12 +394,10 @@ describe("SectionView — popover preview wiring", () => {
     act(() => {
       vi.advanceTimersByTime(500);
     });
-    expect(document.querySelector(".lc-cite-popover-title")?.textContent).toBe(
+    expect(document.querySelector(".lc-popover-title")?.textContent).toBe(
       "§ 10.04.040 — Prima Facie Limits",
     );
-    expect(document.querySelector(".lc-cite-popover-excerpt")?.textContent).toContain(
-      "Notwithstanding",
-    );
+    expect(document.querySelector(".lc-popover-excerpt")?.textContent).toContain("Notwithstanding");
     vi.useRealTimers();
   });
 
@@ -445,7 +443,7 @@ describe("SectionView — popover preview wiring", () => {
       vi.advanceTimersByTime(500);
     });
     expect(getCitationPreview).toHaveBeenCalledWith(expect.anything(), "(a)");
-    expect(document.querySelector(".lc-cite-popover-excerpt")?.textContent).toBe(
+    expect(document.querySelector(".lc-popover-excerpt")?.textContent).toBe(
       "Minimum side yards shall be provided as follows:",
     );
     vi.useRealTimers();
@@ -481,11 +479,11 @@ describe("SectionView — popover preview wiring", () => {
     act(() => {
       vi.advanceTimersByTime(500);
     });
-    const goto = document.querySelector(".lc-cite-popover-action") as HTMLButtonElement;
+    const goto = document.querySelector(".lc-popover-action") as HTMLButtonElement;
     expect(goto).not.toBeNull();
     fireEvent.click(goto);
     expect(onCitationActivate).toHaveBeenCalledWith(internal, "primary");
-    expect(document.querySelector(".lc-cite-popover")).toBeNull();
+    expect(document.querySelector(".lc-popover")).toBeNull();
     vi.useRealTimers();
   });
 });

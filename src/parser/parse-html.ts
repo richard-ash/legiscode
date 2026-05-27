@@ -5,6 +5,7 @@
 // the round-12 rewrite can wrap a typed adapter if it matters.
 
 import * as cheerio from "cheerio";
+import { prettifyTitle } from "@/corpus/pretty-title";
 import type {
   JurisdictionManifest,
   ModuleConfig,
@@ -647,10 +648,10 @@ function parseModuleFromBound(
       case "hierarchy_marker": {
         const label = rboxLabelText(el);
         if (meta.level === "Division") {
-          if (label) currentDivision = label;
+          if (label) currentDivision = prettifyTitle(label);
           currentArticleOrChapter = null;
         } else if (label) {
-          currentArticleOrChapter = label;
+          currentArticleOrChapter = prettifyTitle(label);
         }
         // Article/Chapter/Division boundary terminates any active appendix
         // container; subsequent sections live under the new hierarchy node.
@@ -1161,7 +1162,7 @@ function parseSectionElement(
   const section: ParsedSection = {
     id,
     display_label: displayLabel,
-    title: finalTitle,
+    title: prettifyTitle(finalTitle),
     text: finalText,
     htmlSpans: finalSpans,
     hierarchy,
@@ -1189,7 +1190,7 @@ function parseAppendixElement(
     id,
     parent: classification.parent,
     letter: classification.letter,
-    title,
+    title: prettifyTitle(title),
     body: normalizeBodyText(bodyText),
     source_location: { line },
   };
