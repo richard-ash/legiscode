@@ -120,6 +120,49 @@ export function closeItem(state: OpenItemsState, index: number): OpenItemsState 
 }
 
 /**
+ * Close every tab except the one at `keepIndex`. activeIndex is remapped
+ * to `keepIndex`'s new position (always 0) since the surviving tab
+ * becomes the only thing visible. Out-of-range `keepIndex` returns
+ * state unchanged.
+ *
+ * The hook-side wrapper (`useTabs.closeOthers`) bookkeeps the
+ * recently-closed buffer; this pure mutator only owns the items + active
+ * remap.
+ */
+export function closeOthers(state: OpenItemsState, keepIndex: number): OpenItemsState {
+  if (keepIndex < 0 || keepIndex >= state.items.length) return state;
+  const kept = state.items[keepIndex];
+  if (!kept) return state;
+  if (state.items.length === 1 && state.activeIndex === 0) return state;
+  return { items: [kept], activeIndex: 0 };
+}
+
+/**
+ * Close every tab to the right of `fromIndex`, keeping `fromIndex` and
+ * everything to its left. activeIndex is preserved when it points at a
+ * surviving tab, otherwise clamped to `fromIndex` (the rightmost
+ * survivor). Out-of-range `fromIndex` and "nothing to the right"
+ * (already rightmost) return state unchanged.
+ */
+export function closeToRight(state: OpenItemsState, fromIndex: number): OpenItemsState {
+  if (fromIndex < 0 || fromIndex >= state.items.length) return state;
+  if (fromIndex === state.items.length - 1) return state;
+  const items = state.items.slice(0, fromIndex + 1);
+  let active = state.activeIndex;
+  if (active !== null && active > fromIndex) active = fromIndex;
+  return { items, activeIndex: active };
+}
+
+/**
+ * Close every tab. Equivalent to `emptyOpenItems()` but spelled as a
+ * sibling mutator so the hook-side wrapper can compose it with the
+ * recently-closed buffer push uniformly.
+ */
+export function closeAll(_state: OpenItemsState): OpenItemsState {
+  return emptyOpenItems();
+}
+
+/**
  * Move the tab at `from` to position `to`. Out-of-range / `from === to`
  * return state unchanged. `activeIndex` is remapped so the currently
  * active tab stays active wherever it lands — mirrors `closeItem`'s

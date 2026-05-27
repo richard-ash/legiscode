@@ -83,9 +83,21 @@ export function TabHost({ initial, onState }: TabHostProps) {
     },
     [setOpenItems],
   );
-  const { close } = useTabs({ openItems: state, setOpenItems, navigate });
+  const { close, closeOthers, closeToRight, closeAll } = useTabs({
+    openItems: state,
+    setOpenItems,
+    navigate,
+  });
   if (state.items.length === 0) return null;
   return (
-    <TabStrip openItems={state} setOpenItems={setOpenItems} titleMap={TITLE_MAP} closeAt={close} />
+    <TabStrip
+      openItems={state}
+      setOpenItems={setOpenItems}
+      titleMap={TITLE_MAP}
+      closeAt={close}
+      closeOthers={closeOthers}
+      closeToRight={closeToRight}
+      closeAll={closeAll}
+    />
   );
 }

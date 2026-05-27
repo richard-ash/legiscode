@@ -22,8 +22,15 @@ export interface TabProps {
   fullTitle: string;
   onActivate: (index: number) => void;
   onClose: (index: number) => void;
-  /** Cmd+click / middle-click — close without activate. */
+  /** Middle-click — close without activate. (Same dispatch shape as
+   *  `onClose`; named separately so a future divergence stays local.) */
   onAuxClose: (index: number) => void;
+  /** Open the right-click bulk-close menu anchored to this tab. Called
+   *  with the tab DOM node so the popover can position against it. Fires
+   *  on right-click (contextmenu), Shift+F10, and the dedicated
+   *  ContextMenu key — per X6 (WCAG 2.1.1) keyboard parity for the
+   *  context menu. */
+  onContextMenuOpen: (index: number, anchor: HTMLElement) => void;
 }
 
 function TabImpl({
@@ -35,6 +42,7 @@ function TabImpl({
   onActivate,
   onClose,
   onAuxClose,
+  onContextMenuOpen,
 }: TabProps) {
   const id = tabSortableId(item);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -71,18 +79,39 @@ function TabImpl({
     [index, onClose],
   );
 
+  const onContextMenu = useCallback(
+    (e: MouseEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      // The default browser context menu would expose Inspect / Reload in
+      // Electron — wrong shape entirely. preventDefault + dispatch to the
+      // strip-owned popover slot.
+      onContextMenuOpen(index, e.currentTarget);
+    },
+    [index, onContextMenuOpen],
+  );
+
   // Enter activates the focused tab. (Space is reserved for @dnd-kit's
   // KeyboardSensor grab — pressing Space on a focused tab initiates
   // drag-reorder, not activation.) Arrow / Home / End navigation lives
   // on the tablist parent so this handler stays narrow.
+  //
+  // Shift+F10 and the dedicated ContextMenu key open the right-click
+  // menu without a mouse (WCAG 2.1.1; X6 lock). preventDefault on
+  // Shift+F10 swallows the platform's default menu trigger so the
+  // popover doesn't double-fire.
   const onKeyDown = useCallback(
     (e: KeyboardEvent<HTMLDivElement>) => {
       if (e.key === "Enter") {
         e.preventDefault();
         onActivate(index);
+        return;
+      }
+      if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") {
+        e.preventDefault();
+        onContextMenuOpen(index, e.currentTarget);
       }
     },
-    [index, onActivate],
+    [index, onActivate, onContextMenuOpen],
   );
 
   const kind = item.kind;
@@ -106,6 +135,7 @@ function TabImpl({
       style={style}
       title={fullTitle}
       onClick={onClick}
+      onContextMenu={onContextMenu}
       onKeyDown={onKeyDown}
       onMouseDown={onMouseDown}
     >

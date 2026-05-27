@@ -571,6 +571,51 @@ input {
   margin-left: 2px;
 }
 
+/* ===== Tab popover (right-click menu + overflow menu) ===== */
+/* Surface + row primitives shared by the right-click bulk-close menu
+ * (commit 3) and the overflow chevron's list view (commit 5). Per V1/V2
+ * locks from /plan-design-review. Motion: appear/dismiss is instant
+ * per V5 (deliberate triggers don't need the tooltip show-delay). */
+.lc-menu-popover {
+  position: fixed;
+  min-width: 200px;
+  max-width: 320px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 0;
+  z-index: 1000;
+  font-family: var(--font-sans);
+  font-size: var(--ui);
+}
+.lc-menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 12px;
+  height: 28px;
+  color: var(--subtext1);
+  cursor: pointer;
+  transition:
+    background 50ms ease-out,
+    color 50ms ease-out;
+  /* Strip default outlines so :focus-visible owns the focus treatment. */
+  outline: none;
+}
+.lc-menu-row:hover,
+.lc-menu-row:focus-visible {
+  background: var(--bg-mantle);
+  color: var(--text);
+}
+.lc-menu-row-shortcut {
+  font-family: var(--font-mono);
+  font-size: var(--ui-sm);
+  color: var(--overlay1);
+  font-feature-settings: "tabular-nums";
+}
+
+
 /* ===== Empty state (no tabs open) ===== */
 .lc-empty {
   display: flex;

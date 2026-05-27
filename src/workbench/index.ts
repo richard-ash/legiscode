@@ -6,7 +6,10 @@
 export {
   activeItem,
   activeSectionRef,
+  closeAll,
   closeItem,
+  closeOthers,
+  closeToRight,
   emptyOpenItems,
   findItemIndex,
   findSectionIndex,

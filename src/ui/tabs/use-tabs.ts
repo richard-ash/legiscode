@@ -19,7 +19,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { type CorpusRef, hash as refHash } from "@/corpus/refs";
 import type { NavigationIntent } from "@/workbench/navigate";
 import {
+  closeAll as workbenchCloseAll,
   closeItem,
+  closeOthers as workbenchCloseOthers,
+  closeToRight as workbenchCloseToRight,
   itemIdentity,
   type OpenItem,
   type OpenItemsState,
@@ -46,6 +49,18 @@ export interface UseTabsResult {
   readonly recentlyClosed: readonly OpenItem[];
   /** Close the tab at `index`. Pushes its OpenItem onto `recentlyClosed`. */
   close: (index: number) => void;
+  /** Close every tab except the one at `keepIndex`. Closed items are
+   *  pushed to the buffer head in reverse-active-recency order (active
+   *  tab, if dropped, wins the head slot) and the cap is honored. */
+  closeOthers: (keepIndex: number) => void;
+  /** Close every tab to the right of `fromIndex`. Buffer push order
+   *  mirrors `closeOthers` — active wins the head when it's being
+   *  dropped. */
+  closeToRight: (fromIndex: number) => void;
+  /** Close every tab. Buffer push order: active tab to the head, then
+   *  the remaining tabs in their on-strip display order. Cap honored —
+   *  closing 30 tabs still leaves a 10-deep buffer. */
+  closeAll: () => void;
   /** Pop the head of `recentlyClosed` and reopen it. No-op if empty. */
   reopenLast: () => void;
   /** Capture vertical scroll for the active section. Debounced. */
@@ -108,6 +123,47 @@ export function useTabs({
     },
     [setOpenItems],
   );
+
+  // Bulk-close wrappers — pure mutator decides the items + activeIndex
+  // shape; the wrapper pushes the dropped items to recentlyClosed in
+  // reverse-active-recency order (the active tab wins the head slot)
+  // and caps the buffer. Order matters for multi-press ⌘Shift+T after
+  // a bulk close: the user expects the tab they were last looking at
+  // to come back first.
+  const closeOthers = useCallback(
+    (keepIndex: number) => {
+      setOpenItems((prev) => {
+        const next = workbenchCloseOthers(prev, keepIndex);
+        if (next === prev) return prev;
+        const closed = collectClosedForBulk(prev, (idx) => idx !== keepIndex);
+        if (closed.length > 0) setRecentlyClosed((buf) => mergeBulkClosed(closed, buf));
+        return next;
+      });
+    },
+    [setOpenItems],
+  );
+
+  const closeToRight = useCallback(
+    (fromIndex: number) => {
+      setOpenItems((prev) => {
+        const next = workbenchCloseToRight(prev, fromIndex);
+        if (next === prev) return prev;
+        const closed = collectClosedForBulk(prev, (idx) => idx > fromIndex);
+        if (closed.length > 0) setRecentlyClosed((buf) => mergeBulkClosed(closed, buf));
+        return next;
+      });
+    },
+    [setOpenItems],
+  );
+
+  const closeAll = useCallback(() => {
+    setOpenItems((prev) => {
+      if (prev.items.length === 0) return prev;
+      const closed = collectClosedForBulk(prev, () => true);
+      setRecentlyClosed((buf) => mergeBulkClosed(closed, buf));
+      return workbenchCloseAll(prev);
+    });
+  }, [setOpenItems]);
 
   const reopenLast = useCallback(() => {
     // Pop + dedup loop: skip any buffer head whose identity is already
@@ -194,7 +250,57 @@ export function useTabs({
     }, [sectionKey, scrollContainer]);
   };
 
-  return { recentlyClosed, close, reopenLast, saveScroll, getScroll, useRestoreScroll };
+  return {
+    recentlyClosed,
+    close,
+    closeOthers,
+    closeToRight,
+    closeAll,
+    reopenLast,
+    saveScroll,
+    getScroll,
+    useRestoreScroll,
+  };
+}
+
+/**
+ * Walk a state's items and return the dropped ones in reverse-active-
+ * recency order — the active tab (if it's being dropped) goes first,
+ * then the remaining dropped tabs in their on-strip display order.
+ * Pure helper so the three bulk-close wrappers share one ordering rule.
+ */
+function collectClosedForBulk(
+  state: OpenItemsState,
+  isDropped: (index: number) => boolean,
+): readonly OpenItem[] {
+  const out: OpenItem[] = [];
+  const active = state.activeIndex;
+  if (active !== null && isDropped(active)) {
+    const it = state.items[active];
+    if (it) out.push(it);
+  }
+  for (let i = 0; i < state.items.length; i++) {
+    if (i === active) continue;
+    if (!isDropped(i)) continue;
+    const it = state.items[i];
+    if (it) out.push(it);
+  }
+  return out;
+}
+
+/**
+ * Pre-pend bulk-closed items to the existing recently-closed buffer
+ * (newest first), then clamp to RECENTLY_CLOSED_CAP. Mirrors single-tab
+ * close's push-to-head + cap shape so multi-press ⌘Shift+T after a bulk
+ * close traverses the bulk items in the documented order before falling
+ * through to anything that was in the buffer before.
+ */
+function mergeBulkClosed(
+  closed: readonly OpenItem[],
+  buf: readonly OpenItem[],
+): readonly OpenItem[] {
+  const next = [...closed, ...buf];
+  return next.length > RECENTLY_CLOSED_CAP ? next.slice(0, RECENTLY_CLOSED_CAP) : next;
 }
 
 function isItemOpen(state: OpenItemsState, target: OpenItem): boolean {

@@ -23,6 +23,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import type { CorpusRef } from "@/corpus/refs";
 import { hash as refHash } from "@/corpus/refs";
@@ -30,18 +31,52 @@ import type { CorpusTreeNode } from "@/corpus/wire";
 import type { OpenItem, OpenItemsState } from "@/workbench/open-items";
 import { reorderItems, setActiveIndex } from "@/workbench/open-items";
 import { Tab, tabSortableId } from "./tab";
+import { TabPopover, type TabMenuRow } from "./tab-popover";
 
 export interface TabStripProps {
   openItems: OpenItemsState;
   setOpenItems: (update: OpenItemsState | ((prev: OpenItemsState) => OpenItemsState)) => void;
   titleMap: ReadonlyMap<string, CorpusTreeNode>;
   closeAt: (index: number) => void;
+  /** Close every tab except the one at `keepIndex`. Bulk-close menu rows
+   *  call into these wrappers so the hook-side recently-closed buffer
+   *  bookkeeping (reverse-active-recency push + cap) stays in one place. */
+  closeOthers: (keepIndex: number) => void;
+  /** Close every tab to the right of `fromIndex`. */
+  closeToRight: (fromIndex: number) => void;
+  /** Close every tab. */
+  closeAll: () => void;
 }
+
+/**
+ * Open popover slot — single source of truth for "which popover is on
+ * screen right now" (A1 lock). Mutex between the right-click menu
+ * (commit 3) and the future overflow chevron menu (commit 5) falls out
+ * for free; a new openMenu setter atomically replaces the old one and
+ * unmounts the previous popover.
+ */
+type OpenMenuState =
+<<<<<<< ours
+  | { kind: "context"; anchorEl: HTMLElement; index: number }
+=======
+  | { kind: "context"; anchorEl: HTMLElement; identity: string }
+  | { kind: "overflow"; anchorEl: HTMLElement }
+>>>>>>> theirs
+  | null;
 
 const MIDDLE_DOT = "·";
 
-export function TabStrip({ openItems, setOpenItems, titleMap, closeAt }: TabStripProps) {
+export function TabStrip({
+  openItems,
+  setOpenItems,
+  titleMap,
+  closeAt,
+  closeOthers,
+  closeToRight,
+  closeAll,
+}: TabStripProps) {
   const listRef = useRef<HTMLDivElement>(null);
+  const [openMenu, setOpenMenu] = useState<OpenMenuState>(null);
   const { items, activeIndex } = openItems;
 
   const sensors = useSensors(
@@ -71,6 +106,89 @@ export function TabStrip({ openItems, setOpenItems, titleMap, closeAt }: TabStri
     },
     [setOpenItems],
   );
+
+  const onContextMenuOpen = useCallback(
+    (index: number, anchorEl: HTMLElement) => {
+      // Key the menu on the tab's identity, not its index (X9 lock — same
+      // as the overflow menu). A captured index goes stale if a tab to the
+      // left closes while the menu is open, which would silently retarget
+      // Close Others / Close to the Right at the wrong tab.
+      const it = items[index];
+      if (!it) return;
+      setOpenMenu({ kind: "context", anchorEl, identity: itemIdentity(it) });
+    },
+    [items],
+  );
+
+  // Auto-close the open context menu when the targeted tab disappears
+  // from the strip (e.g. user dispatched Close on it via the menu, or
+  // closed it via ⌘W while the menu was up). Without this the popover
+  // would either anchor to a stale DOM node or stay open with no valid
+  // index to dispatch against.
+  useEffect(() => {
+    if (!openMenu) return;
+    if (
+      openMenu.kind === "context" &&
+      !items.some((it) => itemIdentity(it) === openMenu.identity)
+    ) {
+      setOpenMenu(null);
+    }
+<<<<<<< ours
+  }, [items.length, openMenu]);
+=======
+    // Overflow menu auto-closes when the strip empties.
+    if (openMenu.kind === "overflow" && items.length === 0) {
+      setOpenMenu(null);
+    }
+  }, [items, openMenu]);
+>>>>>>> theirs
+
+  const onMenuClose = useCallback(() => {
+    setOpenMenu(null);
+  }, []);
+
+  const onMenuAction = useCallback(
+    (rowId: string) => {
+      if (!openMenu || openMenu.kind !== "context") return;
+      // Resolve the anchored tab's identity to a live index at dispatch
+      // time — the index can shift if another tab closed while the menu
+      // was open.
+      const idx = items.findIndex((it) => itemIdentity(it) === openMenu.identity);
+      setOpenMenu(null);
+      if (idx < 0) return;
+      switch (rowId) {
+        case "close":
+          closeAt(idx);
+          return;
+        case "close-others":
+          closeOthers(idx);
+          return;
+        case "close-to-right":
+          closeToRight(idx);
+          return;
+        case "close-all":
+          closeAll();
+          return;
+      }
+    },
+    [openMenu, items, closeAt, closeOthers, closeToRight, closeAll],
+  );
+
+  // Build the menu row list — omit (don't disable) rows that don't
+  // apply to the right-clicked tab per S2 lock + feedback_no_placeholder_ui.
+  const menuRows = useMemo<readonly TabMenuRow[]>(() => {
+    if (!openMenu || openMenu.kind !== "context") return [];
+    const idx = items.findIndex((it) => itemIdentity(it) === openMenu.identity);
+    if (idx < 0) return [];
+    const total = items.length;
+    const isOnly = total === 1;
+    const isRightmost = idx === total - 1;
+    const rows: TabMenuRow[] = [{ id: "close", label: "Close", shortcut: "⌘W" }];
+    if (!isOnly) rows.push({ id: "close-others", label: "Close Others" });
+    if (!isOnly && !isRightmost) rows.push({ id: "close-to-right", label: "Close to the Right" });
+    rows.push({ id: "close-all", label: "Close All Tabs", shortcut: "⌘K W" });
+    return rows;
+  }, [openMenu, items]);
 
   // Bare arrow keys / Home / End within the tablist. No modifier guard —
   // they only fire when a tab has focus (the tablist's tabIndex roving
@@ -158,11 +276,20 @@ export function TabStrip({ openItems, setOpenItems, titleMap, closeAt }: TabStri
                 onActivate={onActivate}
                 onClose={closeAt}
                 onAuxClose={closeAt}
+                onContextMenuOpen={onContextMenuOpen}
               />
             );
           })}
         </div>
       </SortableContext>
+      {openMenu && openMenu.kind === "context" ? (
+        <TabPopover
+          anchorElement={openMenu.anchorEl}
+          rows={menuRows}
+          onAction={onMenuAction}
+          onClose={onMenuClose}
+        />
+      ) : null}
     </DndContext>
   );
 }

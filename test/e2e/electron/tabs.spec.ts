@@ -202,11 +202,86 @@ test("TAB-SIZE — active tab stays at least 220px wide at N=15", async () => {
     const active = sectionList.locator('[role="tab"][aria-selected="true"]');
     await expect(active).toHaveCount(1);
     const box = await active.boundingBox();
-    expect(box).not.toBeNull();
+    if (!box) throw new Error("active tab has no bounding box");
     // 220px = the readable-label floor locked in commit 2's CSS. If a
     // future change drops the `flex: 2 0 auto` rule, every tab equalizes
     // and this assertion fires loud at N=15.
-    expect(box!.width).toBeGreaterThanOrEqual(220);
+    expect(box.width).toBeGreaterThanOrEqual(220);
+  } finally {
+    await app.close();
+    rmSync(userDataDir, { recursive: true, force: true });
+  }
+});
+
+test("TAB3 — right-click → Close Others leaves only the anchored tab", async () => {
+  const userDataDir = freshUserDataDir();
+  const { app, window: page } = await launchApp({
+    userDataDir,
+    env: { LEGISCODE_CORPUS_PATH: HERMETIC_CORPUS_DEEP },
+  });
+  try {
+    await page.waitForSelector('[role="tree"]', { timeout: 15_000 });
+    // Seed 5 tabs so "Close Others" leaves a meaningful single survivor.
+    const items = Array.from({ length: 5 }, (_, i) => ({
+      kind: "section" as const,
+      ref: { module: "sf-deep", section: `1.${i + 1}` },
+    }));
+    await page.evaluate((openItems) => {
+      window.localStorage.setItem(
+        "legiscode.openItems",
+        JSON.stringify({ items: openItems, activeIndex: 0 }),
+      );
+    }, items);
+    await page.reload({ waitUntil: "load" });
+
+    const sectionList = page.getByRole("tablist", { name: "Open sections" });
+    await expect(sectionList.getByRole("tab")).toHaveCount(5, { timeout: 15_000 });
+
+    // Right-click the middle tab (index 2 → § 1.3) to anchor the menu.
+    const tabs = sectionList.locator('[role="tab"]');
+    await tabs.nth(2).click({ button: "right" });
+
+    const menu = page.getByRole("menu");
+    await expect(menu).toBeVisible({ timeout: 5_000 });
+    await menu.getByRole("menuitem", { name: /Close Others/ }).click();
+
+    await expect(sectionList.getByRole("tab")).toHaveCount(1, { timeout: 5_000 });
+    const survivor = sectionList.locator('[role="tab"]').first();
+    await expect(survivor).toHaveAttribute("aria-selected", "true");
+  } finally {
+    await app.close();
+    rmSync(userDataDir, { recursive: true, force: true });
+  }
+});
+
+test("TAB5 — ⌘K W chord closes all tabs", async () => {
+  const userDataDir = freshUserDataDir();
+  const { app, window: page } = await launchApp({
+    userDataDir,
+    env: { LEGISCODE_CORPUS_PATH: HERMETIC_CORPUS_DEEP },
+  });
+  try {
+    await page.waitForSelector('[role="tree"]', { timeout: 15_000 });
+    const items = Array.from({ length: 4 }, (_, i) => ({
+      kind: "section" as const,
+      ref: { module: "sf-deep", section: `1.${i + 1}` },
+    }));
+    await page.evaluate((openItems) => {
+      window.localStorage.setItem(
+        "legiscode.openItems",
+        JSON.stringify({ items: openItems, activeIndex: 0 }),
+      );
+    }, items);
+    await page.reload({ waitUntil: "load" });
+
+    const sectionList = page.getByRole("tablist", { name: "Open sections" });
+    await expect(sectionList.getByRole("tab")).toHaveCount(4, { timeout: 15_000 });
+
+    // ⌘K then ⌘W. The chord resolves to closeAll; the strip empties.
+    await page.keyboard.press("Meta+k");
+    await page.keyboard.press("Meta+w");
+
+    await expect(sectionList).toBeHidden({ timeout: 5_000 });
   } finally {
     await app.close();
     rmSync(userDataDir, { recursive: true, force: true });
