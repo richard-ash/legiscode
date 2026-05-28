@@ -425,7 +425,7 @@ function buildTitle(item: OpenItem, titleMap: ReadonlyMap<string, CorpusTreeNode
   const ref: CorpusRef = item.ref;
   const node = titleMap.get(refHash(ref));
   if (!node) return `§ ${ref.section}`;
-  return `§ ${node.code} ${MIDDLE_DOT} ${node.name}`;
+  return `${node.code} ${MIDDLE_DOT} ${node.name}`;
 }
 
 /** Build a lookup map from refHash → CorpusTreeNode for section leaves.

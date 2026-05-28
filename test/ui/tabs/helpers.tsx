@@ -33,21 +33,21 @@ const TREE: CorpusTreeNode[] = [
     kids: [
       {
         id: "m::10.04.020",
-        code: "10.04.020",
+        code: "§ 10.04.020",
         name: "Sales tax",
         kind: "section",
         ref: { moduleId: "m", sectionId: "10.04.020" },
       },
       {
         id: "m::10.04.040",
-        code: "10.04.040",
+        code: "§ 10.04.040",
         name: "Use tax",
         kind: "section",
         ref: { moduleId: "m", sectionId: "10.04.040" },
       },
       {
         id: "m::12.01.005",
-        code: "12.01.005",
+        code: "§ 12.01.005",
         name: "Definitions",
         kind: "section",
         ref: { moduleId: "m", sectionId: "12.01.005" },

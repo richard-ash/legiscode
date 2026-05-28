@@ -4,6 +4,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { parse as corpusRefParse } from "@/corpus/refs";
 import type { OpenItemsState } from "@/workbench/open-items";
 import { makeStateWithRefs, refA, refB, refC, TabHost } from "./helpers";
 
@@ -74,3 +75,17 @@ describe("TabStrip — empty state contract", () => {
 
 // Suppress noisy console output from useSortable in jsdom (no real DnD).
 const _suppressConsole = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+describe("TabStrip — buildTitle fallback paths", () => {
+  it("falls back to `§ <section>` when the corpus tree has no matching leaf", () => {
+    // Open a section the TabHost's TITLE_MAP doesn't know — TabStrip's
+    // buildTitle hits the "no node" branch and renders just the section id.
+    const unknownRef = corpusRefParse({ module: "m", section: "99.99.999" });
+    const initial = makeStateWithRefs([unknownRef]);
+    render(<TabHost initial={initial} />);
+    const tab = screen.getByRole("tab");
+    expect(tab.textContent).toContain("99.99.999");
+    // No tree node → no "·" separator + label suffix.
+    expect(tab.textContent).not.toContain("·");
+  });
+});
