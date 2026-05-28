@@ -376,6 +376,31 @@ export function getShortcut(id: ShortcutId): Shortcut {
   return found;
 }
 
+/** Single-press accessor for bespoke handlers that match one key spec.
+ *  Throws if the entry's display is an alias array or a chord — so changing
+ *  a catalog entry's shape fails loudly here instead of silently feeding a
+ *  malformed spec to `matchEvent` and quietly disabling the shortcut. */
+export function getKeySpec(id: ShortcutId): KeySpec {
+  const { display } = getShortcut(id);
+  if (isChord(display) || Array.isArray(display)) {
+    throw new Error(`[shortcuts] ${id} display is not a single key spec`);
+  }
+  // The guard above rules out the chord and array members; the cast only
+  // satisfies TS, which won't narrow a readonly array out of the union.
+  return display as KeySpec;
+}
+
+/** Chord accessor for the stateful pending-key handler. Throws if the
+ *  entry's display is a single spec or alias array, for the same fail-loud
+ *  reason as `getKeySpec`. */
+export function getChord(id: ShortcutId): Chord {
+  const { display } = getShortcut(id);
+  if (!isChord(display)) {
+    throw new Error(`[shortcuts] ${id} display is not a chord`);
+  }
+  return display;
+}
+
 /** Human-readable group headers for `scope`. */
 export const SCOPE_LABELS: Record<ShortcutScope, string> = {
   global: "Global",

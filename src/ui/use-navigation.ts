@@ -12,6 +12,7 @@
 // revisit a section you bring its tab forward.
 
 import { useCallback, useEffect, useState } from "react";
+import { getShortcut, matchShortcut } from "@/ui/shortcuts/registry";
 import { shouldHandleGlobalShortcut } from "@/ui/tabs/should-handle-shortcut";
 import { findItemIndex, type OpenItem, type OpenItemsState } from "@/workbench";
 import type { NavigationIntent } from "@/workbench/navigate";
@@ -128,16 +129,16 @@ export function useNavigation({
   }, [setOpenItems]);
 
   // Global keyboard listener for ⌘⌥← / ⌘⌥→ (and Ctrl+Alt on non-Mac).
-  // Guarded by shouldHandleGlobalShortcut so palette typing / input
-  // focus don't get hijacked.
+  // Key specs come from the catalog; guarded by shouldHandleGlobalShortcut
+  // so palette typing / input focus don't get hijacked.
   useEffect(() => {
     function handler(e: KeyboardEvent) {
-      const cmdOrCtrl = e.metaKey || e.ctrlKey;
-      if (!cmdOrCtrl || !e.altKey) return;
-      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      const isPrev = matchShortcut(e, getShortcut("global.prev-tab"));
+      const isNext = matchShortcut(e, getShortcut("global.next-tab"));
+      if (!isPrev && !isNext) return;
       if (!shouldHandleGlobalShortcut(e)) return;
       e.preventDefault();
-      if (e.key === "ArrowLeft") prevTab();
+      if (isPrev) prevTab();
       else nextTab();
     }
     window.addEventListener("keydown", handler);

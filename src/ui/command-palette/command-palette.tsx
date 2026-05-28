@@ -33,6 +33,7 @@ import {
 } from "react";
 import { corpusRefFromWire } from "@/corpus/refs";
 import { Icons } from "@/ui/icons";
+import { formatShortcut } from "@/ui/shortcuts/registry";
 import type { OpenItem } from "@/workbench";
 import type { NavigationIntent } from "@/workbench/navigate";
 import type { SearchableItem } from "./score";
@@ -238,7 +239,7 @@ export function CommandPalette({ palette, navigate }: CommandPaletteProps) {
             aria-activedescendant={activeRowId}
             aria-autocomplete="list"
           />
-          <span className="lc-palette-kbd">⌘P</span>
+          <span className="lc-palette-kbd">{formatShortcut("global.open-palette")}</span>
         </div>
         <div
           className="lc-palette-list"

@@ -30,6 +30,7 @@ import { BootOverlay } from "@/ui/chrome/boot-overlay";
 import { Breadcrumb } from "@/ui/chrome/breadcrumb";
 import { CommandPalette } from "@/ui/command-palette/command-palette";
 import { useCommandPalette } from "@/ui/command-palette/use-command-palette";
+import { getKeySpec, matchEvent } from "@/ui/shortcuts/registry";
 import { StatusBar } from "@/ui/chrome/status-bar";
 import { TitleBar } from "@/ui/chrome/title-bar";
 import { ThreePanel } from "@/ui/layout/three-panel";
@@ -178,14 +179,16 @@ export function App() {
 
   // ⌘P palette toggle. The shared typing-surface guard would suppress
   // this when focus is inside the palette's own input — ⌘P is the
-  // palette's OWN toggle, so it must always preventDefault (to swallow
-  // Electron's native print dialog) and fire, regardless of focus.
+  // palette's OWN toggle, so it stays bespoke (no guard) and always
+  // preventDefaults (to swallow Electron's native print dialog) and
+  // fires, regardless of focus. The key spec still comes from the catalog
+  // so its displayed label can't drift.
   useEffect(() => {
+    const spec = getKeySpec("global.open-palette");
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === "p" || e.key === "P")) {
-        e.preventDefault();
-        palette.toggle();
-      }
+      if (!matchEvent(e, spec)) return;
+      e.preventDefault();
+      palette.toggle();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

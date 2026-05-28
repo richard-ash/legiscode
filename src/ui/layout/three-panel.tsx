@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from "react-resizable-panels";
 import { getStorageBackend } from "@/persistence";
-import { shouldHandleGlobalShortcut } from "@/ui/tabs/should-handle-shortcut";
+import { useShortcut } from "@/ui/shortcuts/use-shortcut";
 
 const LAYOUT_ID = "legiscode-three-panel";
 const PANEL_IDS = ["left", "center", "right"];
@@ -43,22 +43,17 @@ export function ThreePanel({ left, center, right }: ThreePanelProps) {
     else cur.collapse();
   }, []);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      if (!(e.key === "b" || e.key === "B")) return;
-      if (!shouldHandleGlobalShortcut(e)) return;
-      if (!e.altKey) {
-        e.preventDefault();
-        toggle(leftRef);
-      } else {
-        e.preventDefault();
-        toggle(rightRef);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [toggle, leftRef, rightRef]);
+  // ⌘B / ⌘⌥B toggle the side panels. The catalog-driven hook owns event
+  // matching + the typing-surface guard; this component only wires the
+  // imperative panel collapse.
+  useShortcut(
+    "global.toggle-left-panel",
+    useCallback(() => toggle(leftRef), [toggle, leftRef]),
+  );
+  useShortcut(
+    "global.toggle-right-panel",
+    useCallback(() => toggle(rightRef), [toggle, rightRef]),
+  );
 
   return (
     <Group

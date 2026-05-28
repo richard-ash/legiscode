@@ -109,6 +109,49 @@ describe("useTabKeyboardShortcuts — ⌘PageDown / ⌘PageUp wrap", () => {
   });
 });
 
+describe("useTabKeyboardShortcuts — exact-modifier normalization", () => {
+  // The old handlers were tolerant of stray modifiers: ⌘PageUp/PageDown
+  // ignored Shift/Alt, and ⌘⇧T ignored a stray Alt. The catalog refactor
+  // matches exactly (cmd-only / cmd+shift). These assert the deliberate
+  // tightening so it can't regress silently.
+  it("⌘⇧PageDown does NOT cycle (cmd-only required)", () => {
+    const states: OpenItemsState[] = [];
+    render(
+      <Host
+        initial={makeStateWithRefs([refA, refB])}
+        onState={(s) => states.push(s)}
+        closeActive={() => {}}
+        reopenLast={() => {}}
+      />,
+    );
+    fireEvent.keyDown(window, { key: "PageDown", metaKey: true, shiftKey: true });
+    expect(states).toHaveLength(0);
+  });
+
+  it("⌘⌥PageUp does NOT cycle (cmd-only required)", () => {
+    const states: OpenItemsState[] = [];
+    render(
+      <Host
+        initial={makeStateWithRefs([refA, refB])}
+        onState={(s) => states.push(s)}
+        closeActive={() => {}}
+        reopenLast={() => {}}
+      />,
+    );
+    fireEvent.keyDown(window, { key: "PageUp", metaKey: true, altKey: true });
+    expect(states).toHaveLength(0);
+  });
+
+  it("⌘⌥⇧T does NOT reopen (cmd+shift only, no Alt)", () => {
+    const reopenLast = vi.fn();
+    render(
+      <Host initial={makeStateWithRefs([refA])} closeActive={() => {}} reopenLast={reopenLast} />,
+    );
+    fireEvent.keyDown(window, { key: "T", metaKey: true, shiftKey: true, altKey: true });
+    expect(reopenLast).not.toHaveBeenCalled();
+  });
+});
+
 describe("useTabKeyboardShortcuts — F-palette regression", () => {
   it("⌘1 does NOT switch tabs when focus is inside a role=dialog", () => {
     const states: OpenItemsState[] = [];

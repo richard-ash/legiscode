@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   formatBinding,
   formatShortcut,
+  getChord,
+  getKeySpec,
   getShortcut,
   type KeySpec,
   matchEvent,
@@ -123,5 +125,28 @@ describe("matchShortcut", () => {
   it("never single-event-matches a chord", () => {
     const closeAll = getShortcut("tabs.close-all");
     expect(matchShortcut({ key: "k", metaKey: true }, closeAll)).toBe(false);
+  });
+});
+
+describe("getKeySpec / getChord — shape-checked accessors", () => {
+  it("getKeySpec returns the single spec for a single-press entry", () => {
+    expect(getKeySpec("tabs.close-active")).toEqual({ mods: ["cmd"], key: "w" });
+  });
+
+  it("getKeySpec throws when the entry is an alias array", () => {
+    // palette.move is [↑, ↓] — not a single spec.
+    expect(() => getKeySpec("palette.move")).toThrow(/not a single key spec/);
+  });
+
+  it("getKeySpec throws when the entry is a chord", () => {
+    expect(() => getKeySpec("tabs.close-all")).toThrow(/not a single key spec/);
+  });
+
+  it("getChord returns the chord for a chord entry", () => {
+    expect(getChord("tabs.close-all").chord).toHaveLength(2);
+  });
+
+  it("getChord throws when the entry is a single spec", () => {
+    expect(() => getChord("tabs.close-active")).toThrow(/not a chord/);
   });
 });
