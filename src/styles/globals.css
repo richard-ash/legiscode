@@ -970,6 +970,132 @@ input {
   border-radius: 50%;
   background: var(--blue);
 }
+.lc-settings-sep {
+  height: 1px;
+  border: none;
+  background: var(--border-soft);
+  margin: 8px -12px;
+}
+.lc-settings-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 4px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--subtext1);
+  font-family: var(--font-sans);
+  font-size: var(--ui-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.lc-settings-item:hover {
+  background: var(--bg-base);
+  color: var(--text);
+}
+
+/* ===== Settings page (keyboard shortcuts) ===== */
+.lc-settings-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 28px 48px;
+  font-family: var(--font-sans);
+  color: var(--text);
+}
+.lc-settings-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  max-width: 720px;
+  margin: 0 auto 8px;
+}
+.lc-settings-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 400;
+  color: var(--text);
+}
+.lc-settings-search {
+  flex: 1;
+  min-width: 180px;
+  max-width: 280px;
+  padding: 6px 10px;
+  font-family: var(--font-sans);
+  font-size: var(--ui-sm);
+  color: var(--text);
+  background: var(--bg-mantle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.lc-settings-search:focus {
+  /* Outline is already stripped by the base `input` rule; leave it alone
+     so the global C16 :focus-visible ring still reaches keyboard users.
+     Pointer focus gets the border-color cue only. */
+  border-color: var(--blue);
+}
+.lc-settings-empty {
+  max-width: 720px;
+  margin: 32px auto;
+  text-align: center;
+  font-size: var(--ui-sm);
+  color: var(--overlay1);
+}
+.lc-settings-group {
+  max-width: 720px;
+  margin: 0 auto;
+  padding-top: 20px;
+}
+.lc-settings-group-title {
+  margin: 0 0 4px;
+  font-family: var(--font-sans);
+  font-size: var(--ui-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--blue);
+}
+.lc-settings-scope {
+  padding: 8px 0;
+}
+.lc-settings-scope-title {
+  margin: 8px 0 4px;
+  font-size: var(--ui-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--overlay0);
+}
+.lc-settings-entries {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lc-settings-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+.lc-settings-entry:hover {
+  background: var(--bg-mantle);
+}
+.lc-settings-entry-label {
+  font-size: var(--ui-sm);
+  color: var(--subtext1);
+}
+.lc-settings-kbd {
+  font-size: 11px;
+  white-space: nowrap;
+}
 
 /* ===== Boot overlay (D3 A17) ===== */
 .lc-boot-overlay {

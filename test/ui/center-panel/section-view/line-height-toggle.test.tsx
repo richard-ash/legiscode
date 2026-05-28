@@ -23,7 +23,7 @@ describe("Settings dropdown — line-height multiplier (C11)", () => {
   });
 
   it("clicking 1.7× sets the CSS variable on <html>", () => {
-    render(<SettingsDropdown open onClose={() => {}} />);
+    render(<SettingsDropdown open onClose={() => {}} onOpenShortcuts={() => {}} />);
     fireEvent.click(screen.getByLabelText("1.7×"));
     expect(document.documentElement.style.getPropertyValue("--section-line-height-mult")).toBe(
       "1.7",
@@ -31,7 +31,7 @@ describe("Settings dropdown — line-height multiplier (C11)", () => {
   });
 
   it("clicking 1× resets the CSS variable to 1", () => {
-    render(<SettingsDropdown open onClose={() => {}} />);
+    render(<SettingsDropdown open onClose={() => {}} onOpenShortcuts={() => {}} />);
     // Flip to 1.7 first, then back.
     fireEvent.click(screen.getByLabelText("1.7×"));
     fireEvent.click(screen.getByLabelText("1×"));
@@ -39,7 +39,7 @@ describe("Settings dropdown — line-height multiplier (C11)", () => {
   });
 
   it("persists the multiplier to localStorage so it survives reloads", () => {
-    render(<SettingsDropdown open onClose={() => {}} />);
+    render(<SettingsDropdown open onClose={() => {}} onOpenShortcuts={() => {}} />);
     fireEvent.click(screen.getByLabelText("1.7×"));
     expect(window.localStorage.getItem("legiscode.section.lineHeightMult")).toBe("1.7");
   });

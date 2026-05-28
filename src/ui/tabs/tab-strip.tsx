@@ -428,6 +428,7 @@ export function TabStrip({
 }
 
 function buildTitle(item: OpenItem, titleMap: ReadonlyMap<string, CorpusTreeNode>): string {
+  if (item.kind === "settings") return "Settings";
   if (item.kind !== "section") return "Untitled";
   const ref: CorpusRef = item.ref;
   const node = titleMap.get(refHash(ref));

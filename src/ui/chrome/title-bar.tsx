@@ -17,9 +17,16 @@ export interface TitleBarProps {
   fileLabel: string;
   /** Open the section-finder palette (⌘P). */
   onOpenPalette: () => void;
+  /** Open the Settings → Keyboard Shortcuts tab (⌘,). */
+  onOpenShortcuts: () => void;
 }
 
-export function TitleBar({ workspaceLabel, fileLabel, onOpenPalette }: TitleBarProps) {
+export function TitleBar({
+  workspaceLabel,
+  fileLabel,
+  onOpenPalette,
+  onOpenShortcuts,
+}: TitleBarProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const paletteKey = formatShortcut("global.open-palette");
 
@@ -59,7 +66,11 @@ export function TitleBar({ workspaceLabel, fileLabel, onOpenPalette }: TitleBarP
           >
             <Icons.Settings size={14} />
           </button>
-          <SettingsDropdown open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+          <SettingsDropdown
+            open={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
+            onOpenShortcuts={onOpenShortcuts}
+          />
         </div>
       </div>
     </div>

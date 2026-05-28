@@ -45,10 +45,20 @@ const PersistedSectionItemSchema = z.object({
   ref: PersistedRefSchema,
 });
 
-// Discriminated union of one today. The `kind` discriminator stays so
-// future tab kinds (chat) plug in additively, and so legacy stored
-// payloads carrying a removed kind drop cleanly on read.
-const PersistedOpenItemSchema = z.discriminatedUnion("kind", [PersistedSectionItemSchema]);
+const PersistedSettingsItemSchema = z.object({
+  kind: z.literal("settings"),
+  section: z.literal("shortcuts"),
+});
+
+// The `kind` discriminator lets future tab kinds (chat) plug in
+// additively, and lets legacy stored payloads carrying a removed kind
+// drop cleanly on read. Settings tabs persist so a reopened app keeps
+// the surface open (App applies a cold-start guard so it never restores
+// as the active tab).
+const PersistedOpenItemSchema = z.discriminatedUnion("kind", [
+  PersistedSectionItemSchema,
+  PersistedSettingsItemSchema,
+]);
 
 // Strict per-item items array — the post-drop, post-remap shape that
 // callers consume. Tolerant per-item parsing happens in

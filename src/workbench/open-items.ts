@@ -20,7 +20,15 @@ import type { CorpusRef } from "@/corpus/refs";
 import { parse as parseRef, hash as refHash, equals as refsEqual } from "@/corpus/refs";
 import type { PersistedOpenItems } from "@/persistence";
 
-export type OpenItem = { kind: "section"; ref: CorpusRef } | { kind: "chat"; chatId: string };
+/** Which pane of the Settings surface a settings tab shows. A union of
+ *  one today; Theme / Font / Profile extend it additively in v1.1 without
+ *  breaking persisted tabs. */
+export type SettingsSection = "shortcuts";
+
+export type OpenItem =
+  | { kind: "section"; ref: CorpusRef }
+  | { kind: "chat"; chatId: string }
+  | { kind: "settings"; section: SettingsSection };
 
 /**
  * Stable identity key for an OpenItem — used by sibling state (history,
@@ -37,6 +45,8 @@ export function itemIdentity(item: OpenItem): string {
       return `section::${refHash(item.ref)}`;
     case "chat":
       return `chat::${item.chatId}`;
+    case "settings":
+      return `settings::${item.section}`;
   }
 }
 
@@ -312,6 +322,9 @@ export function fromPersisted(persisted: PersistedOpenItems): OpenItemsState {
       } catch {
         // Drop invalid persisted ref — section was renumbered or schema drift.
       }
+    } else if (p.kind === "settings") {
+      items.push({ kind: "settings", section: p.section });
+      surviving.push(i);
     }
     // Future kinds: chat is feat/ai-agent's problem; unknown kinds drop
     // here AND at the schema layer (item-wise tolerant parsing in storage.ts).
@@ -335,6 +348,8 @@ export function toPersisted(state: OpenItemsState): PersistedOpenItems {
         kind: "section",
         ref: { module: it.ref.module, section: it.ref.section },
       });
+    } else if (it.kind === "settings") {
+      items.push({ kind: "settings", section: it.section });
     } else {
       // chat persistence is feat/ai-agent's problem
       continue;

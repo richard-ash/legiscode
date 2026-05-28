@@ -52,6 +52,21 @@ describe("TabContent — routing", () => {
     expect(screen.getByRole("tabpanel").id).toMatch(/^tabpanel-section:/);
   });
 
+  it("settings kind → SettingsPage with role=tabpanel wrapper", () => {
+    const item: OpenItem = { kind: "settings", section: "shortcuts" };
+    render(
+      <TabContent
+        item={item}
+        section={null}
+        sectionError={null}
+        parentsLabel=""
+        navigate={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("tabpanel").id).toBe("tabpanel-settings::shortcuts");
+    expect(screen.getByRole("heading", { name: "Keyboard Shortcuts" })).toBeInTheDocument();
+  });
+
   it("chat kind → null (placeholder until feat/ai-agent)", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const item: OpenItem = { kind: "chat", chatId: "thread-1" };

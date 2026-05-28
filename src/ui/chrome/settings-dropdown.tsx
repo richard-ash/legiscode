@@ -14,13 +14,16 @@ import {
   subscribe as subscribeLineHeight,
 } from "@/app/section-line-height";
 import { getTheme, setTheme, subscribe, type Theme } from "@/app/theme";
+import { formatShortcut } from "@/ui/shortcuts/registry";
 
 export interface SettingsDropdownProps {
   open: boolean;
   onClose: () => void;
+  /** Open the Settings → Keyboard Shortcuts tab and close the dropdown. */
+  onOpenShortcuts: () => void;
 }
 
-export function SettingsDropdown({ open, onClose }: SettingsDropdownProps) {
+export function SettingsDropdown({ open, onClose, onOpenShortcuts }: SettingsDropdownProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [theme, setLocalTheme] = useState<Theme>(() =>
     typeof document === "undefined" ? "dark" : getTheme(),
@@ -128,6 +131,19 @@ export function SettingsDropdown({ open, onClose }: SettingsDropdownProps) {
           1.7×
         </label>
       </div>
+      <hr className="lc-settings-sep" />
+      <button
+        type="button"
+        role="menuitem"
+        className="lc-settings-item"
+        onClick={() => {
+          onClose();
+          onOpenShortcuts();
+        }}
+      >
+        <span>Keyboard Shortcuts…</span>
+        <kbd className="lc-kbd">{formatShortcut("global.open-settings")}</kbd>
+      </button>
     </div>
   );
 }

@@ -470,6 +470,17 @@ describe("persistence interop", () => {
     expect(round.items).toHaveLength(3);
     expect(round.activeIndex).toBe(2);
   });
+
+  it("persists and rehydrates a settings tab alongside sections", () => {
+    const items: OpenItem[] = [
+      { kind: "section", ref: refA },
+      { kind: "settings", section: "shortcuts" },
+    ];
+    const round = fromPersisted(toPersisted({ items, activeIndex: 1 }));
+    expect(round.items).toHaveLength(2);
+    expect(round.items[1]).toEqual({ kind: "settings", section: "shortcuts" });
+    expect(round.activeIndex).toBe(1);
+  });
 });
 
 describe("itemIdentity / findItemIndex", () => {
@@ -481,6 +492,11 @@ describe("itemIdentity / findItemIndex", () => {
     expect(itemIdentity(section)).toMatch(/^section::/);
     expect(itemIdentity(chat)).toMatch(/^chat::/);
     expect(itemIdentity(section)).not.toEqual(itemIdentity(chat));
+  });
+
+  it("gives a settings tab a stable per-section identity", () => {
+    const settings: OpenItem = { kind: "settings", section: "shortcuts" };
+    expect(itemIdentity(settings)).toBe("settings::shortcuts");
   });
 
   it("findItemIndex locates items across kinds", () => {

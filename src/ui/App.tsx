@@ -31,6 +31,7 @@ import { Breadcrumb } from "@/ui/chrome/breadcrumb";
 import { CommandPalette } from "@/ui/command-palette/command-palette";
 import { useCommandPalette } from "@/ui/command-palette/use-command-palette";
 import { getKeySpec, matchEvent } from "@/ui/shortcuts/registry";
+import { useShortcut } from "@/ui/shortcuts/use-shortcut";
 import { StatusBar } from "@/ui/chrome/status-bar";
 import { TitleBar } from "@/ui/chrome/title-bar";
 import { ThreePanel } from "@/ui/layout/three-panel";
@@ -99,15 +100,19 @@ export function App() {
         const persisted = readOpenItems();
         let state = persisted ? fromPersisted(persisted) : emptyOpenItems();
         state = validateAgainstCorpus(state, (ref) => hasRefInTree(r.value.tree, ref));
-        // Seed defaultRef in two cases:
-        //   (a) true cold start — no persisted value at all
-        //   (b) corpus invalidation — persisted had items but
-        //       validateAgainstCorpus dropped them all (e.g. corpus
-        //       upgrade renumbered every section ref)
-        // Preserve emptiness only when persisted was explicitly empty
-        // (user closed every tab last session — that intent stands).
+        // Boot into law: ensure the active tab is a section. One condition
+        // covers every cold-start path where it isn't —
+        //   (a) true cold start (no persisted value, no items),
+        //   (b) corpus invalidation that dropped every section,
+        //   (c) a persisted Settings tab left active, and
+        //   (d) invalidation that dropped the active section but left a
+        //       Settings tab, leaving items non-empty with activeIndex null.
+        // openItem focuses the default section, opening it if absent; a
+        // surviving Settings tab stays open but unfocused. Emptiness is
+        // preserved only when persisted was explicitly empty (the user
+        // closed every tab last session — that intent stands).
         const persistedExplicitlyEmpty = persisted !== null && persisted.items.length === 0;
-        if (state.items.length === 0 && !persistedExplicitlyEmpty) {
+        if (!persistedExplicitlyEmpty && activeItem(state)?.kind !== "section") {
           state = openItem(state, corpusRefFromWire(r.value.defaultRef));
         }
         setOpenItems(state);
@@ -225,6 +230,14 @@ export function App() {
     openItems,
     setOpenItems,
   });
+
+  // ⌘, opens (or focuses, via the settings::shortcuts identity) the
+  // Settings tab. Routed through the catalog hook so it shares the
+  // typing-surface guard and its label can't drift.
+  const openSettings = useCallback(() => {
+    navigate({ kind: "settings", section: "shortcuts" }, "primary");
+  }, [navigate]);
+  useShortcut("global.open-settings", openSettings);
 
   const buildExistence = useCallback((): CorpusExistence | null => {
     if (!corpus || !section) return null;
@@ -480,12 +493,14 @@ export function App() {
             closeToRight={closeToRightAt}
             closeAll={closeAllTabs}
           />
-          <Breadcrumb
-            parents={section?.parents ?? []}
-            sectionLabel={sectionLabel}
-            moduleId={section?.moduleId}
-            navigate={navigate}
-          />
+          {active?.kind === "section" ? (
+            <Breadcrumb
+              parents={section?.parents ?? []}
+              sectionLabel={sectionLabel}
+              moduleId={section?.moduleId}
+              navigate={navigate}
+            />
+          ) : null}
           {active ? (
             <TabContent
               item={active}
@@ -515,6 +530,7 @@ export function App() {
         onOpenPalette={() => {
           if (!palette.open) palette.toggle();
         }}
+        onOpenShortcuts={openSettings}
       />
       <div className="lc-frame">
         <ActivityBar active="structure" onChange={() => {}} />
