@@ -468,10 +468,12 @@ input {
 .lc-tabs {
   display: flex;
   align-items: stretch;
-  background: var(--bg-mantle);
-  border-bottom: 1px solid var(--border-soft);
+  /* background + border-bottom moved up to .lc-tabs-row so the chevron
+   * sibling sits flush against the same row (X8 lock; commit 5). The
+   * scroller itself stays transparent and owns only the horizontal
+   * overflow + the equal-share flex distribution. */
   overflow-x: auto;
-  flex-shrink: 0;
+  flex: 1 1 0;
   min-width: 0;
   scrollbar-width: none;
 }
@@ -493,8 +495,13 @@ input {
   cursor: pointer;
   position: relative;
   white-space: nowrap;
-  flex: 0 1 auto;
-  min-width: 0;
+  /* Equal-share sizing — inactive tabs split available width evenly so
+   * opening a new tab doesn't reflow the strip. Under pressure each
+   * shrinks to min-width 60px (icon + a few chars + close button); past
+   * that the strip overflows and the chevron menu becomes the load-
+   * bearing navigation aid. */
+  flex: 1 1 0;
+  min-width: 60px;
   max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -509,6 +516,12 @@ input {
 .lc-tab.is-active {
   background: var(--bg-base);
   color: var(--text);
+  /* 2× share + zero shrink keeps the active title readable even with
+   * 15+ tabs crammed in. max-width 360 stops a lone active tab from
+   * stretching across an otherwise empty strip. */
+  flex: 2 0 auto;
+  min-width: 220px;
+  max-width: 360px;
 }
 .lc-tab.is-active::after {
   content: "";
@@ -558,6 +571,129 @@ input {
   border-radius: 50%;
   background: var(--subtext0);
   margin-left: 2px;
+}
+
+/* ===== Tab popover (right-click menu + overflow menu) ===== */
+/* Surface + row primitives shared by the right-click bulk-close menu
+ * (commit 3) and the overflow chevron's list view (commit 5). Per V1/V2
+ * locks from /plan-design-review. Motion: appear/dismiss is instant
+ * per V5 (deliberate triggers don't need the tooltip show-delay). */
+.lc-menu-popover {
+  position: fixed;
+  min-width: 200px;
+  max-width: 320px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 0;
+  z-index: 1000;
+  font-family: var(--font-sans);
+  font-size: var(--ui);
+}
+.lc-menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 12px;
+  height: 28px;
+  color: var(--subtext1);
+  cursor: pointer;
+  transition:
+    background 50ms ease-out,
+    color 50ms ease-out;
+  /* Strip default outlines so :focus-visible owns the focus treatment. */
+  outline: none;
+}
+.lc-menu-row:hover,
+.lc-menu-row:focus-visible {
+  background: var(--bg-mantle);
+  color: var(--text);
+}
+.lc-menu-row-shortcut {
+  font-family: var(--font-mono);
+  font-size: var(--ui-sm);
+  color: var(--overlay1);
+  font-feature-settings: "tabular-nums";
+}
+
+/* Overflow menu row — same skeleton as .lc-menu-row but mono + per-row
+ * close button on the right edge. The marker reserves an 8px gutter so
+ * inactive rows don't shift relative to the active one (V3 lock). */
+.lc-overflow-row {
+  font-family: var(--font-mono);
+  font-size: var(--ui-sm);
+  padding-right: 8px;
+  gap: 8px;
+  justify-content: flex-start;
+}
+.lc-overflow-row-marker {
+  color: var(--blue);
+  width: 8px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.lc-overflow-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lc-overflow-row-close {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--overlay0);
+  border-radius: 3px;
+  opacity: 1;
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.lc-overflow-row-close:hover {
+  background: var(--bg-surface1);
+  color: var(--text);
+}
+
+/* ===== Tabs-row wrapper + overflow chevron ===== */
+/* The wrapper holds the scroller (.lc-tabs) and the chevron sibling
+ * (.lc-tabs-chevron). Putting the chevron OUTSIDE the measured scroller
+ * is load-bearing: a ResizeObserver on .lc-tabs comparing scrollWidth >
+ * clientWidth would feed back on itself if the chevron lived inside.
+ * Background + bottom border live here so both children inherit the row
+ * styling (V4 lock; X8 lock). */
+.lc-tabs-row {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-mantle);
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.lc-tabs-chevron {
+  width: 28px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-left: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--overlay1);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    color 50ms ease-out,
+    background 50ms ease-out;
+}
+.lc-tabs-chevron:hover,
+.lc-tabs-chevron[aria-expanded="true"] {
+  background: var(--bg-surface1);
+  color: var(--text);
 }
 
 /* ===== Empty state (no tabs open) ===== */
@@ -655,6 +791,14 @@ input {
 .lc-center {
   flex: 1;
   min-width: 0;
+  /* height:100% + min-height:0 together bound this column to the
+   * react-resizable-panels inner wrapper (which is display:block, so
+   * .lc-center's `flex:1` does nothing on its own). Without the bound,
+   * .lc-center grows to its content height and the parent wrapper takes
+   * the overflow — TabStrip + Breadcrumb scroll out with the body.
+   * Mirrors .lc-leftpanel's working pattern. */
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-base);

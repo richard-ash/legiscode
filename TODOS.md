@@ -153,6 +153,77 @@ Remaining:
 
 ---
 
+## Audit: background mouse actions while a modal is open
+
+Surfaced by `feat/tabs-polish` /plan-eng-review (2026-05-27) via the codex
+outside-voice pass. Codex flagged "modifier-click on a tab while the
+palette is open" as suspicious UX. The codebase has consistently chosen
+the opposite (un-gated background mouse) — middle-click close, plain
+X-click, tab activation, file-tree row clicks all fire while a
+`role=dialog` modal is open. This works as a working assumption today but
+the decision is implicit; a future contributor may flip part of it by
+accident and create inconsistency.
+
+- **What:** Audit every mouse handler in the renderer that mutates
+  workspace state (tab close / activate / modifier-click, file-tree row
+  click, breadcrumb click, settings dropdown rows, future menus). For
+  each, decide: should it fire while a `role=dialog` is mounted? Pick a
+  consistent rule (current implicit rule: yes), document it in
+  CLAUDE.md or `docs/INTERACTION.md` (new), and add a shared guard
+  helper (`shouldHandleBackgroundMouseAction()`) if any path needs
+  gating. Regression test per audited path.
+- **Why:** The implicit consistency is correct for power users (palette
+  is search, not modal-by-intent), but it should be a deliberate decision
+  with a written rationale. Without it, the next contributor adding a
+  modal (confirm dialog, settings panel, future "share section" surface)
+  will face the same question and pick differently.
+- **Pros:** Surfaces the implicit decision before it becomes a footgun;
+  cross-cutting audit deserves its own focused pass rather than per-PR
+  re-litigation; produces a shared guard helper if needed.
+- **Cons:** Low urgency — no user-reported bug today. Adds an audit
+  artifact to maintain.
+- **Context:** Codex outside-voice on `feat-tabs-polish` plan-eng-review
+  argued that mouse actions on background chrome should be gated by
+  modal state. Eng review locked "keep un-gated to match existing
+  consistency" for this branch but agreed the cross-cutting decision
+  deserves its own audit pass. The shared guard
+  `shouldHandleGlobalShortcut` (`should-handle-shortcut.ts`) is the
+  precedent shape for the background-mouse equivalent.
+- **Depends on / Blocked by:** None.
+- **Owner:** TBD — chrome-polish or interaction-consistency branch.
+
+---
+
+## A11y: project-wide reduced-motion audit
+
+Surfaced by `feat/tabs-polish` /plan-design-review (2026-05-27). DESIGN.md's
+motion scale (micro 50ms / short 120ms / medium 200ms) is conservative, but
+WCAG 2.3.3 (Animation from Interactions) recommends honoring
+`prefers-reduced-motion` regardless of duration for vestibular-disorder users.
+No audit exists today.
+
+- **What:** Add `@media (prefers-reduced-motion: reduce) { transition: none;
+  animation: none }` overrides to every CSS rule with a `transition` or
+  `animation` property in `src/styles/globals.css` and any module that adds
+  motion. Single cross-cutting commit. Add a Playwright snapshot test that
+  toggles the preference and asserts no motion-related computed properties.
+- **Why:** Cheap good-citizen pass. Conservative motion budgets don't fully
+  exempt us from the recommendation; some users are sensitive to even very
+  short transitions, especially on hover state cascades.
+- **Pros:** Covers vestibular-disorder users with one focused commit. Sets
+  the precedent so new motion automatically gets the override added by
+  convention.
+- **Cons:** Low urgency — no user-reported issue today. Adds a per-rule
+  override that's easy to forget when adding new motion.
+- **Context:** /plan-design-review on `feat-tabs-polish` (2026-05-27)
+  surfaced this when locking the new menu popover and chevron hover
+  transitions. The motion is already below the typical "feels animated"
+  threshold, but the audit hasn't happened.
+- **Depends on / Blocked by:** None.
+- **Owner:** TBD — a11y-polish branch.
+
+---
+
 ## Production release pipeline
 
 Production sign + notarize + publish lives on a separate branch — `feat/build-pipeline` ships PR-side CI only. The release branch is blocked on credentials (Apple Developer cert + Azure Trusted Signing) that aren't yet in hand.

@@ -336,6 +336,9 @@ export function App() {
 
   const {
     close: closeTabAt,
+    closeOthers: closeOthersAt,
+    closeToRight: closeToRightAt,
+    closeAll: closeAllTabs,
     reopenLast,
     saveScroll,
     useRestoreScroll,
@@ -402,6 +405,7 @@ export function App() {
     openItems,
     setOpenItems,
     closeActive: closeActiveTab,
+    closeAll: closeAllTabs,
     reopenLast,
   });
 
@@ -469,6 +473,9 @@ export function App() {
             setOpenItems={setOpenItems}
             titleMap={titleMap}
             closeAt={closeTabAt}
+            closeOthers={closeOthersAt}
+            closeToRight={closeToRightAt}
+            closeAll={closeAllTabs}
           />
           <Breadcrumb
             parents={section?.parents ?? []}

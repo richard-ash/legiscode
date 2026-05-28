@@ -33,21 +33,21 @@ const TREE: CorpusTreeNode[] = [
     kids: [
       {
         id: "m::10.04.020",
-        code: "10.04.020",
+        code: "§ 10.04.020",
         name: "Sales tax",
         kind: "section",
         ref: { moduleId: "m", sectionId: "10.04.020" },
       },
       {
         id: "m::10.04.040",
-        code: "10.04.040",
+        code: "§ 10.04.040",
         name: "Use tax",
         kind: "section",
         ref: { moduleId: "m", sectionId: "10.04.040" },
       },
       {
         id: "m::12.01.005",
-        code: "12.01.005",
+        code: "§ 12.01.005",
         name: "Definitions",
         kind: "section",
         ref: { moduleId: "m", sectionId: "12.01.005" },
@@ -83,9 +83,21 @@ export function TabHost({ initial, onState }: TabHostProps) {
     },
     [setOpenItems],
   );
-  const { close } = useTabs({ openItems: state, setOpenItems, navigate });
+  const { close, closeOthers, closeToRight, closeAll } = useTabs({
+    openItems: state,
+    setOpenItems,
+    navigate,
+  });
   if (state.items.length === 0) return null;
   return (
-    <TabStrip openItems={state} setOpenItems={setOpenItems} titleMap={TITLE_MAP} closeAt={close} />
+    <TabStrip
+      openItems={state}
+      setOpenItems={setOpenItems}
+      titleMap={TITLE_MAP}
+      closeAt={close}
+      closeOthers={closeOthers}
+      closeToRight={closeToRight}
+      closeAll={closeAll}
+    />
   );
 }

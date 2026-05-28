@@ -13,6 +13,13 @@ import { type CSSProperties, type KeyboardEvent, type MouseEvent, memo, useCallb
 import { Icons } from "@/ui/icons";
 import { itemIdentity, type OpenItem } from "@/workbench/open-items";
 
+/** Bulk-close mode dispatched from the close-X click handler. `'self'`
+ *  (default) closes just this tab; `'others'` and `'right'` resolve to
+ *  the matching pure mutator. The strip routes these to the hook
+ *  wrappers so the recently-closed buffer bookkeeping stays in one
+ *  place. */
+export type TabCloseMode = "self" | "others" | "right";
+
 export interface TabProps {
   item: OpenItem;
   index: number;
@@ -21,9 +28,17 @@ export interface TabProps {
   /** Full title surfaced via native `title` attr for truncated text. */
   fullTitle: string;
   onActivate: (index: number) => void;
-  onClose: (index: number) => void;
-  /** Cmd+click / middle-click — close without activate. */
-  onAuxClose: (index: number) => void;
+  /** Close from any path on this tab — plain close-X click, middle-
+   *  click, or modifier-click on the close-X (Cmd/Ctrl → 'others',
+   *  Alt → 'right'). Same callback so the strip owns the routing in
+   *  one place. */
+  onClose: (index: number, mode?: TabCloseMode) => void;
+  /** Open the right-click bulk-close menu anchored to this tab. Called
+   *  with the tab DOM node so the popover can position against it. Fires
+   *  on right-click (contextmenu), Shift+F10, and the dedicated
+   *  ContextMenu key — per X6 (WCAG 2.1.1) keyboard parity for the
+   *  context menu. */
+  onContextMenuOpen: (index: number, anchor: HTMLElement) => void;
 }
 
 function TabImpl({
@@ -34,7 +49,7 @@ function TabImpl({
   fullTitle,
   onActivate,
   onClose,
-  onAuxClose,
+  onContextMenuOpen,
 }: TabProps) {
   const id = tabSortableId(item);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -54,35 +69,64 @@ function TabImpl({
 
   const onMouseDown = useCallback(
     (e: MouseEvent<HTMLDivElement>) => {
-      // Middle-click anywhere on the tab closes it.
+      // Middle-click anywhere on the tab closes just it. Same dispatch
+      // shape as plain close — no bulk-close branching for middle-click.
       if (e.button === 1) {
         e.preventDefault();
-        onAuxClose(index);
+        onClose(index);
       }
     },
-    [index, onAuxClose],
+    [index, onClose],
   );
 
   const onCloseClick = useCallback(
     (e: MouseEvent<HTMLButtonElement>) => {
       e.stopPropagation();
-      onClose(index);
+      // Cmd/Ctrl-click → Close Others; Alt-click → Close to the Right.
+      // `metaKey || ctrlKey` covers macOS ⌘ and Windows/Linux Ctrl so
+      // the gesture works the same on every Electron host (X7 lock).
+      // Cmd+Alt → 'others' wins (modifier precedence).
+      let mode: TabCloseMode = "self";
+      if (e.metaKey || e.ctrlKey) mode = "others";
+      else if (e.altKey) mode = "right";
+      onClose(index, mode);
     },
     [index, onClose],
+  );
+
+  const onContextMenu = useCallback(
+    (e: MouseEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      // The default browser context menu would expose Inspect / Reload in
+      // Electron — wrong shape entirely. preventDefault + dispatch to the
+      // strip-owned popover slot.
+      onContextMenuOpen(index, e.currentTarget);
+    },
+    [index, onContextMenuOpen],
   );
 
   // Enter activates the focused tab. (Space is reserved for @dnd-kit's
   // KeyboardSensor grab — pressing Space on a focused tab initiates
   // drag-reorder, not activation.) Arrow / Home / End navigation lives
   // on the tablist parent so this handler stays narrow.
+  //
+  // Shift+F10 and the dedicated ContextMenu key open the right-click
+  // menu without a mouse (WCAG 2.1.1; X6 lock). preventDefault on
+  // Shift+F10 swallows the platform's default menu trigger so the
+  // popover doesn't double-fire.
   const onKeyDown = useCallback(
     (e: KeyboardEvent<HTMLDivElement>) => {
       if (e.key === "Enter") {
         e.preventDefault();
         onActivate(index);
+        return;
+      }
+      if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") {
+        e.preventDefault();
+        onContextMenuOpen(index, e.currentTarget);
       }
     },
-    [index, onActivate],
+    [index, onActivate, onContextMenuOpen],
   );
 
   const kind = item.kind;
@@ -106,6 +150,7 @@ function TabImpl({
       style={style}
       title={fullTitle}
       onClick={onClick}
+      onContextMenu={onContextMenu}
       onKeyDown={onKeyDown}
       onMouseDown={onMouseDown}
     >

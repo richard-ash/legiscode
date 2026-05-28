@@ -10,12 +10,11 @@
 import type { ReactNode } from "react";
 import type { ResolutionResult } from "@/citations/resolver";
 import type { CorpusRef } from "@/corpus/refs";
-import { hash as refHash } from "@/corpus/refs";
 import type { CorpusError, CorpusSectionView } from "@/corpus/wire";
 import type { Citation } from "@/types/citation";
 import { SectionView } from "@/ui/center-panel/section-view/section-view";
 import type { NavigationIntent } from "@/workbench/navigate";
-import type { OpenItem } from "@/workbench/open-items";
+import { itemIdentity, type OpenItem } from "@/workbench/open-items";
 
 export interface TabContentProps {
   item: OpenItem;
@@ -54,22 +53,31 @@ export function TabContent({
 }: TabContentProps): ReactNode {
   switch (item.kind) {
     case "section": {
-      const tabPanelId = `tabpanel-section:${refHash(item.ref)}`;
-      const tabId = `tab-section:${refHash(item.ref)}`;
+      // Derive both ids from itemIdentity — the same source Tab uses for
+      // its `id`/`aria-controls` (via tabSortableId). Building them
+      // independently here previously produced `tabpanel-section:<ref>`
+      // while Tab emitted `tabpanel-section::<ref>` (itemIdentity prefixes
+      // `section::`), so aria-controls/aria-labelledby pointed at ids that
+      // didn't exist and the tab↔panel relationship was severed for AT.
+      const identity = itemIdentity(item);
+      const tabPanelId = `tabpanel-${identity}`;
+      const tabId = `tab-${identity}`;
+      // role=tabpanel is folded onto SectionView's .lc-doc directly
+      // rather than wrapping in a <section> — a wrapper element breaks
+      // the .lc-center flex chain that pins TabStrip + Breadcrumb.
       return (
-        <section role="tabpanel" id={tabPanelId} aria-labelledby={tabId}>
-          <SectionView
-            view={section}
-            parentsLabel={parentsLabel}
-            error={sectionError}
-            navigate={navigate}
-            onCitationActivate={onCitationActivate}
-            resolveCitation={resolveCitation}
-            getCitationPreview={getCitationPreview}
-            scrollContainerRef={scrollContainerRef}
-            onScrollY={onScrollY}
-          />
-        </section>
+        <SectionView
+          view={section}
+          parentsLabel={parentsLabel}
+          error={sectionError}
+          navigate={navigate}
+          onCitationActivate={onCitationActivate}
+          resolveCitation={resolveCitation}
+          getCitationPreview={getCitationPreview}
+          scrollContainerRef={scrollContainerRef}
+          onScrollY={onScrollY}
+          tabPanel={{ id: tabPanelId, labelledBy: tabId }}
+        />
       );
     }
     case "chat": {

@@ -184,6 +184,162 @@ describe("useTabs — reopenLast", () => {
   });
 });
 
+describe("useTabs — bulk-close wrappers", () => {
+  function refSection(item: OpenItem): string {
+    return item.kind === "section" ? item.ref.section : item.kind;
+  }
+
+  it("closeOthers(keep) drops the rest; pushes the dropped active first, then others in order", () => {
+    const host = makeHost(makeStateWithRefs([refA, refB, refC])); // active = C (idx 2)
+    const { result, rerender } = renderHook(
+      ({ openItems }) =>
+        useTabs({ openItems, setOpenItems: host.setState, navigate: makeFakeNavigate(host) }),
+      { initialProps: { openItems: host.getState() } },
+    );
+    act(() => result.current.closeOthers(0)); // keep refA, drop B + C
+    rerender({ openItems: host.getState() });
+    expect(host.getState().items.map(refSection)).toEqual(["a"]);
+    expect(host.getState().activeIndex).toBe(0);
+    // Active (C) goes to head; then remaining dropped (B) in display order.
+    expect(result.current.recentlyClosed.map(refSection)).toEqual(["c", "b"]);
+  });
+
+  it("closeOthers(activeIdx) — active is kept; dropped tabs land in display order", () => {
+    const host = makeHost(makeStateWithRefs([refA, refB, refC])); // active = C
+    const { result, rerender } = renderHook(
+      ({ openItems }) =>
+        useTabs({ openItems, setOpenItems: host.setState, navigate: makeFakeNavigate(host) }),
+      { initialProps: { openItems: host.getState() } },
+    );
+    act(() => result.current.closeOthers(2)); // keep C
+    rerender({ openItems: host.getState() });
+    expect(host.getState().items.map(refSection)).toEqual(["c"]);
+    // Active wasn't dropped → no head bias; A and B land in display order.
+    expect(result.current.recentlyClosed.map(refSection)).toEqual(["a", "b"]);
+  });
+
+  it("closeToRight(idx) drops items right of idx; active head-bias when active was to the right", () => {
+    const host = makeHost(makeStateWithRefs([refA, refB, refC])); // active = C
+    const { result, rerender } = renderHook(
+      ({ openItems }) =>
+        useTabs({ openItems, setOpenItems: host.setState, navigate: makeFakeNavigate(host) }),
+      { initialProps: { openItems: host.getState() } },
+    );
+    act(() => result.current.closeToRight(0)); // keep A; drop B + C
+    rerender({ openItems: host.getState() });
+    expect(host.getState().items.map(refSection)).toEqual(["a"]);
+    // C was active and gets dropped → head; then B in display order.
+    expect(result.current.recentlyClosed.map(refSection)).toEqual(["c", "b"]);
+  });
+
+  it("closeAll empties the strip; buffer = active first, then remaining in display order", () => {
+    const host = makeHost(makeStateWithRefs([refA, refB, refC])); // active = C
+    const { result, rerender } = renderHook(
+      ({ openItems }) =>
+        useTabs({ openItems, setOpenItems: host.setState, navigate: makeFakeNavigate(host) }),
+      { initialProps: { openItems: host.getState() } },
+    );
+    act(() => result.current.closeAll());
+    rerender({ openItems: host.getState() });
+    expect(host.getState().items).toEqual([]);
+    expect(host.getState().activeIndex).toBeNull();
+    expect(result.current.recentlyClosed.map(refSection)).toEqual(["c", "a", "b"]);
+  });
+
+  it("closeAll honors the 10-item buffer cap and surfaces the active tab at the head", () => {
+    const refs = Array.from({ length: 15 }, (_, i) =>
+      corpusRefParse({ module: "m", section: `s${i}` }),
+    );
+    const host = makeHost(makeStateWithRefs(refs));
+    // Force active to idx 7 deterministically.
+    host.setState((prev) => ({ ...prev, activeIndex: 7 }));
+    const { result, rerender } = renderHook(
+      ({ openItems }) =>
+        useTabs({ openItems, setOpenItems: host.setState, navigate: makeFakeNavigate(host) }),
+      { initialProps: { openItems: host.getState() } },
+    );
+    act(() => result.current.closeAll());
+    rerender({ openItems: host.getState() });
+    expect(result.current.recentlyClosed).toHaveLength(10);
+    // Head = the active tab (s7) — reverse-active-recency.
+    expect(refSection(result.current.recentlyClosed[0]!)).toBe("s7");
+  });
+
+  it("closeAll pre-pends to an existing buffer; bulk items lead, prior buffer trails (capped)", () => {
+    const host = makeHost(makeStateWithRefs([refA, refB, refC]));
+    const { result, rerender } = renderHook(
+      ({ openItems }) =>
+        useTabs({ openItems, setOpenItems: host.setState, navigate: makeFakeNavigate(host) }),
+      { initialProps: { openItems: host.getState() } },
+    );
+    // Seed the buffer with a single prior close.
+    act(() => result.current.close(0)); // close refA
+    rerender({ openItems: host.getState() });
+    expect(result.current.recentlyClosed.map(refSection)).toEqual(["a"]);
+    // Now closeAll on [B, C*] — bulk pushes C (active) then B, then refA from prior.
+    act(() => result.current.closeAll());
+    rerender({ openItems: host.getState() });
+    expect(result.current.recentlyClosed.map(refSection)).toEqual(["c", "b", "a"]);
+  });
+
+  it("closeOthers is a no-op when the only tab is already the kept one", () => {
+    const host = makeHost(makeStateWithRefs([refA]));
+    const { result, rerender } = renderHook(
+      ({ openItems }) =>
+        useTabs({ openItems, setOpenItems: host.setState, navigate: makeFakeNavigate(host) }),
+      { initialProps: { openItems: host.getState() } },
+    );
+    act(() => result.current.closeOthers(0));
+    rerender({ openItems: host.getState() });
+    expect(host.getState().items.map(refSection)).toEqual(["a"]);
+    expect(result.current.recentlyClosed).toEqual([]);
+  });
+
+  it("closeToRight is a no-op when the rightmost is already the anchor", () => {
+    const host = makeHost(makeStateWithRefs([refA, refB, refC])); // active = C
+    const { result, rerender } = renderHook(
+      ({ openItems }) =>
+        useTabs({ openItems, setOpenItems: host.setState, navigate: makeFakeNavigate(host) }),
+      { initialProps: { openItems: host.getState() } },
+    );
+    act(() => result.current.closeToRight(2));
+    rerender({ openItems: host.getState() });
+    expect(host.getState().items.map(refSection)).toEqual(["a", "b", "c"]);
+    expect(result.current.recentlyClosed).toEqual([]);
+  });
+
+  it("closeAll is a no-op when the strip is already empty (early-return path)", () => {
+    const host = makeHost(makeStateWithRefs([])); // empty
+    const { result, rerender } = renderHook(
+      ({ openItems }) =>
+        useTabs({ openItems, setOpenItems: host.setState, navigate: makeFakeNavigate(host) }),
+      { initialProps: { openItems: host.getState() } },
+    );
+    act(() => result.current.closeAll());
+    rerender({ openItems: host.getState() });
+    expect(host.getState().items).toEqual([]);
+    // No items dropped → no buffer push (the early-return short-circuits
+    // before `mergeBulkClosed` runs).
+    expect(result.current.recentlyClosed).toEqual([]);
+  });
+
+  it("bulk-close with activeIndex null pushes dropped items in display order (no head bias)", () => {
+    const host = makeHost(makeStateWithRefs([refA, refB, refC]));
+    // Force activeIndex null so collectClosedForBulk skips the head-bias branch.
+    host.setState((prev) => ({ ...prev, activeIndex: null }));
+    const { result, rerender } = renderHook(
+      ({ openItems }) =>
+        useTabs({ openItems, setOpenItems: host.setState, navigate: makeFakeNavigate(host) }),
+      { initialProps: { openItems: host.getState() } },
+    );
+    act(() => result.current.closeAll());
+    rerender({ openItems: host.getState() });
+    expect(host.getState().items).toEqual([]);
+    // No active tab → ordering is pure display order, no reverse-active-recency.
+    expect(result.current.recentlyClosed.map(refSection)).toEqual(["a", "b", "c"]);
+  });
+});
+
 // external-citation OpenItem variant was removed in
 // feat/citation-resolution; popover handles cross-module-not-installed
 // cites without opening a separate tab. The buffer participation tests

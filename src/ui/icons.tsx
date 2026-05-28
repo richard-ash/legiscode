@@ -48,6 +48,7 @@ function makeIcon(paths: string, viewBox = "0 0 16 16") {
 export const Icons = {
   Search: makeIcon('<circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/>'),
   Chevron: makeIcon('<path d="M6 3l4 5-4 5"/>'),
+  ChevronDown: makeIcon('<path d="M3 6l5 4 5-4"/>'),
   Folder: makeIcon(
     '<path d="M2 4.5c0-.8.6-1.5 1.5-1.5h2.3c.3 0 .6.1.8.3L8 4.5h4.5c.8 0 1.5.7 1.5 1.5v5.5c0 .8-.7 1.5-1.5 1.5h-9c-.8 0-1.5-.7-1.5-1.5v-7z"/>',
   ),

@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { parse as corpusRefParse } from "@/corpus/refs";
 import {
   activeItem,
+  closeAll,
   closeItem,
+  closeOthers,
+  closeToRight,
   emptyOpenItems,
   findItemIndex,
   findSectionIndex,
@@ -117,6 +120,108 @@ describe("closeItem (right-then-left fall-back)", () => {
     const s = buildState(0);
     expect(closeItem(s, -1)).toBe(s);
     expect(closeItem(s, 99)).toBe(s);
+  });
+});
+
+describe("closeOthers (keep one, drop the rest)", () => {
+  function buildABC(active: number | null) {
+    let s = openItem(openItem(openItem(emptyOpenItems(), refA), refB), refC);
+    s = setActiveIndex(s, active);
+    return s;
+  }
+  function sectionIds(state: OpenItemsState): string[] {
+    return state.items.map((i) => (i.kind === "section" ? i.ref.section : i.kind));
+  }
+
+  it("keeps the indexed tab and drops the rest; survivor becomes active", () => {
+    const s = buildABC(2); // [A, B, C*]
+    const after = closeOthers(s, 1);
+    expect(sectionIds(after)).toEqual(["1.2"]);
+    expect(after.activeIndex).toBe(0);
+  });
+
+  it("keep-active path: active was the kept tab → still active at index 0", () => {
+    const s = buildABC(0); // [A*, B, C]
+    const after = closeOthers(s, 0);
+    expect(sectionIds(after)).toEqual(["1.1"]);
+    expect(after.activeIndex).toBe(0);
+  });
+
+  it("invalid keepIndex → state unchanged", () => {
+    const s = buildABC(0);
+    expect(closeOthers(s, -1)).toBe(s);
+    expect(closeOthers(s, 99)).toBe(s);
+  });
+
+  it("already a single tab with that index active → no-op (same reference)", () => {
+    const s = openItem(emptyOpenItems(), refA);
+    expect(closeOthers(s, 0)).toBe(s);
+  });
+});
+
+describe("closeToRight (keep prefix, drop tail)", () => {
+  function buildABC(active: number | null) {
+    let s = openItem(openItem(openItem(emptyOpenItems(), refA), refB), refC);
+    s = setActiveIndex(s, active);
+    return s;
+  }
+  function sectionIds(state: OpenItemsState): string[] {
+    return state.items.map((i) => (i.kind === "section" ? i.ref.section : i.kind));
+  }
+
+  it("drops everything to the right of fromIndex; activeIndex preserved when it survives", () => {
+    const s = buildABC(0); // [A*, B, C]
+    const after = closeToRight(s, 0);
+    expect(sectionIds(after)).toEqual(["1.1"]);
+    expect(after.activeIndex).toBe(0);
+  });
+
+  it("activeIndex pointed to the right of fromIndex → clamped to fromIndex", () => {
+    const s = buildABC(2); // [A, B, C*]
+    const after = closeToRight(s, 0);
+    expect(sectionIds(after)).toEqual(["1.1"]);
+    expect(after.activeIndex).toBe(0);
+  });
+
+  it("activeIndex pointed at fromIndex (survives) → unchanged", () => {
+    const s = buildABC(1); // [A, B*, C]
+    const after = closeToRight(s, 1);
+    expect(sectionIds(after)).toEqual(["1.1", "1.2"]);
+    expect(after.activeIndex).toBe(1);
+  });
+
+  it("activeIndex pointed to the left of fromIndex → unchanged", () => {
+    const s = buildABC(0); // [A*, B, C]
+    const after = closeToRight(s, 1);
+    expect(sectionIds(after)).toEqual(["1.1", "1.2"]);
+    expect(after.activeIndex).toBe(0);
+  });
+
+  it("nothing to the right (fromIndex is already last) → state unchanged", () => {
+    const s = buildABC(2); // [A, B, C*]
+    expect(closeToRight(s, 2)).toBe(s);
+  });
+
+  it("invalid fromIndex → state unchanged", () => {
+    const s = buildABC(0);
+    expect(closeToRight(s, -1)).toBe(s);
+    expect(closeToRight(s, 99)).toBe(s);
+  });
+});
+
+describe("closeAll (empty result)", () => {
+  it("returns empty state regardless of input", () => {
+    let s = openItem(openItem(openItem(emptyOpenItems(), refA), refB), refC);
+    s = setActiveIndex(s, 1);
+    const after = closeAll(s);
+    expect(after.items).toEqual([]);
+    expect(after.activeIndex).toBeNull();
+  });
+
+  it("on already-empty state, still returns empty (idempotent)", () => {
+    const after = closeAll(emptyOpenItems());
+    expect(after.items).toEqual([]);
+    expect(after.activeIndex).toBeNull();
   });
 });
 

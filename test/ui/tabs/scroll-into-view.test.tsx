@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { OpenItemsState } from "@/workbench/open-items";
 import { makeStateWithRefs, refA, refB, refC, TabHost } from "./helpers";
 
-describe("TabStrip — overflow + scroll-into-view", () => {
+describe("TabStrip — scrollIntoView on active change", () => {
   it("strip uses overflow-x:auto + scrollbar-width:none (visual via class)", () => {
     render(<TabHost initial={makeStateWithRefs([refA, refB, refC])} />);
     const list = screen.getByRole("tablist");
