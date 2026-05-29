@@ -321,11 +321,20 @@ function tryBind(
 
     // D5-followup: if the cite was BARE (no `-N` suffix in the
     // source) and the directly-hit candidate belongs to a collision
-    // family, run hierarchy disambiguation BEFORE returning. Without
-    // this, a bare cite to "16.9" would direct-bind to the bare
-    // section "16.9" even when the citing context strongly implies
-    // one of the disambiguator siblings ("16.9-2", "16.9-21", …)
-    // was intended.
+    // family, run hierarchy disambiguation BEFORE returning. A unique
+    // hierarchy winner redirects the bare cite to the implied
+    // disambiguator sibling — without this, a bare cite to "16.9"
+    // would direct-bind to the bare section "16.9" even when the
+    // citing context strongly implies one of the siblings
+    // ("16.9-2", "16.9-21", …) was intended.
+    //
+    // On an AMBIGUOUS verdict, keep the exact bare anchor we already
+    // hit (`candidate`) rather than going vague: the author wrote the
+    // bare id and a section with that exact id exists, so it is the
+    // faithful target. The disambiguator siblings carry distinct ids
+    // the author did not write. (When NO bare section exists this
+    // branch is unreachable — the bare id never hits `anchors`, so the
+    // no-hit fallback below produces the design's honest-vague.)
     //
     // Cites that already carry a `-N` suffix are trusted as-is —
     // the author named the specific disambiguator, no further
@@ -335,8 +344,10 @@ function tryBind(
       const family = families.get(familyKey);
       if (family) {
         const verdict = disambiguateFamilyByHierarchy(family, citingHierarchy);
-        if (verdict.kind === "ambiguous") return null;
-        return buildBoundTarget(verdict.section.id, targetModuleId, extras, anchors, rules);
+        if (verdict.kind === "bind") {
+          return buildBoundTarget(verdict.section.id, targetModuleId, extras, anchors, rules);
+        }
+        // ambiguous → fall through to the exact bare bind below.
       }
     }
 
