@@ -370,6 +370,84 @@ describe("App — tab strip integration (feat/tabs)", () => {
     expect(activeTab?.textContent).toContain("1.2");
   });
 
+  it("cold-start guard: never restores a Settings tab as the active tab", async () => {
+    // Persisted state where Settings was the active tab last session. The
+    // app must boot into law, not settings — Settings stays open but the
+    // default section becomes active.
+    window.localStorage.setItem(
+      "legiscode.openItems",
+      JSON.stringify({
+        items: [{ kind: "settings", section: "shortcuts" }],
+        activeIndex: 0,
+      }),
+    );
+    render(<App />);
+    const sectionList = await screen.findByRole("tablist", { name: "Open sections" });
+    await waitFor(() => {
+      expect(within(sectionList).getAllByRole("tab").length).toBe(2);
+    });
+    const tabs = within(sectionList).getAllByRole("tab");
+    const activeTab = tabs.find((t) => t.getAttribute("aria-selected") === "true");
+    expect(activeTab?.textContent).not.toContain("Settings");
+    // The Settings tab is still present, just not active.
+    const settingsTab = tabs.find((t) => t.textContent?.includes("Settings"));
+    expect(settingsTab).toBeDefined();
+    expect(settingsTab?.getAttribute("aria-selected")).toBe("false");
+  });
+
+  it("cold-start guard: invalidated active section + surviving Settings tab boots into law", async () => {
+    // Regression: persisted active section gets dropped by corpus
+    // validation (renumbered ref), but a Settings tab survives. That
+    // leaves items=[settings], activeIndex=null — non-empty, so the seed
+    // doesn't fire, and activeItem is null, so the old settings-only guard
+    // didn't fire either. The app must still boot into the default section.
+    window.localStorage.setItem(
+      "legiscode.openItems",
+      JSON.stringify({
+        items: [
+          { kind: "section", ref: { module: "sf-port", section: "renumbered-away" } },
+          { kind: "settings", section: "shortcuts" },
+        ],
+        activeIndex: 0,
+      }),
+    );
+    render(<App />);
+    const sectionList = await screen.findByRole("tablist", { name: "Open sections" });
+    await waitFor(() => {
+      expect(within(sectionList).getAllByRole("tab").length).toBe(2);
+    });
+    const tabs = within(sectionList).getAllByRole("tab");
+    const activeTab = tabs.find((t) => t.getAttribute("aria-selected") === "true");
+    expect(activeTab).toBeDefined();
+    expect(activeTab?.textContent).not.toContain("Settings");
+  });
+
+  it("⌘, opens a Settings tab from a fresh start and makes it active", async () => {
+    // The cold-start guards above cover restoring a persisted Settings tab.
+    // This covers the other direction: pressing ⌘, with no Settings tab open
+    // routes through useShortcut("global.open-settings") and opens one.
+    render(<App />);
+    const sectionList = await screen.findByRole("tablist", { name: "Open sections" });
+    await waitFor(() => {
+      expect(within(sectionList).getAllByRole("tab").length).toBeGreaterThanOrEqual(1);
+    });
+    expect(
+      within(sectionList)
+        .getAllByRole("tab")
+        .some((t) => t.textContent?.includes("Settings")),
+    ).toBe(false);
+
+    fireEvent.keyDown(window, { key: ",", metaKey: true });
+
+    await waitFor(() => {
+      const settingsTab = within(sectionList)
+        .getAllByRole("tab")
+        .find((t) => t.textContent?.includes("Settings"));
+      expect(settingsTab).toBeDefined();
+      expect(settingsTab?.getAttribute("aria-selected")).toBe("true");
+    });
+  });
+
   it("clicking a file-tree row opens a section as a new tab in the strip", async () => {
     render(<App />);
     await screen.findByTestId("section-view");

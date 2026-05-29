@@ -5,9 +5,10 @@
 // `titleBarStyle: 'hiddenInset'`; CSS leaves padding for them. Windows 11+
 // uses `titleBarOverlay` for window controls.
 
-import { Icons } from "@/ui/icons";
-import { SettingsDropdown } from "@/ui/chrome/settings-dropdown";
 import { useState } from "react";
+import { SettingsDropdown } from "@/ui/chrome/settings-dropdown";
+import { Icons } from "@/ui/icons";
+import { formatShortcut } from "@/ui/shortcuts/registry";
 
 export interface TitleBarProps {
   /** Display label inside the workspace chip — e.g. "SF Municipal Code". */
@@ -16,10 +17,18 @@ export interface TitleBarProps {
   fileLabel: string;
   /** Open the section-finder palette (⌘P). */
   onOpenPalette: () => void;
+  /** Open the Settings → Keyboard Shortcuts tab (⌘,). */
+  onOpenShortcuts: () => void;
 }
 
-export function TitleBar({ workspaceLabel, fileLabel, onOpenPalette }: TitleBarProps) {
+export function TitleBar({
+  workspaceLabel,
+  fileLabel,
+  onOpenPalette,
+  onOpenShortcuts,
+}: TitleBarProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const paletteKey = formatShortcut("global.open-palette");
 
   return (
     <div className="lc-titlebar" data-testid="titlebar">
@@ -34,14 +43,14 @@ export function TitleBar({ workspaceLabel, fileLabel, onOpenPalette }: TitleBarP
           type="button"
           className="lc-workspace-chip"
           onClick={onOpenPalette}
-          title="Go to section… (⌘P)"
-          aria-label="Open section finder (⌘P)"
+          title={`Go to section… (${paletteKey})`}
+          aria-label={`Open section finder (${paletteKey})`}
         >
           <span className="lc-dot" aria-hidden />
           <span data-testid="workspace-label">{workspaceLabel}</span>
           <span style={{ opacity: 0.5, margin: "0 2px" }}>/</span>
           <span style={{ color: "var(--overlay1)" }}>{fileLabel}</span>
-          <span className="lc-chip-kbd">⌘P</span>
+          <span className="lc-chip-kbd">{paletteKey}</span>
         </button>
       </div>
       <div className="lc-titlebar-right">
@@ -57,7 +66,11 @@ export function TitleBar({ workspaceLabel, fileLabel, onOpenPalette }: TitleBarP
           >
             <Icons.Settings size={14} />
           </button>
-          <SettingsDropdown open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+          <SettingsDropdown
+            open={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
+            onOpenShortcuts={onOpenShortcuts}
+          />
         </div>
       </div>
     </div>

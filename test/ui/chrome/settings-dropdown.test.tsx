@@ -22,7 +22,7 @@ describe("SettingsDropdown — Escape handling", () => {
 
   it("Escape closes the dropdown even when focus is on a radio input", () => {
     const onClose = vi.fn();
-    render(<SettingsDropdown open onClose={onClose} />);
+    render(<SettingsDropdown open onClose={onClose} onOpenShortcuts={() => {}} />);
     // The keydown listener is attached via setTimeout(_, 0); flush it.
     vi.advanceTimersByTime(1);
 
@@ -43,7 +43,7 @@ describe("SettingsDropdown — Escape handling", () => {
     dialog.appendChild(dialogInput);
     document.body.appendChild(dialog);
 
-    render(<SettingsDropdown open onClose={onClose} />);
+    render(<SettingsDropdown open onClose={onClose} onOpenShortcuts={() => {}} />);
     vi.advanceTimersByTime(1);
 
     dialogInput.focus();
@@ -57,12 +57,32 @@ describe("SettingsDropdown — Escape handling", () => {
 
   it("non-Escape keys are ignored (no spurious close on radio keypress)", () => {
     const onClose = vi.fn();
-    render(<SettingsDropdown open onClose={onClose} />);
+    render(<SettingsDropdown open onClose={onClose} onOpenShortcuts={() => {}} />);
     vi.advanceTimersByTime(1);
 
     fireEvent.keyDown(document, { key: "ArrowDown" });
     fireEvent.keyDown(document, { key: " " });
     fireEvent.keyDown(document, { key: "Enter" });
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe("SettingsDropdown — Keyboard Shortcuts menuitem", () => {
+  it("closes the dropdown before opening the Settings tab", () => {
+    const onClose = vi.fn();
+    const onOpenShortcuts = vi.fn();
+    render(<SettingsDropdown open onClose={onClose} onOpenShortcuts={onOpenShortcuts} />);
+
+    fireEvent.click(screen.getByRole("menuitem", { name: /Keyboard Shortcuts/ }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onOpenShortcuts).toHaveBeenCalledTimes(1);
+    // Close must run before open so the tab isn't rendered behind a
+    // still-open dropdown. invocationCallOrder is 1-based, so the `?? 0`
+    // fallbacks stay below any real order and the >0 check proves they fired.
+    const closeOrder = onClose.mock.invocationCallOrder[0] ?? 0;
+    const openOrder = onOpenShortcuts.mock.invocationCallOrder[0] ?? 0;
+    expect(closeOrder).toBeGreaterThan(0);
+    expect(closeOrder).toBeLessThan(openOrder);
   });
 });

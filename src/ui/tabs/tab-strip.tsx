@@ -29,6 +29,7 @@ import type { CorpusRef } from "@/corpus/refs";
 import { hash as refHash } from "@/corpus/refs";
 import type { CorpusTreeNode } from "@/corpus/wire";
 import { Icons } from "@/ui/icons";
+import { formatShortcut } from "@/ui/shortcuts/registry";
 import { itemIdentity, type OpenItem, type OpenItemsState } from "@/workbench/open-items";
 import { reorderItems, setActiveIndex } from "@/workbench/open-items";
 import { Tab, type TabCloseMode, tabSortableId } from "./tab";
@@ -238,10 +239,16 @@ export function TabStrip({
     const total = items.length;
     const isOnly = total === 1;
     const isRightmost = idx === total - 1;
-    const rows: TabMenuRow[] = [{ id: "close", label: "Close", shortcut: "⌘W" }];
+    const rows: TabMenuRow[] = [
+      { id: "close", label: "Close", shortcut: formatShortcut("tabs.close-active") },
+    ];
     if (!isOnly) rows.push({ id: "close-others", label: "Close Others" });
     if (!isOnly && !isRightmost) rows.push({ id: "close-to-right", label: "Close to the Right" });
-    rows.push({ id: "close-all", label: "Close All Tabs", shortcut: "⌘K W" });
+    rows.push({
+      id: "close-all",
+      label: "Close All Tabs",
+      shortcut: formatShortcut("tabs.close-all"),
+    });
     return rows;
   }, [openMenu, items]);
 
@@ -421,6 +428,7 @@ export function TabStrip({
 }
 
 function buildTitle(item: OpenItem, titleMap: ReadonlyMap<string, CorpusTreeNode>): string {
+  if (item.kind === "settings") return "Settings";
   if (item.kind !== "section") return "Untitled";
   const ref: CorpusRef = item.ref;
   const node = titleMap.get(refHash(ref));

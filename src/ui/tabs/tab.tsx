@@ -155,7 +155,7 @@ function TabImpl({
       onMouseDown={onMouseDown}
     >
       <span className="lc-tab-ico" aria-hidden="true">
-        <Icons.Section size={13} />
+        {kind === "settings" ? <Icons.Settings size={13} /> : <Icons.Section size={13} />}
       </span>
       <span>{title}</span>
       <button

@@ -13,6 +13,7 @@ import type { CorpusRef } from "@/corpus/refs";
 import type { CorpusError, CorpusSectionView } from "@/corpus/wire";
 import type { Citation } from "@/types/citation";
 import { SectionView } from "@/ui/center-panel/section-view/section-view";
+import { SettingsPage } from "@/ui/settings/settings-page";
 import type { NavigationIntent } from "@/workbench/navigate";
 import { itemIdentity, type OpenItem } from "@/workbench/open-items";
 
@@ -77,6 +78,15 @@ export function TabContent({
           scrollContainerRef={scrollContainerRef}
           onScrollY={onScrollY}
           tabPanel={{ id: tabPanelId, labelledBy: tabId }}
+        />
+      );
+    }
+    case "settings": {
+      const identity = itemIdentity(item);
+      return (
+        <SettingsPage
+          section={item.section}
+          tabPanel={{ id: `tabpanel-${identity}`, labelledBy: `tab-${identity}` }}
         />
       );
     }

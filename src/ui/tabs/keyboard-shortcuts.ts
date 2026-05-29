@@ -9,9 +9,28 @@
 // line 31 open question."
 
 import { useEffect, useRef } from "react";
+import { getChord, getKeySpec, matchEvent } from "@/ui/shortcuts/registry";
 import type { OpenItemsState } from "@/workbench/open-items";
 import { setActiveIndex } from "@/workbench/open-items";
 import { shouldHandleGlobalShortcut } from "./should-handle-shortcut";
+
+// Key specs pulled from the catalog so this handler can't drift from the
+// labels the settings page renders. Matching stays bespoke (chord state,
+// the pending-key window, the bare-modifier-keydown guard) — the catalog
+// owns identity, not dispatch semantics. The getKeySpec/getChord accessors
+// throw if a catalog entry's display shape changes, so a silent mis-read
+// can't quietly disable a shortcut here.
+const REOPEN_SPEC = getKeySpec("tabs.reopen-closed");
+const CLOSE_ACTIVE_SPEC = getKeySpec("tabs.close-active");
+const CYCLE_NEXT_SPEC = getKeySpec("tabs.cycle-next");
+const CYCLE_PREV_SPEC = getKeySpec("tabs.cycle-prev");
+const CLOSE_ALL_CHORD = getChord("tabs.close-all");
+const CHORD_ARM_KEY = CLOSE_ALL_CHORD.chord[0]?.key ?? "k";
+const CHORD_RESOLVE_KEY = CLOSE_ALL_CHORD.chord[1]?.key ?? "w";
+
+function keyIs(eventKey: string, specKey: string): boolean {
+  return eventKey.toLowerCase() === specKey.toLowerCase();
+}
 
 export interface TabKeyboardShortcutsParams {
   openItems: OpenItemsState;
@@ -91,7 +110,7 @@ export function useTabKeyboardShortcuts({
       // second leg of ⌘K W doesn't double-fire ⌘W's close-active path.
       if (pendingChordRef.current !== null) {
         clearPending();
-        if (!e.shiftKey && !e.altKey && (e.key === "w" || e.key === "W")) {
+        if (!e.shiftKey && !e.altKey && keyIs(e.key, CHORD_RESOLVE_KEY)) {
           e.preventDefault();
           closeAll();
           return;
@@ -104,7 +123,7 @@ export function useTabKeyboardShortcuts({
       // ⌘K — arm the chord. Stand-alone ⌘K has no binding today, so
       // arming on press is safe; the auto-cancel timer fires the chord
       // off if the user doesn't follow up within CHORD_TIMEOUT_MS.
-      if (!e.shiftKey && !e.altKey && (e.key === "k" || e.key === "K")) {
+      if (!e.shiftKey && !e.altKey && keyIs(e.key, CHORD_ARM_KEY)) {
         e.preventDefault();
         clearPending();
         const timeoutId = window.setTimeout(() => {
@@ -114,15 +133,16 @@ export function useTabKeyboardShortcuts({
         return;
       }
 
-      // ⌘shift+T — reopen most recently closed.
-      if (e.shiftKey && (e.key === "t" || e.key === "T")) {
+      // ⌘shift+T — reopen most recently closed. Exact-modifier match now
+      // (was tolerant of a stray Alt); the catalog spec carries cmd+shift.
+      if (matchEvent(e, REOPEN_SPEC)) {
         e.preventDefault();
         reopenLast();
         return;
       }
 
       // ⌘W — close active.
-      if (!e.shiftKey && !e.altKey && (e.key === "w" || e.key === "W")) {
+      if (matchEvent(e, CLOSE_ACTIVE_SPEC)) {
         e.preventDefault();
         closeActive();
         return;
@@ -139,14 +159,16 @@ export function useTabKeyboardShortcuts({
         return;
       }
 
-      // ⌘PageDown / ⌘PageUp — wrap.
-      if (e.key === "PageDown" || e.key === "PageUp") {
+      // ⌘PageDown / ⌘PageUp — wrap. Exact-modifier match now (was tolerant
+      // of stray Shift/Alt); cmd-only per the catalog spec.
+      const cycleNext = matchEvent(e, CYCLE_NEXT_SPEC);
+      if (cycleNext || matchEvent(e, CYCLE_PREV_SPEC)) {
         const len = openItems.items.length;
         if (len === 0) return;
         e.preventDefault();
         setOpenItems((prev) => {
           if (prev.activeIndex === null) return setActiveIndex(prev, 0);
-          const delta = e.key === "PageDown" ? 1 : -1;
+          const delta = cycleNext ? 1 : -1;
           const next = (prev.activeIndex + delta + len) % len;
           return setActiveIndex(prev, next);
         });
