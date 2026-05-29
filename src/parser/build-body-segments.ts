@@ -28,6 +28,7 @@
 
 import type { Citation, Definition, DefinitionId, SectionId } from "@/types";
 import type { SpanRecord } from "./parse-html";
+import type { GlossaryRecognizer } from "./recognize";
 import { buildCandidatesByTerm, resolveDefinitionForOccurrence } from "./resolve-definition";
 
 // A primary annotation — the non-format spans that tile `text`. Each
@@ -105,9 +106,15 @@ export interface BuildBodySegmentsInput {
    * resolution (L2a) consults this index to find the in-scope
    * Definition for each defined_term occurrence, attaches def_id to
    * the emitted segment, and records dropped runner-up candidates.
-   * The set of recognizable terms is derived from this array.
    */
   moduleDefinitions: readonly Definition[];
+  /**
+   * The module's glossary recognizer (case-sensitive longest-match trie
+   * + capitalised-extent guard), built ONCE per module by the caller and
+   * reused across every section — never rebuilt per section. Produces the
+   * defined_term spans that this builder resolves and tiles.
+   */
+  glossaryRecognizer: GlossaryRecognizer;
   /**
    * Reader section context — id for self-suppression, hierarchy chain
    * for the precedence rule.
@@ -147,48 +154,6 @@ function findSubsectionLabels(text: string): Primary[] {
       end: labelStart + label.length,
       label,
     });
-  }
-  return out;
-}
-
-// Word-boundary regex per term, cached at module scope. The pipeline
-// calls findDefinedTermOccurrences once per section in Pass 3, and the
-// module-wide dictionary is the same Set across every section in a
-// build — so a per-process cache amortizes RegExp construction across
-// ~thousands of sections per build. Sharing the regex object across
-// matchAll calls is safe: matchAll doesn't mutate the source's
-// lastIndex.
-const definedTermRegexCache = new Map<string, RegExp>();
-function getDefinedTermRegex(term: string): RegExp {
-  let re = definedTermRegexCache.get(term);
-  if (!re) {
-    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    re = new RegExp(`\\b${escaped}\\b`, "g");
-    definedTermRegexCache.set(term, re);
-  }
-  return re;
-}
-
-// Scan `text` for occurrences of any term in the module dictionary.
-// Returns positions where a defined-term occurrence begins. We match
-// on word boundaries to avoid partial-substring hits ("Person" should
-// not match inside "Personal"). For multi-word terms the boundary
-// check is applied to the term as a whole.
-function findDefinedTermOccurrences(
-  text: string,
-  moduleDefinedTerms: ReadonlySet<string>,
-): Primary[] {
-  const out: Primary[] = [];
-  // Sort longer terms first so "Director of Transportation" matches
-  // before a shorter "Director" would inside it.
-  const terms = Array.from(moduleDefinedTerms).sort((a, b) => b.length - a.length);
-  for (const term of terms) {
-    if (!term) continue;
-    const re = getDefinedTermRegex(term);
-    for (const match of text.matchAll(re)) {
-      const start = match.index ?? 0;
-      out.push({ kind: "defined_term", start, end: start + term.length, term });
-    }
   }
   return out;
 }
@@ -530,18 +495,11 @@ export function buildBodySegments(input: BuildBodySegmentsInput): Segment[] {
     htmlSpans,
     citationMatches,
     moduleDefinitions,
+    glossaryRecognizer,
     readerSection,
     onUnresolvedReference,
   } = input;
   if (text.length === 0) return [];
-
-  // Derive the term-set the occurrence scanner cares about from the
-  // canonical Definition[] (every distinct term that's defined
-  // somewhere in the module). Module-wide so a section in Chapter X
-  // can highlight a term defined in Chapter Y; per-occurrence
-  // resolution filters by scope in the next step.
-  const moduleDefinedTerms = new Set<string>();
-  for (const d of moduleDefinitions) moduleDefinedTerms.add(d.term);
 
   // Step 1: collect all primary annotations.
   const primaries: Primary[] = [];
@@ -554,8 +512,13 @@ export function buildBodySegments(input: BuildBodySegmentsInput): Segment[] {
       citation_index: c.citation_index,
     });
   }
-  for (const dt of findDefinedTermOccurrences(text, moduleDefinedTerms)) {
-    primaries.push(dt);
+  // Defined-term spans come from the module glossary recognizer: a
+  // case-sensitive longest-match trie with the capitalised-extent guard
+  // already applied (a name inside a longer proper name is suppressed).
+  // Per-occurrence scope resolution still runs in Step 2.5.
+  for (const span of glossaryRecognizer.recognizeTerms(text)) {
+    if (span.kind !== "defined_term") continue;
+    primaries.push({ kind: "defined_term", start: span.start, end: span.end, term: span.term });
   }
   for (const sl of findSubsectionLabels(text)) {
     primaries.push(sl);
