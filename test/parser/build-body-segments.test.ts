@@ -542,11 +542,13 @@ describe("buildBodySegments — L2a per-occurrence resolution", () => {
     expect(reports).toEqual([{ term: "Phantom" }]);
   });
 
-  it("self-suppression: definer section's canonical clause renders as plain text", () => {
-    // The reader IS the definer; body_anchor 4..10 marks the canonical
-    // definition. Other occurrences of the same term in the same section
-    // stay tagged.
-    const text = "The Person means a human. Other Person says hi.";
+  it("self-suppression: a term's own defining clause renders as plain text (revised D6)", () => {
+    // Revised D6 — suppression is scoped to the term's defining clause
+    // (the paragraph containing body_anchor), not the exact anchor and
+    // not the whole section. Both "Person" occurrences in the first
+    // paragraph are inside Person's own clause and suppress; the usage in
+    // the next paragraph stays tagged.
+    const text = "The Person means a Person.\nThe Person elsewhere.";
     const definer = mockDefinition("Person", {
       defined_in: "definer-id",
       body_anchor: { start: 4, end: 10 },
@@ -559,11 +561,56 @@ describe("buildBodySegments — L2a per-occurrence resolution", () => {
       moduleDefinitions: [definer],
       readerSection: { id: "definer-id", hierarchy: [] },
     });
-    // First occurrence (canonical) is suppressed; second stays tagged.
     expect(out).toEqual([
-      { type: "text", text: "The Person means a human. Other " },
+      { type: "text", text: "The Person means a Person.\nThe " },
       { type: "defined_term", raw: "Person", def_id: definer.id },
-      { type: "text", text: " says hi." },
+      { type: "text", text: " elsewhere." },
+    ]);
+  });
+
+  it("★ keeps links to OTHER terms inside a definition lit (revised D6, §10A.1 scene)", () => {
+    // A Definitions section: each definition is its own paragraph. The
+    // Requestor clause references Department and City — those must stay
+    // lit (they resolve to Definitions whose clauses are other
+    // paragraphs), while each term's self-reference inside its own clause
+    // is suppressed.
+    const text =
+      '"City" means the City and County.\n' +
+      '"Department" means the Sheriff Department.\n' +
+      '"Requestor" means a person seeking help of the Department within the City.';
+    const definer: SectionId = "10a.1";
+    const at = (needle: string): { start: number; end: number } => {
+      const start = text.indexOf(needle);
+      return { start, end: start + needle.length };
+    };
+    const city = mockDefinition("City", {
+      defined_in: definer,
+      id: buildDefinitionId(TEST_MODULE, "10a.1-city", "City"),
+      body_anchor: at('"City"'), // includes quotes; clause = paragraph anyway
+    });
+    const department = mockDefinition("Department", {
+      defined_in: definer,
+      id: buildDefinitionId(TEST_MODULE, "10a.1-dept", "Department"),
+      body_anchor: at('"Department"'),
+    });
+    const requestor = mockDefinition("Requestor", {
+      defined_in: definer,
+      id: buildDefinitionId(TEST_MODULE, "10a.1-req", "Requestor"),
+      body_anchor: at('"Requestor"'),
+    });
+    const out = buildBodySegments({
+      text,
+      htmlSpans: [],
+      citationMatches: [],
+      moduleDefinitions: [city, department, requestor],
+      readerSection: { id: definer, hierarchy: [] },
+    });
+    const tagged = out.filter((s) => s.type === "defined_term");
+    // Only the two cross-term links in the Requestor paragraph survive,
+    // in document order. Every self-reference is suppressed.
+    expect(tagged).toEqual([
+      { type: "defined_term", raw: "Department", def_id: department.id },
+      { type: "defined_term", raw: "City", def_id: city.id },
     ]);
   });
 
