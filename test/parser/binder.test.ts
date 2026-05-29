@@ -559,6 +559,33 @@ describe("bindCitation — D5 hierarchy-scoped collision-family fallback", () =>
     });
   });
 
+  it("binds the exact bare section when the family is ambiguous but the bare id exists", () => {
+    // The bare "12d.2" section exists AND has disambiguator siblings
+    // ("12d.2-1" … "12d.2-6") that all share its hierarchy. Hierarchy
+    // disambiguation is ambiguous, but the cite text is the bare id and
+    // a section with that exact id exists, so it must bind to the bare
+    // section — not go vague. Contrast the honest-vague case above,
+    // where NO bare section exists and only siblings remain.
+    const sections = [
+      sec("12d.2", ["Admin Code", "ARTICLE V"]),
+      sec("12d.2-1", ["Admin Code", "ARTICLE V"]),
+      sec("12d.2-2", ["Admin Code", "ARTICLE V"]),
+    ];
+    const ctx = makeFamilyCtx("sf-mod", sections);
+
+    const before: Citation = {
+      display_text: "Section 12D.2",
+      target: { kind: "internal", section_id: "12d.2" },
+    };
+    const after = bindCitation(before, ctx, ["Admin Code", "ARTICLE V"]);
+
+    expect(after.target).toEqual({
+      kind: "section-ref",
+      anchor_id: "12d.2",
+      module_id: "sf-mod",
+    });
+  });
+
   it("walks ancestors when no exact hierarchy match exists", () => {
     // Citing section is at ["Admin Code", "ARTICLE I", "DIV A"].
     // No family member lives at that exact hierarchy, but one lives
