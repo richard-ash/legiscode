@@ -421,12 +421,24 @@ function paragraphExcerpt(text: string, from: number, to: number): string {
   return excerpt;
 }
 
+// The defining clause is the paragraph (\n-delimited, per the parse-html
+// text contract) that contains a Definition's body_anchor. Self-reference
+// suppression operates on this range, not on the exact anchor and not on
+// the whole section.
+function definingClauseRange(text: string, anchorStart: number): { start: number; end: number } {
+  const prevNewline = text.lastIndexOf("\n", Math.max(0, anchorStart - 1));
+  const start = prevNewline === -1 ? 0 : prevNewline + 1;
+  const nextNewline = text.indexOf("\n", anchorStart);
+  const end = nextNewline === -1 ? text.length : nextNewline;
+  return { start, end };
+}
+
 // Run the per-occurrence resolver over defined_term primaries. For each
 // match:
 //   - winner exists, self-suppression NOT triggered → attach
 //     def_id/raw/candidates_dropped to the primary, keep it
 //   - winner exists, self-suppression triggered → drop the primary
-//     (the canonical defining clause renders as plain text, per §9 L9)
+//     (the term's own defining clause renders as plain text, per §9 L9)
 //   - no winner → drop the primary, fire onUnresolvedReference
 //
 // Dropped primaries leave a gap that buildPrimaryLeaves fills with a
@@ -463,15 +475,19 @@ function resolveDefinedTermOccurrences(
       });
       continue;
     }
-    // Self-suppression: the canonical defining clause at body_anchor
-    // renders as plain text (§9 L9). Other occurrences of the same
-    // term in the same section stay tagged.
-    if (
-      result.winner.defined_in === readerSection.id &&
-      p.start === result.winner.body_anchor.start &&
-      p.end === result.winner.body_anchor.end
-    ) {
-      continue;
+    // Self-reference self-suppression (revised D6): an occurrence of term
+    // T renders as plain text only when it falls inside T's OWN defining
+    // clause — the paragraph containing the winning Definition's
+    // body_anchor. This kills the no-op self-links in a Definitions
+    // section (e.g. the second "City" in `"City" means the City and
+    // County`) without dropping links to OTHER terms in that same
+    // paragraph: a Department or City reference inside a Requestor
+    // definition resolves to a Definition whose clause lives in a
+    // different paragraph, so it stays lit. Cross-section occurrences are
+    // never self-suppressed.
+    if (result.winner.defined_in === readerSection.id) {
+      const clause = definingClauseRange(text, result.winner.body_anchor.start);
+      if (p.start >= clause.start && p.end <= clause.end) continue;
     }
     const annotated: Primary = {
       kind: "defined_term",
