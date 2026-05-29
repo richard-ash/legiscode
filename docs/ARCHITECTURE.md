@@ -203,7 +203,8 @@ defense-in-depth (A1).
 **Private internals (do not import directly):**
 - `parse-html.ts` — rbox classifier, hierarchy walk, per-kind parsers, walker that emits text + position-bearing format spans
 - `pipeline.ts` — orchestrates the 3-pass section build (extract → module-dictionary → tokenize body[]), enrich, validate, compute graphs
-- `build-body-segments.ts` — tiles primaries (citations, defined-term occurrences, subsection labels, paragraph breaks) and format spans into BodySegment[] with overlap-precedence resolution
+- `recognize.ts` — the shared recognition layer: the `Span` primary-annotation model, the per-module case-sensitive longest-match glossary trie (with the capitalised-extent guard that suppresses a name highlighted inside a longer proper name), and the single overlap arbiter (`arbitrate`) that resolves citation/term overlaps in citation's favor. Built once per module and reused across every section
+- `build-body-segments.ts` — tiles primaries (citations, defined-term occurrences, subsection labels, paragraph breaks) and format spans into BodySegment[]; consumes `recognize.ts` for term recognition and overlap arbitration
 - `citations.ts`, `defined-terms.ts`, `definitions.ts`, `references.ts`
 - `slugify.ts`
 
@@ -414,6 +415,48 @@ primitive + ⌘⌥←/→ global shortcuts; it shouldn't be confused with
 ## Notes
 
 Append-only log of architectural observations. Newest at the top.
+
+### 2026-05-29 — shared recognition layer (`src/parser/recognize.ts`)
+
+Defined-term tagging and citation tiling each had their own ad-hoc logic
+inside `build-body-segments.ts`: defined terms were scanned first-match-wins
+and the citation-vs-term precedence (the "CQ2 referee") lived inline as a
+local hack. Two correctness bugs fell out of that shape — bare "Department"
+got highlighted instead of the longer "Department of Public Works" the
+sentence was naming, and a name was highlighted even when it sat inside a
+bigger proper name.
+
+Extracted `recognize.ts` as the shared recognition primitive both consumers
+use. It owns three things: the `Span` primary-annotation model; a per-module
+case-sensitive **longest-match glossary trie** plus a **capitalised-extent
+guard** that suppresses a name highlighted inside a longer capitalised
+proper-noun extent (so "Department" inside "Department of Public Works" drops,
+but a standalone "Department" stays lit); and a single **overlap arbiter**
+(`arbitrate`) that tiles term and citation spans together with citation winning
+every contest, retiring the inline CQ2 referee.
+
+The central inversion (design D10): the dictionary trie — not a capitalisation
+grammar — is the recognizer, so the ~8.7% of defined terms that are lower-case
+("fiscal year", "affordable housing") survive as ordinary case-sensitive
+entries. Matching is case-sensitive at each term's defined case; "any case"
+matching would newly tag generic lower-case prose and break
+`resolve-definition`'s exact-term keying. The recognizer is built once per
+module in `pipeline.ts` (the trie is a module-wide artifact) and reused across
+every section.
+
+`scripts/recall-diff.ts` is the standalone recall gate (design D9) guarding
+this work: `capture` snapshots a build's defined-term + citation tag sets,
+`diff` classifies drops against a baseline. Capitalised drops and definer-clause
+drops are intended; a lower-case drop in a usage section fails the gate (exit
+1). It is operator-run, not wired into `mise` / `validate:full`.
+
+Companion change: the SF manifest's section-id citation grammar widened to
+allow a leading or per-component letter, so "Section 10A.4" and the City
+Charter's "Section A8.400" now recognize (the old `\d+(?:\.\d+)*[a-z]?` grammar
+stranded ".4" and never matched a leading letter). The new grammar is a strict
+superset — existing recognition is unchanged, it only recognizes more. The
+user-visible effect of the whole branch: defined-term highlights and citation
+links are more accurate. No public API or schema change.
 
 ### 2026-05-20 — citation refoundation (VS Code interaction + module-aware resolution)
 
