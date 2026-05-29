@@ -7,9 +7,24 @@
 // extractors would produce.
 
 import { describe, expect, it } from "vitest";
-import { buildBodySegments } from "@/parser/build-body-segments";
+import { buildBodySegments as buildBodySegmentsRaw } from "@/parser/build-body-segments";
 import { buildDefinitionId } from "@/parser/definition-id";
+import { buildGlossaryRecognizer } from "@/parser/recognize";
 import type { Citation, Definition, SectionId } from "@/types";
+
+// The pipeline builds the glossary recognizer once per module and passes
+// it in; these unit tests derive it from each case's moduleDefinitions so
+// the call sites read the way the body-builder's contract intends.
+function buildBodySegments(
+  input: Omit<Parameters<typeof buildBodySegmentsRaw>[0], "glossaryRecognizer">,
+): ReturnType<typeof buildBodySegmentsRaw> {
+  return buildBodySegmentsRaw({
+    ...input,
+    glossaryRecognizer: buildGlossaryRecognizer(
+      new Set(input.moduleDefinitions.map((d) => d.term)),
+    ),
+  });
+}
 
 const internalCite = (display_text: string, section_id: string): Citation => ({
   display_text,
@@ -427,6 +442,44 @@ describe("buildBodySegments — defined-term occurrence scanning", () => {
       readerSection: testReader,
     });
     expect(out).toEqual([{ type: "text", text: "A Personal note." }]);
+  });
+});
+
+// ─── Bug ① — a name highlighted inside a bigger name ─────────────────────
+
+describe("buildBodySegments — bug ① name inside a bigger name", () => {
+  it("suppresses Department inside the longer name but keeps the bare Department", () => {
+    // The §10A.4(b) scene: the first "Department" stands alone (next word
+    // is the `and` wall); the second is the head of "Department of
+    // Emergency Management" and must be suppressed.
+    const text =
+      "Requested services from the Department and the Department of Emergency Management shall act.";
+    const out = buildBodySegments({
+      text,
+      htmlSpans: [],
+      citationMatches: [],
+      moduleDefinitions: [mockDefinition("Department")],
+      readerSection: testReader,
+    });
+    const tagged = out.filter((s) => s.type === "defined_term");
+    expect(tagged).toEqual([definedTermSegment("Department")]);
+    // The suppressed occurrence falls back to a text gap, so the body
+    // still re-flattens to the source text.
+    expect(out.map((s) => (s.type === "text" ? s.text : "")).join("")).toContain(
+      "Department of Emergency Management",
+    );
+  });
+
+  it("suppresses City inside City Charter (adjacency)", () => {
+    const text = "compensation determined under Section A8.400 of the City Charter and rules.";
+    const out = buildBodySegments({
+      text,
+      htmlSpans: [],
+      citationMatches: [],
+      moduleDefinitions: [mockDefinition("City")],
+      readerSection: testReader,
+    });
+    expect(out.filter((s) => s.type === "defined_term")).toEqual([]);
   });
 });
 

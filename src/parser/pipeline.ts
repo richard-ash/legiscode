@@ -43,6 +43,7 @@ import { type CitationMatch, extractCitations } from "./citations";
 import { type DefinedTermMatch, extractDefinedTerms } from "./defined-terms";
 import { buildModuleDefinitions } from "./definitions";
 import { ParseAbortError, parseExport as parseExportRaw, type SpanRecord } from "./parse-html";
+import { buildGlossaryRecognizer } from "./recognize";
 
 // Known raw-parser strategies. Adding a new jurisdiction adds a token here
 // and a case below; unknown tokens fail closed via ParseAbortError so a
@@ -190,10 +191,6 @@ function buildParsedModule(
     // (b)` refs anchor to it. Without this, those cites classify as null
     // and silently drop from the generated corpus, even though the direct
     // extractor tests pass the option and look green.
-    // Pass the citing section's id so bare `subsection (a)` / `subdivision
-    // (b)` refs anchor to it. Without this, those cites classify as null
-    // and silently drop from the generated corpus, even though the direct
-    // extractor tests pass the option and look green.
     const citationMatches = extractCitations(ps.text, module, {
       currentSectionId: ps.id,
       jurisdictionModules: manifest.modules,
@@ -271,6 +268,11 @@ function buildParsedModule(
   // the populated body[]). The per-occurrence resolver inside
   // buildBodySegments attaches def_id to each defined_term and
   // reports unresolved occurrences for the per-module audit artifact.
+  //
+  // The glossary recognizer is built ONCE here over the module's
+  // distinct defined terms and reused for every section — the trie is a
+  // module-wide artifact, not a per-section one.
+  const glossaryRecognizer = buildGlossaryRecognizer(new Set(moduleDefinitions.map((d) => d.term)));
   for (const draft of drafts) {
     const citationMatchesWithIndex = draft.citationMatches.map((cm, idx) => ({
       ...cm,
@@ -281,6 +283,7 @@ function buildParsedModule(
       htmlSpans: draft.htmlSpans,
       citationMatches: citationMatchesWithIndex,
       moduleDefinitions,
+      glossaryRecognizer,
       readerSection: { id: draft.section.id, hierarchy: draft.section.hierarchy },
       onUnresolvedReference: (report) => unresolvedReferences.push(report),
     });
