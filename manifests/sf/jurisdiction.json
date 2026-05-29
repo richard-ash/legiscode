@@ -8,7 +8,7 @@
   "modules": [
     {
       "citation_patterns": [
-        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
+        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:[A-Za-z]?\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*(?:-\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
       ],
       "code_title": "Administrative Code",
       "defined_term_patterns": [
@@ -27,7 +27,7 @@
     },
     {
       "citation_patterns": [
-        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
+        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:[A-Za-z]?\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*(?:-\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
       ],
       "code_title": "Building Code",
       "defined_term_patterns": [
@@ -53,7 +53,7 @@
     },
     {
       "citation_patterns": [
-        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
+        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:[A-Za-z]?\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*(?:-\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
       ],
       "code_title": "Business and Tax Regulations Code",
       "defined_term_patterns": [
@@ -72,7 +72,7 @@
     },
     {
       "citation_patterns": [
-        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
+        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:[A-Za-z]?\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*(?:-\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
       ],
       "code_title": "Campaign and Governmental Conduct Code",
       "defined_term_patterns": [
@@ -91,7 +91,7 @@
     },
     {
       "citation_patterns": [
-        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
+        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:[A-Za-z]?\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*(?:-\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
       ],
       "code_title": "Charter",
       "defined_term_patterns": [
@@ -117,7 +117,7 @@
     },
     {
       "citation_patterns": [
-        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
+        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:[A-Za-z]?\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*(?:-\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
       ],
       "code_title": "Municipal Elections Code",
       "defined_term_patterns": [
@@ -136,7 +136,7 @@
     },
     {
       "citation_patterns": [
-        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
+        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:[A-Za-z]?\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*(?:-\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
       ],
       "code_title": "Environment Code",
       "defined_term_patterns": [
@@ -155,7 +155,7 @@
     },
     {
       "citation_patterns": [
-        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
+        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:[A-Za-z]?\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*(?:-\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
       ],
       "code_title": "Fire Code",
       "defined_term_patterns": [
@@ -174,7 +174,7 @@
     },
     {
       "citation_patterns": [
-        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
+        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:[A-Za-z]?\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*(?:-\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
       ],
       "code_title": "Health Code",
       "defined_term_patterns": [
@@ -193,7 +193,7 @@
     },
     {
       "citation_patterns": [
-        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
+        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:[A-Za-z]?\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*(?:-\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
       ],
       "code_title": "Housing Code",
       "defined_term_patterns": [
@@ -216,7 +216,7 @@
     },
     {
       "citation_patterns": [
-        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
+        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:[A-Za-z]?\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*(?:-\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
       ],
       "code_title": "Park Code",
       "defined_term_patterns": [
@@ -235,7 +235,7 @@
     },
     {
       "citation_patterns": [
-        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
+        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:[A-Za-z]?\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*(?:-\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
       ],
       "code_title": "Planning Code",
       "defined_term_patterns": [
@@ -254,7 +254,7 @@
     },
     {
       "citation_patterns": [
-        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
+        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:[A-Za-z]?\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*(?:-\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
       ],
       "code_title": "Plumbing Code",
       "defined_term_patterns": [
@@ -277,7 +277,7 @@
     },
     {
       "citation_patterns": [
-        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
+        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:[A-Za-z]?\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*(?:-\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
       ],
       "code_title": "Police Code",
       "defined_term_patterns": [
@@ -296,7 +296,7 @@
     },
     {
       "citation_patterns": [
-        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
+        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:[A-Za-z]?\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*(?:-\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
       ],
       "code_title": "Port Code",
       "defined_term_patterns": [
@@ -315,7 +315,7 @@
     },
     {
       "citation_patterns": [
-        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
+        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:[A-Za-z]?\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*(?:-\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
       ],
       "code_title": "Public Works Code",
       "defined_term_patterns": [
@@ -334,7 +334,7 @@
     },
     {
       "citation_patterns": [
-        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
+        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:[A-Za-z]?\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*(?:-\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
       ],
       "code_title": "Subdivision Code",
       "defined_term_patterns": [
@@ -353,7 +353,7 @@
     },
     {
       "citation_patterns": [
-        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:\\d+(?:\\.\\d+)*[A-Za-z]?(?:-\\d+(?:\\.\\d+)*[A-Za-z]?)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
+        "(?:§§?|\\bSections?\\b|\\bSec\\.|\\bArticles?\\b|\\bChapters?\\b|\\bDivisions?\\b|\\bTitles?\\b|\\bsubsections?\\b|\\bsubdivisions?\\b)\\s*(?:[A-Za-z]?\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*(?:-\\d+[A-Za-z]?(?:\\.[A-Za-z]?\\d+[A-Za-z]?)*)?(?:\\([a-z0-9]+\\))*|\\([a-z0-9]+\\)(?:\\([a-z0-9]+\\))*)"
       ],
       "code_title": "Transportation Code",
       "defined_term_patterns": [

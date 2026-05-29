@@ -90,40 +90,39 @@ function splitPrefix(matched: string): PrefixSplit | null {
   return null;
 }
 
-// Alpha suffix capture (Phase 2 — Bug B fix). AmLegal anchors for SF
-// Building chapter 1A series are spelled JD_B102A / JD_B110A with a
-// trailing capital letter; the cite text says "Section 102A". The old
-// regex `\d+(?:\.\d+)*` dropped the letter and produced section_id
-// "102", leaving "A" stranded in the next text segment. We capture the
-// letter inside the section_id so the binder's display-rules evaluator
-// can produce the correctly-shaped anchor candidate (e.g. "b102a"). The
-// captured letter is lowercased to satisfy SectionIdSchema.
-//
-// D8 — `-N` ordinal disambiguators. The SF source uses `JD_16.9-2` /
-// `JD_16.9-29A` as canonical section anchors; the parser now preserves
-// them into section.id (T3a). Citation extraction has to bind to those
-// ids:
-//   - Single-section: "Section 16.9-2" must produce section_id "16.9-2",
-//     not the legacy "16.9" + stranded "-2".
-//   - Single-section with subsection: "Section 16.9-2(a)" must produce
-//     section_id "16.9-2" + subsection "(a)".
-//   - Range with explicit "to" / em-dash / en-dash: "Sections 16.9-2 to
-//     16.9-29A" parses as a range whose operands carry their `-N` suffix.
-//   - Range with implicit hyphen ("Sections 10.04.020-10.04.030"): still
-//     supported, but only when both operands have the same dot depth.
-//     This rules out misparsing "16.9-2" as range 16.9..2 (depth 1 vs
-//     depth 0) while keeping legitimate `10.04.020-10.04.030` (both
-//     depth 2) intact.
-const SECTION_REF_OPERAND_RE = /\d+(?:\.\d+)*[a-z]?(?:-\d+[a-z]?)?/i;
+// Section-id number grammar. A section id is a dot-joined sequence of
+// COMPONENTS; each component is an optional leading letter, digits, and
+// an optional trailing letter. The leading and per-component letters
+// matter for two real corpus shapes the old `\d+(?:\.\d+)*[a-z]?` grammar
+// dropped:
+//   - "Section 10A.4" — the letter belongs to the FIRST component, not
+//     the tail. The old grammar matched "10A" and stranded ".4" (bug ③).
+//   - "Section A8.400 of the City Charter" — a City Charter section that
+//     LEADS with a letter. The old grammar required a leading digit and
+//     never recognized it (bug ④).
+// The trailing-letter case ("Section 102A" → "b102a" anchor) and the
+// `-N` ordinal disambiguator ("Section 16.9-2", "16.9-29A") are
+// preserved. The new grammar is a strict superset of the old, so
+// existing recognition is unchanged; it only recognizes more. Matched
+// ids are lowercased to satisfy SectionIdSchema.
+const SECTION_COMPONENT = String.raw`[a-z]?\d+[a-z]?`;
+const SECTION_REF_OPERAND = `${SECTION_COMPONENT}(?:\\.${SECTION_COMPONENT})*(?:-\\d+[a-z]?)?`;
 const EXPLICIT_RANGE_RE = new RegExp(
-  `^(${SECTION_REF_OPERAND_RE.source})\\s*(?:to|[\\u2013\\u2014])\\s*(${SECTION_REF_OPERAND_RE.source})$`,
+  `^(${SECTION_REF_OPERAND})\\s*(?:to|[\\u2013\\u2014])\\s*(${SECTION_REF_OPERAND})$`,
   "i",
 );
 // Implicit-hyphen range allows ONLY operands that lack the `-N`
 // disambiguator suffix — the suffix is the very thing we are trying to
-// avoid misreading as a range delimiter.
-const IMPLICIT_HYPHEN_RANGE_RE = /^(\d+(?:\.\d+)*[a-z]?)\s*-\s*(\d+(?:\.\d+)*[a-z]?)$/i;
-const SINGLE_SECTION_RE = /^(\d+(?:\.\d+)*[a-z]?(?:-\d+[a-z]?)?)((?:\([a-z0-9]+\))*)$/i;
+// avoid misreading as a range delimiter. Same-dot-depth is enforced
+// downstream so "16.9-2" (depth 1 vs 0) parses as a single section
+// rather than a 16.9..2 range, while "10.04.020-10.04.030" (both depth
+// 2) stays a range.
+const SECTION_DOTTED = `${SECTION_COMPONENT}(?:\\.${SECTION_COMPONENT})*`;
+const IMPLICIT_HYPHEN_RANGE_RE = new RegExp(
+  `^(${SECTION_DOTTED})\\s*-\\s*(${SECTION_DOTTED})$`,
+  "i",
+);
+const SINGLE_SECTION_RE = new RegExp(`^(${SECTION_REF_OPERAND})((?:\\([a-z0-9]+\\))*)$`, "i");
 
 function dotDepth(operand: string): number {
   let count = 0;
