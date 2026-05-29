@@ -51,11 +51,13 @@ export const SectionEditorialStatusSchema = z
 //                      citation/defined_term spans (CQ2 — see overlap
 //                      diagram below).
 //
-// ─── Overlap precedence (CQ2) ─────────────────────────────────────────────
+// ─── Overlap precedence ───────────────────────────────────────────────────
 //
 // When a substring of `text` matches multiple annotation types, precedence
-// is strict: citation > defined_term. Format spans nest inside whichever
-// non-format span won.
+// is strict: citation > defined_term. A single overlap arbiter
+// (parser/recognize.ts:arbitrate) tiles term and citation spans together to
+// enforce this; it replaced the earlier ad-hoc CQ2 referee that lived inline
+// in the body builder. Format spans nest inside whichever non-format span won.
 //
 //   text:   "see Section 1.01 ('Person')"
 //                ^citation match^  ^defined_term^

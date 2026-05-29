@@ -483,6 +483,36 @@ describe("buildBodySegments — bug ① name inside a bigger name", () => {
   });
 });
 
+// ─── Bug ⑤ — one arbiter tiles the section ───────────────────────────────
+
+describe("buildBodySegments — bug ⑤ single arbiter tiling", () => {
+  it("preserves subsection_label and paragraph_break tiling while citation wins the overlap", () => {
+    // (a) leads the first paragraph; "Section 1.01" is a citation that
+    // overlaps the defined term "Section"; a paragraph_break ends the
+    // line; (b) leads the next. With CQ2 retired, the single arbiter must
+    // keep both labels and the break and let the citation win the overlap.
+    const text = "(a) See Section 1.01 now.\n(b) Done.";
+    const out = buildBodySegments({
+      text,
+      htmlSpans: [{ start: 25, end: 26, format: "paragraph_break" }],
+      citationMatches: [
+        { citation: internalCite("Section 1.01", "1.01"), start: 8, end: 20, citation_index: 0 },
+      ],
+      moduleDefinitions: [mockDefinition("Section")],
+      readerSection: testReader,
+    });
+    expect(out).toEqual([
+      { type: "subsection_label", label: "(a)" },
+      { type: "text", text: " See " },
+      { type: "citation", raw: "Section 1.01", citation_index: 0 },
+      { type: "text", text: " now." },
+      { type: "paragraph_break" },
+      { type: "subsection_label", label: "(b)" },
+      { type: "text", text: " Done." },
+    ]);
+  });
+});
+
 describe("buildBodySegments — paragraph_break", () => {
   it("emits paragraph_break for each \\n marker in htmlSpans", () => {
     const text = "Line 1.\nLine 2.\nLine 3.";
