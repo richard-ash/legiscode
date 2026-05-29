@@ -97,21 +97,17 @@ Re-introductions bundled into the new `feat/section-view-polish` (#19) tail bran
   can flip back to hard-fail. Owner: **micro-PR direct to main** (small, isolated
   parser fix); fold into `feat/citation-resolution` (#9) if convenient when that
   branch starts, since it'll next touch the defined-term path.
-- **Parser tokenizes defined terms too short.** Surfaced 2026-05-09 in §2a.81
-  ("POLICE; TRAFFIC REGULATION"). Body[] highlights bare "Department" instead
-  of the full proper noun "Department of Public Works" / "Department of City
-  Planning" / "Fire Department" the surrounding sentence is naming. The match
-  is technically correct — "Department" *is* a defined term in sf-administrative
-  — but the reader has no signal which department, since legal drafters use
-  capitalized "Department" as a shorthand for whichever full name was introduced
-  earlier in the article. Fix: in the parser's defined-term emit pass, prefer
-  the LONGEST defined-term phrase that matches at any given offset (replace the
-  current first-match-wins with longest-match-wins), so "Department of Public
-  Works" wins over "Department" when both are in scope. Requires emitting the
-  full phrases as defined terms (definitions.json today only has "Department",
-  not "Department of Public Works") OR having the parser walk the surrounding
-  prepositional phrase and extend the highlight client-side. Owner: **micro-PR
-  direct to main** OR fold into `feat/citation-resolution` (#9) if convenient.
+- **Parser tokenizes defined terms too short — RESOLVED in `feat/defined-term-precision`.**
+  Surfaced 2026-05-09 in §2a.81 ("POLICE; TRAFFIC REGULATION"). Body[] highlighted
+  bare "Department" instead of the full proper noun "Department of Public Works" /
+  "Department of City Planning" / "Fire Department" the surrounding sentence was
+  naming. Fixed two ways in the new shared recognition layer (`src/parser/recognize.ts`):
+  the glossary trie now does **longest-match-wins** (so "Department of Public Works"
+  wins over "Department" when both are defined terms in scope), and a
+  **capitalised-extent guard** suppresses a defined-term hit that sits inside a
+  longer capitalised proper-noun extent — so a bare "Department" used as shorthand
+  for a longer named department no longer lights up as a no-signal link, while a
+  standalone "Department" still resolves. Owner: shipped via `feat/defined-term-precision`.
 
 ---
 
