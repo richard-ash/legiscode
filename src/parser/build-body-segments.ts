@@ -13,42 +13,31 @@
 // risking index drift (codex CT2). The single source of truth is
 // pipeline.ts → buildBodySegments.
 //
-// Overlap precedence (CQ2): citation > defined_term, strict. When a
-// defined-term match overlaps a citation match at any character, the
-// defined_term is dropped — no fallback. If a citation classification
-// FAILS (the regex matched but classifyMatch couldn't categorize), the
-// caller upstream emits a `text` segment instead of citation, and we
-// never see it here.
+// Overlap precedence: citation > defined_term, strict. When a defined
+// term overlaps a citation at any character, the defined_term loses. This
+// precedence is no longer an ad-hoc local referee — it lives in the
+// shared overlap arbiter (recognize.ts:arbitrate), which tiles term and
+// citation spans together for the whole section. If a citation
+// classification FAILS (the regex matched but classifyMatch couldn't
+// categorize), the caller upstream emits a `text` segment instead of a
+// citation, and we never see it here.
 //
-// Format wrapping (CQ2): format spans nest INSIDE around primary
-// annotations, not the other way around. `<b>§ 1.01</b>` becomes
+// Format wrapping: format spans nest INSIDE primary annotations, not the
+// other way around. `<b>§ 1.01</b>` becomes
 // `format(bold) > citation > text "§ 1.01"`. The renderer applies CSS
 // from the outer format(bold) and the citation child renders as a link
 // inside the bolded run.
 
 import type { Citation, Definition, DefinitionId, SectionId } from "@/types";
 import type { SpanRecord } from "./parse-html";
+import { arbitrate, type GlossaryRecognizer, type Span } from "./recognize";
 import { buildCandidatesByTerm, resolveDefinitionForOccurrence } from "./resolve-definition";
 
-// A primary annotation — the non-format spans that tile `text`. Each
-// has a position range; gaps between primaries become `text` segments
-// at emit time. defined_term primaries start with just `term` (from
-// the occurrence scanner); the per-occurrence resolver pass attaches
-// def_id + raw (or drops the primary to a text gap when unresolved or
-// self-suppressed).
-type Primary =
-  | { kind: "citation"; start: number; end: number; raw: string; citation_index: number }
-  | {
-      kind: "defined_term";
-      start: number;
-      end: number;
-      term: string;
-      def_id?: DefinitionId;
-      raw?: string;
-      candidates_dropped?: DefinitionId[];
-    }
-  | { kind: "subsection_label"; start: number; end: number; label: string }
-  | { kind: "paragraph_break"; start: number; end: number };
+// `Span` (the shared primary-annotation model — citation, defined_term,
+// subsection_label, paragraph_break) is owned by recognize.ts. defined_term
+// spans start with just `term` (from the recognizer); the per-occurrence
+// resolver pass attaches def_id + raw, or drops the span to a text gap when
+// unresolved or self-suppressed.
 
 // Internal representation matching the BodySegment schema. We avoid
 // importing the BodySegment type from @/types here to keep the
@@ -105,9 +94,15 @@ export interface BuildBodySegmentsInput {
    * resolution (L2a) consults this index to find the in-scope
    * Definition for each defined_term occurrence, attaches def_id to
    * the emitted segment, and records dropped runner-up candidates.
-   * The set of recognizable terms is derived from this array.
    */
   moduleDefinitions: readonly Definition[];
+  /**
+   * The module's glossary recognizer (case-sensitive longest-match trie
+   * + capitalised-extent guard), built ONCE per module by the caller and
+   * reused across every section — never rebuilt per section. Produces the
+   * defined_term spans that this builder resolves and tiles.
+   */
+  glossaryRecognizer: GlossaryRecognizer;
   /**
    * Reader section context — id for self-suppression, hierarchy chain
    * for the precedence rule.
@@ -128,8 +123,8 @@ export interface BuildBodySegmentsInput {
 // (paragraph_break) — never mid-paragraph.
 const SUBSECTION_LABEL_RE = /(?:^|\n)(\s*((?:\([A-Za-z0-9]+\))+)\s+)(?=[A-Z])/g;
 
-function findSubsectionLabels(text: string): Primary[] {
-  const out: Primary[] = [];
+function findSubsectionLabels(text: string): Span[] {
+  const out: Span[] = [];
   for (const match of text.matchAll(SUBSECTION_LABEL_RE)) {
     const fullStart = match.index ?? 0;
     const fullMatch = match[0] ?? "";
@@ -151,94 +146,6 @@ function findSubsectionLabels(text: string): Primary[] {
   return out;
 }
 
-// Word-boundary regex per term, cached at module scope. The pipeline
-// calls findDefinedTermOccurrences once per section in Pass 3, and the
-// module-wide dictionary is the same Set across every section in a
-// build — so a per-process cache amortizes RegExp construction across
-// ~thousands of sections per build. Sharing the regex object across
-// matchAll calls is safe: matchAll doesn't mutate the source's
-// lastIndex.
-const definedTermRegexCache = new Map<string, RegExp>();
-function getDefinedTermRegex(term: string): RegExp {
-  let re = definedTermRegexCache.get(term);
-  if (!re) {
-    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    re = new RegExp(`\\b${escaped}\\b`, "g");
-    definedTermRegexCache.set(term, re);
-  }
-  return re;
-}
-
-// Scan `text` for occurrences of any term in the module dictionary.
-// Returns positions where a defined-term occurrence begins. We match
-// on word boundaries to avoid partial-substring hits ("Person" should
-// not match inside "Personal"). For multi-word terms the boundary
-// check is applied to the term as a whole.
-function findDefinedTermOccurrences(
-  text: string,
-  moduleDefinedTerms: ReadonlySet<string>,
-): Primary[] {
-  const out: Primary[] = [];
-  // Sort longer terms first so "Director of Transportation" matches
-  // before a shorter "Director" would inside it.
-  const terms = Array.from(moduleDefinedTerms).sort((a, b) => b.length - a.length);
-  for (const term of terms) {
-    if (!term) continue;
-    const re = getDefinedTermRegex(term);
-    for (const match of text.matchAll(re)) {
-      const start = match.index ?? 0;
-      out.push({ kind: "defined_term", start, end: start + term.length, term });
-    }
-  }
-  return out;
-}
-
-// Resolve overlapping primaries per CQ2: citation > defined_term,
-// strict (no fallback). subsection_label and paragraph_break are
-// point/line-leading and don't overlap with citation/defined_term in
-// practice; we keep them through the resolver for symmetry but they
-// never lose to anything.
-function resolveOverlaps(primaries: Primary[]): Primary[] {
-  // Sort by start ascending; on tie, longer wins (citation usually
-  // longer than a defined_term in the same span).
-  primaries.sort((a, b) => a.start - b.start || b.end - b.start - (a.end - a.start));
-  const out: Primary[] = [];
-  for (const p of primaries) {
-    const last = out[out.length - 1];
-    if (!last || last.end <= p.start) {
-      out.push(p);
-      continue;
-    }
-    // Overlap with `last`. Apply CQ2.
-    const lastIsCitation = last.kind === "citation";
-    const pIsCitation = p.kind === "citation";
-    if (lastIsCitation) {
-      // Citation already wins; drop p.
-      continue;
-    }
-    if (pIsCitation && last.kind === "defined_term") {
-      // Citation > defined_term — replace.
-      out[out.length - 1] = p;
-      continue;
-    }
-    if (last.kind === "defined_term" && p.kind === "defined_term") {
-      // Two defined-term matches overlap (same term repeated, or
-      // longer-term swallows shorter): keep the longer/earlier one.
-      // Already in the right order (we sorted longest-first within
-      // start ties), so drop p.
-      continue;
-    }
-    // paragraph_break / subsection_label vs anything: in practice these
-    // are positioned at well-separated points (\n positions, paragraph
-    // leaders) and don't overlap citations or defined-terms. If we do
-    // see a contained overlap, drop p; otherwise pass it through. No
-    // trimming — the leaf-builder downstream tolerates the unusual case.
-    if (p.start >= last.start && p.end <= last.end) continue;
-    out.push(p);
-  }
-  return out;
-}
-
 // Tile `text[0, text.length)` with primary spans + text gaps. Each
 // emitted leaf has a [start, end) range in text.
 interface PositionedLeaf {
@@ -247,7 +154,7 @@ interface PositionedLeaf {
   segment: Segment;
 }
 
-function buildPrimaryLeaves(text: string, primaries: Primary[]): PositionedLeaf[] {
+function buildPrimaryLeaves(text: string, primaries: Span[]): PositionedLeaf[] {
   const out: PositionedLeaf[] = [];
   let cursor = 0;
   for (const p of primaries) {
@@ -423,7 +330,7 @@ function sliceSegment(leaf: PositionedLeaf, fragStart: number, fragEnd: number):
 // fully-contains branch and wraps the citation atomically.
 function filterFormatSpansCrossingPrimaries(
   formatSpans: readonly SpanRecord[],
-  primaries: readonly Primary[],
+  primaries: readonly Span[],
 ): SpanRecord[] {
   return formatSpans.filter((span) => {
     for (const p of primaries) {
@@ -456,25 +363,37 @@ function paragraphExcerpt(text: string, from: number, to: number): string {
   return excerpt;
 }
 
+// The defining clause is the paragraph (\n-delimited, per the parse-html
+// text contract) that contains a Definition's body_anchor. Self-reference
+// suppression operates on this range, not on the exact anchor and not on
+// the whole section.
+function definingClauseRange(text: string, anchorStart: number): { start: number; end: number } {
+  const prevNewline = text.lastIndexOf("\n", Math.max(0, anchorStart - 1));
+  const start = prevNewline === -1 ? 0 : prevNewline + 1;
+  const nextNewline = text.indexOf("\n", anchorStart);
+  const end = nextNewline === -1 ? text.length : nextNewline;
+  return { start, end };
+}
+
 // Run the per-occurrence resolver over defined_term primaries. For each
 // match:
 //   - winner exists, self-suppression NOT triggered → attach
 //     def_id/raw/candidates_dropped to the primary, keep it
 //   - winner exists, self-suppression triggered → drop the primary
-//     (the canonical defining clause renders as plain text, per §9 L9)
+//     (the term's own defining clause renders as plain text, per §9 L9)
 //   - no winner → drop the primary, fire onUnresolvedReference
 //
 // Dropped primaries leave a gap that buildPrimaryLeaves fills with a
 // text segment.
 function resolveDefinedTermOccurrences(
-  primaries: Primary[],
+  primaries: Span[],
   text: string,
   moduleDefinitions: readonly Definition[],
   readerSection: { id: SectionId; hierarchy: readonly string[] },
   onUnresolvedReference: ((report: UnresolvedReferenceReport) => void) | undefined,
-): Primary[] {
+): Span[] {
   const candidatesByTerm = buildCandidatesByTerm(moduleDefinitions);
-  const out: Primary[] = [];
+  const out: Span[] = [];
   for (const p of primaries) {
     if (p.kind !== "defined_term") {
       out.push(p);
@@ -498,17 +417,21 @@ function resolveDefinedTermOccurrences(
       });
       continue;
     }
-    // Self-suppression: the canonical defining clause at body_anchor
-    // renders as plain text (§9 L9). Other occurrences of the same
-    // term in the same section stay tagged.
-    if (
-      result.winner.defined_in === readerSection.id &&
-      p.start === result.winner.body_anchor.start &&
-      p.end === result.winner.body_anchor.end
-    ) {
-      continue;
+    // Self-reference self-suppression (revised D6): an occurrence of term
+    // T renders as plain text only when it falls inside T's OWN defining
+    // clause — the paragraph containing the winning Definition's
+    // body_anchor. This kills the no-op self-links in a Definitions
+    // section (e.g. the second "City" in `"City" means the City and
+    // County`) without dropping links to OTHER terms in that same
+    // paragraph: a Department or City reference inside a Requestor
+    // definition resolves to a Definition whose clause lives in a
+    // different paragraph, so it stays lit. Cross-section occurrences are
+    // never self-suppressed.
+    if (result.winner.defined_in === readerSection.id) {
+      const clause = definingClauseRange(text, result.winner.body_anchor.start);
+      if (p.start >= clause.start && p.end <= clause.end) continue;
     }
-    const annotated: Primary = {
+    const annotated: Span = {
       kind: "defined_term",
       start: p.start,
       end: p.end,
@@ -530,21 +453,14 @@ export function buildBodySegments(input: BuildBodySegmentsInput): Segment[] {
     htmlSpans,
     citationMatches,
     moduleDefinitions,
+    glossaryRecognizer,
     readerSection,
     onUnresolvedReference,
   } = input;
   if (text.length === 0) return [];
 
-  // Derive the term-set the occurrence scanner cares about from the
-  // canonical Definition[] (every distinct term that's defined
-  // somewhere in the module). Module-wide so a section in Chapter X
-  // can highlight a term defined in Chapter Y; per-occurrence
-  // resolution filters by scope in the next step.
-  const moduleDefinedTerms = new Set<string>();
-  for (const d of moduleDefinitions) moduleDefinedTerms.add(d.term);
-
   // Step 1: collect all primary annotations.
-  const primaries: Primary[] = [];
+  const primaries: Span[] = [];
   for (const c of citationMatches) {
     primaries.push({
       kind: "citation",
@@ -554,8 +470,13 @@ export function buildBodySegments(input: BuildBodySegmentsInput): Segment[] {
       citation_index: c.citation_index,
     });
   }
-  for (const dt of findDefinedTermOccurrences(text, moduleDefinedTerms)) {
-    primaries.push(dt);
+  // Defined-term spans come from the module glossary recognizer: a
+  // case-sensitive longest-match trie with the capitalised-extent guard
+  // already applied (a name inside a longer proper name is suppressed).
+  // Per-occurrence scope resolution still runs in Step 2.5.
+  for (const span of glossaryRecognizer.recognizeTerms(text)) {
+    if (span.kind !== "defined_term") continue;
+    primaries.push({ kind: "defined_term", start: span.start, end: span.end, term: span.term });
   }
   for (const sl of findSubsectionLabels(text)) {
     primaries.push(sl);
@@ -567,7 +488,7 @@ export function buildBodySegments(input: BuildBodySegmentsInput): Segment[] {
   }
 
   // Step 2: resolve overlaps per CQ2.
-  const resolved = resolveOverlaps(primaries);
+  const resolved = arbitrate(primaries);
 
   // Step 2.5 (L2a): per-occurrence definition resolution. Drops
   // unresolved and self-suppressed defined_term primaries; attaches

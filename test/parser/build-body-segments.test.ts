@@ -7,9 +7,24 @@
 // extractors would produce.
 
 import { describe, expect, it } from "vitest";
-import { buildBodySegments } from "@/parser/build-body-segments";
+import { buildBodySegments as buildBodySegmentsRaw } from "@/parser/build-body-segments";
 import { buildDefinitionId } from "@/parser/definition-id";
+import { buildGlossaryRecognizer } from "@/parser/recognize";
 import type { Citation, Definition, SectionId } from "@/types";
+
+// The pipeline builds the glossary recognizer once per module and passes
+// it in; these unit tests derive it from each case's moduleDefinitions so
+// the call sites read the way the body-builder's contract intends.
+function buildBodySegments(
+  input: Omit<Parameters<typeof buildBodySegmentsRaw>[0], "glossaryRecognizer">,
+): ReturnType<typeof buildBodySegmentsRaw> {
+  return buildBodySegmentsRaw({
+    ...input,
+    glossaryRecognizer: buildGlossaryRecognizer(
+      new Set(input.moduleDefinitions.map((d) => d.term)),
+    ),
+  });
+}
 
 const internalCite = (display_text: string, section_id: string): Citation => ({
   display_text,
@@ -430,6 +445,74 @@ describe("buildBodySegments — defined-term occurrence scanning", () => {
   });
 });
 
+// ─── Bug ① — a name highlighted inside a bigger name ─────────────────────
+
+describe("buildBodySegments — bug ① name inside a bigger name", () => {
+  it("suppresses Department inside the longer name but keeps the bare Department", () => {
+    // The §10A.4(b) scene: the first "Department" stands alone (next word
+    // is the `and` wall); the second is the head of "Department of
+    // Emergency Management" and must be suppressed.
+    const text =
+      "Requested services from the Department and the Department of Emergency Management shall act.";
+    const out = buildBodySegments({
+      text,
+      htmlSpans: [],
+      citationMatches: [],
+      moduleDefinitions: [mockDefinition("Department")],
+      readerSection: testReader,
+    });
+    const tagged = out.filter((s) => s.type === "defined_term");
+    expect(tagged).toEqual([definedTermSegment("Department")]);
+    // The suppressed occurrence falls back to a text gap, so the body
+    // still re-flattens to the source text.
+    expect(out.map((s) => (s.type === "text" ? s.text : "")).join("")).toContain(
+      "Department of Emergency Management",
+    );
+  });
+
+  it("suppresses City inside City Charter (adjacency)", () => {
+    const text = "compensation determined under Section A8.400 of the City Charter and rules.";
+    const out = buildBodySegments({
+      text,
+      htmlSpans: [],
+      citationMatches: [],
+      moduleDefinitions: [mockDefinition("City")],
+      readerSection: testReader,
+    });
+    expect(out.filter((s) => s.type === "defined_term")).toEqual([]);
+  });
+});
+
+// ─── Bug ⑤ — one arbiter tiles the section ───────────────────────────────
+
+describe("buildBodySegments — bug ⑤ single arbiter tiling", () => {
+  it("preserves subsection_label and paragraph_break tiling while citation wins the overlap", () => {
+    // (a) leads the first paragraph; "Section 1.01" is a citation that
+    // overlaps the defined term "Section"; a paragraph_break ends the
+    // line; (b) leads the next. With CQ2 retired, the single arbiter must
+    // keep both labels and the break and let the citation win the overlap.
+    const text = "(a) See Section 1.01 now.\n(b) Done.";
+    const out = buildBodySegments({
+      text,
+      htmlSpans: [{ start: 25, end: 26, format: "paragraph_break" }],
+      citationMatches: [
+        { citation: internalCite("Section 1.01", "1.01"), start: 8, end: 20, citation_index: 0 },
+      ],
+      moduleDefinitions: [mockDefinition("Section")],
+      readerSection: testReader,
+    });
+    expect(out).toEqual([
+      { type: "subsection_label", label: "(a)" },
+      { type: "text", text: " See " },
+      { type: "citation", raw: "Section 1.01", citation_index: 0 },
+      { type: "text", text: " now." },
+      { type: "paragraph_break" },
+      { type: "subsection_label", label: "(b)" },
+      { type: "text", text: " Done." },
+    ]);
+  });
+});
+
 describe("buildBodySegments — paragraph_break", () => {
   it("emits paragraph_break for each \\n marker in htmlSpans", () => {
     const text = "Line 1.\nLine 2.\nLine 3.";
@@ -489,11 +572,13 @@ describe("buildBodySegments — L2a per-occurrence resolution", () => {
     expect(reports).toEqual([{ term: "Phantom" }]);
   });
 
-  it("self-suppression: definer section's canonical clause renders as plain text", () => {
-    // The reader IS the definer; body_anchor 4..10 marks the canonical
-    // definition. Other occurrences of the same term in the same section
-    // stay tagged.
-    const text = "The Person means a human. Other Person says hi.";
+  it("self-suppression: a term's own defining clause renders as plain text (revised D6)", () => {
+    // Revised D6 — suppression is scoped to the term's defining clause
+    // (the paragraph containing body_anchor), not the exact anchor and
+    // not the whole section. Both "Person" occurrences in the first
+    // paragraph are inside Person's own clause and suppress; the usage in
+    // the next paragraph stays tagged.
+    const text = "The Person means a Person.\nThe Person elsewhere.";
     const definer = mockDefinition("Person", {
       defined_in: "definer-id",
       body_anchor: { start: 4, end: 10 },
@@ -506,11 +591,56 @@ describe("buildBodySegments — L2a per-occurrence resolution", () => {
       moduleDefinitions: [definer],
       readerSection: { id: "definer-id", hierarchy: [] },
     });
-    // First occurrence (canonical) is suppressed; second stays tagged.
     expect(out).toEqual([
-      { type: "text", text: "The Person means a human. Other " },
+      { type: "text", text: "The Person means a Person.\nThe " },
       { type: "defined_term", raw: "Person", def_id: definer.id },
-      { type: "text", text: " says hi." },
+      { type: "text", text: " elsewhere." },
+    ]);
+  });
+
+  it("★ keeps links to OTHER terms inside a definition lit (revised D6, §10A.1 scene)", () => {
+    // A Definitions section: each definition is its own paragraph. The
+    // Requestor clause references Department and City — those must stay
+    // lit (they resolve to Definitions whose clauses are other
+    // paragraphs), while each term's self-reference inside its own clause
+    // is suppressed.
+    const text =
+      '"City" means the City and County.\n' +
+      '"Department" means the Sheriff Department.\n' +
+      '"Requestor" means a person seeking help of the Department within the City.';
+    const definer: SectionId = "10a.1";
+    const at = (needle: string): { start: number; end: number } => {
+      const start = text.indexOf(needle);
+      return { start, end: start + needle.length };
+    };
+    const city = mockDefinition("City", {
+      defined_in: definer,
+      id: buildDefinitionId(TEST_MODULE, "10a.1-city", "City"),
+      body_anchor: at('"City"'), // includes quotes; clause = paragraph anyway
+    });
+    const department = mockDefinition("Department", {
+      defined_in: definer,
+      id: buildDefinitionId(TEST_MODULE, "10a.1-dept", "Department"),
+      body_anchor: at('"Department"'),
+    });
+    const requestor = mockDefinition("Requestor", {
+      defined_in: definer,
+      id: buildDefinitionId(TEST_MODULE, "10a.1-req", "Requestor"),
+      body_anchor: at('"Requestor"'),
+    });
+    const out = buildBodySegments({
+      text,
+      htmlSpans: [],
+      citationMatches: [],
+      moduleDefinitions: [city, department, requestor],
+      readerSection: { id: definer, hierarchy: [] },
+    });
+    const tagged = out.filter((s) => s.type === "defined_term");
+    // Only the two cross-term links in the Requestor paragraph survive,
+    // in document order. Every self-reference is suppressed.
+    expect(tagged).toEqual([
+      { type: "defined_term", raw: "Department", def_id: department.id },
+      { type: "defined_term", raw: "City", def_id: city.id },
     ]);
   });
 
