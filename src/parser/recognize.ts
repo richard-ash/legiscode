@@ -109,15 +109,7 @@ function isInlineSpace(code: number): boolean {
 // open a sentence. Refuse them in the leftward walk so "The Commission
 // shall act" keeps its Commission tag instead of growing the extent to
 // the determiner.
-const LEFTWARD_DETERMINER_WALL = new Set([
-  "The",
-  "A",
-  "An",
-  "This",
-  "That",
-  "These",
-  "Those",
-]);
+const LEFTWARD_DETERMINER_WALL = new Set(["The", "A", "An", "This", "That", "These", "Those"]);
 
 // Given `pos` = the end offset of a Capitalized word, return the end
 // offset of the maximal capitalised proper-noun extent beginning at that

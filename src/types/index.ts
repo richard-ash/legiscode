@@ -12,7 +12,6 @@ export * from "./definitions";
 export * from "./identifiers";
 export * from "./legal-instrument-entry";
 export * from "./manifest";
-export * from "./ordinance";
 export * from "./ordinance-history";
 export * from "./parsed-module";
 export * from "./resolution-history";

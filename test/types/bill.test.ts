@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BILLS_INDEX_SCHEMA_VERSION, BillMetaSchema, BillsIndexSchema } from "@/types";
+import { BILLS_INDEX_SCHEMA_VERSION, BillMetaSchema, BillSchema, BillsIndexSchema } from "@/types";
 
 function validMeta(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -64,6 +64,73 @@ describe("BillMetaSchema", () => {
     expect(fail1.success).toBe(false);
     const fail2 = BillMetaSchema.safeParse(validMeta({ attachment_content_hash: "G".repeat(16) }));
     expect(fail2.success).toBe(false);
+  });
+});
+
+function validBill(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    file_no: "260217",
+    module_id: "sf-administrative",
+    short_title: "Multi-code update",
+    long_title: "Ordinance amending the Administrative Code…",
+    sponsor: "Sup. Walton",
+    introduced_at: "2026-05-15",
+    legistar_url: "https://sfgov.legistar.com/LegislationDetail.aspx?ID=1&GUID=g",
+    legistar_status: "Pending Committee Hearing",
+    bill_status: "committee",
+    affected_sections: ["10.04.020", "10.04.030"],
+    text_diff: [],
+    parse_status: "manual_review",
+    structural_change_scope: null,
+    proposed_text: "",
+    ...overrides,
+  };
+}
+
+describe("BillSchema", () => {
+  it("accepts a manual_review bill with empty text_diff and affected sections", () => {
+    expect(() => BillSchema.parse(validBill())).not.toThrow();
+  });
+
+  it("accepts an ok bill with non-empty text_diff (the invariant honored)", () => {
+    expect(() =>
+      BillSchema.parse(
+        validBill({
+          parse_status: "ok",
+          text_diff: [{ op: "insert", text: "new text", section_id: "10.04.020" }],
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects ok with empty text_diff (invariant)", () => {
+    const result = BillSchema.safeParse(validBill({ parse_status: "ok", text_diff: [] }));
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts structural_change only when scope is set; rejects otherwise", () => {
+    expect(() =>
+      BillSchema.parse(
+        validBill({
+          parse_status: "structural_change",
+          structural_change_scope: "by adding Chapter 94C",
+        }),
+      ),
+    ).not.toThrow();
+
+    const noScope = BillSchema.safeParse(
+      validBill({ parse_status: "structural_change", structural_change_scope: null }),
+    );
+    expect(noScope.success).toBe(false);
+
+    const scopeWithoutStructural = BillSchema.safeParse(
+      validBill({ parse_status: "manual_review", structural_change_scope: "oops" }),
+    );
+    expect(scopeWithoutStructural.success).toBe(false);
+  });
+
+  it("rejects an unknown bill_status key", () => {
+    expect(BillSchema.safeParse(validBill({ bill_status: "vetoed" })).success).toBe(false);
   });
 });
 

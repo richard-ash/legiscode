@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { ModuleIdSchema } from "./identifiers";
+import { ModuleIdSchema, SectionIdSchema } from "./identifiers";
+import { TextDiffSchema } from "./text-diff";
 
 // BillMeta is the per-matter row emitted by the Lane-1 Legistar scraper
 // (scripts/fetch-bills.ts) into build/downloads/bills/bills-index.json.
@@ -87,3 +88,73 @@ export const BillsIndexSchema = z
   .strict();
 
 export type BillsIndex = z.infer<typeof BillsIndexSchema>;
+
+// BillStatus — the 5-key taxonomy from the Claude Design handoff
+// (bills-doc.jsx:3). The Legistar free-text status maps to this enum via
+// src/parser/bills/status.ts:mapLegistarStatusToBillStatus(). The
+// renderer's VersionStatusBadge keys its color off this enum.
+export const BillStatusSchema = z.enum(["filed", "committee", "engrossed", "floor", "enrolled"]);
+
+export type BillStatus = z.infer<typeof BillStatusSchema>;
+
+// Bill — one per (matter, module). A multi-code bill emits N Bills, one
+// per module it touches. text_diff[] is the inline-diff content (empty
+// in v1; the inline-diff PR — see commit-plan footnote 11 of the locked
+// design — populates it). affected_sections lists the section_ids the
+// bill touches inside this module, derived from the structural pass;
+// it's separate from text_diff so the renderer can show "this bill
+// touches §A and §B" without depending on inline diff content. The
+// renderer in this PR consumes affected_sections + parse_status; the
+// inline-diff renderer consumes text_diff[].
+//
+// parse_status semantics (3 buckets per Codex amendment, schema unchanged):
+//   ok                — full inline diff was parsed cleanly
+//                       (text_diff[] non-empty, no manual review needed)
+//   manual_review     — structural pass succeeded but the typography
+//                       decoder couldn't produce a clean diff
+//                       (text_diff[] may be empty; renderer shows
+//                       "see original PDF" affordance)
+//   structural_change — full-chapter repeal / chapter creation; no
+//                       per-section diff is meaningful
+//                       (text_diff[] empty; structural_change_scope
+//                       describes what changes)
+export const BillSchema = z
+  .object({
+    file_no: z.string().min(1),
+    module_id: ModuleIdSchema,
+    short_title: z.string().min(1),
+    long_title: z.string().min(1),
+    sponsor: z.string().min(1).nullable(),
+    introduced_at: z.iso.date().nullable(),
+    legistar_url: z.url(),
+    legistar_status: z.string().min(1),
+    bill_status: BillStatusSchema,
+    affected_sections: z.array(SectionIdSchema),
+    text_diff: TextDiffSchema,
+    parse_status: z.enum(["ok", "manual_review", "structural_change"]),
+    /** Free-text scope description; only set when parse_status === "structural_change". */
+    structural_change_scope: z.string().min(1).nullable(),
+    /** Raw ordinance text extracted from the source PDF. Empty when the
+     *  PDF text-extractor returned nothing (rare; corrupt PDF, image-only
+     *  scan). Renderer surfaces this as the "Proposed text" block so
+     *  readers can see what the bill actually says without leaving the
+     *  app. Pre-typography-spike: no styling info preserved. */
+    proposed_text: z.string(),
+  })
+  .strict()
+  .refine((b) => b.parse_status !== "ok" || b.text_diff.length > 0, {
+    message: "text_diff must be non-empty when parse_status is 'ok'",
+    path: ["text_diff"],
+  })
+  .refine(
+    (b) =>
+      b.parse_status === "structural_change"
+        ? b.structural_change_scope !== null && b.structural_change_scope.length > 0
+        : b.structural_change_scope === null,
+    {
+      message: "structural_change_scope must be set iff parse_status === 'structural_change'",
+      path: ["structural_change_scope"],
+    },
+  );
+
+export type Bill = z.infer<typeof BillSchema>;
