@@ -151,16 +151,62 @@ export const ModuleConfigSchema = z
   })
   .strict();
 
+// BillLabel — jurisdiction-specific user-facing strings for the
+// proposed-amendment object. Internally we call this object a Bill
+// (generic across SF / CA / federal), but each jurisdiction has its own
+// vocabulary (SF: "Ordinance · Ord.", CA: "Bill · AB/SB", US House: "Bill
+// · H.R."). The renderer reads these strings every time it surfaces a
+// pending-bill row so no jurisdiction sees an out-of-place label.
+//
+// citation_format is a simple {abbr}/{file_no} template (no general-purpose
+// string interpolation surface, so this stays a plain string the renderer
+// processes with a fixed two-token replace).
+export const BillLabelSchema = z
+  .object({
+    singular: z.string().min(1),
+    plural: z.string().min(1),
+    abbreviation: z.string().min(1),
+    citation_format: z.string().min(1),
+  })
+  .strict();
+
+export type BillLabel = z.infer<typeof BillLabelSchema>;
+
+// PendingBillSource — Lane 1 fetcher input. format names which parser path
+// the fetcher uses (today only legistar-search-html is supported; CA's
+// CalMatters-style API and other future surfaces join the union as their
+// scrapers land). url is the canonical search page; snapshot_at is the
+// scrape-run wall clock the Lane 1 fetcher writes after each successful
+// run (mirrors source.snapshot_at on the corpus side).
+export const PendingBillSourceFormatSchema = z.enum(["legistar-search-html"]);
+
+export const PendingBillSourceSchema = z
+  .object({
+    format: PendingBillSourceFormatSchema,
+    url: z.url(),
+    snapshot_at: z.iso.datetime({ offset: true }).optional(),
+  })
+  .strict();
+
+export type PendingBillSource = z.infer<typeof PendingBillSourceSchema>;
+
 // JurisdictionManifest is the build input. source declares where the bytes
 // come from and how to parse them; modules[] declares which codes inside
 // that source should become installable modules. The slicer locates each
 // module's region by code_title (and jd_anchor for amlegal-html).
+//
+// pending_bill_source + bill_label are optional — jurisdictions that don't
+// publish pending-bill data (or don't have a Bill renderer yet) omit them
+// and the bill-related UI surfaces hide entirely (per
+// feedback_no_placeholder_ui).
 export const JurisdictionManifestSchema = z
   .object({
     jurisdiction: z.string().min(1),
     source: SourceConfigSchema,
     parser_strategy: ParserStrategySchema,
     modules: z.array(ModuleConfigSchema).min(1),
+    pending_bill_source: PendingBillSourceSchema.optional(),
+    bill_label: BillLabelSchema.optional(),
   })
   .strict()
   .refine(
