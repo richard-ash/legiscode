@@ -14,6 +14,10 @@ run = "pnpm exec tsx scripts/sync-corpus.ts"
 description = "Lane-1 operator-driven scraper. Walks SF Legistar pending-legislation search, downloads latest Leg Ver{N} attachments, writes build/downloads/bills/bills-index.json. Non-hermetic; never runs in CI."
 run = "pnpm exec tsx scripts/fetch-bills.ts --manifest manifests/sf/jurisdiction.json"
 
+[tasks."bills:sync"]
+description = "Lane-2 hermetic bill parser. Reads bills-index.json + cached PDFs, validates each emitted Bill against BillSchema, writes per-module pending-bill files, purges stale entries. Runs in CI against committed fixtures via the integration test."
+run = "pnpm exec tsx scripts/sync-bills.ts --manifest manifests/sf/jurisdiction.json --bills-index build/downloads/bills/bills-index.json"
+
 [tasks."validate:full"]
 description = "Run buildCorpus against the committed SF manifest + production HTML snapshot. Operator-driven, NOT in CI. Requires build/downloads/sf.html (see docs/CORPUS-VALIDATION.md). Pass criteria: exit 0, skip rate 0%, TOC coverage 100%, intra-citation 100%."
 run = """

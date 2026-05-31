@@ -4,10 +4,11 @@
 // nothing but a Promise<void>; failures throw AtomicWriteError carrying an
 // ExitCode.
 
-import { access, mkdir } from "node:fs/promises";
+import { access, mkdir, readdir, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   Appendix,
+  Bill,
   DistributedModuleManifest,
   ModuleConfig,
   OrdinanceHistory,
@@ -208,6 +209,73 @@ async function writeResolutionHistory(newDir: string, hist: ResolutionHistory): 
   await mkdir(histDir, { recursive: true });
   await fsyncDir(histDir);
   await writeJson(join(histDir, `${hist.id}.json`), hist);
+}
+
+/**
+ * Pending-bill writer. Persists a single Bill into
+ * `<moduleDir>/pending-bills/<file_no>.json` using the same
+ * write-to-temp + rename-on-flush pattern the main corpus path uses.
+ *
+ * Pending-bills are operator-driven (Lane 2 runs outside the build
+ * pipeline), so they sidestep the writeModule promotion dance and write
+ * file-by-file. The atomicity boundary is the single file: a crashed
+ * sync that wrote some but not all pending-bills leaves the previously-
+ * promoted files intact, and the next sync re-derives the full set
+ * from the bills-index.
+ *
+ * The file_no is used directly as the filename; BillSchema guarantees
+ * it's non-empty, and Legistar file numbers are filesystem-safe
+ * (digits + hyphens) by convention.
+ */
+export async function writePendingBill(opts: {
+  moduleDir: string;
+  bill: Bill;
+}): Promise<{ path: string }> {
+  const dir = join(opts.moduleDir, "pending-bills");
+  await mkdir(dir, { recursive: true });
+  const target = join(dir, `${opts.bill.file_no}.json`);
+  const tmp = `${target}.tmp`;
+  await writeJson(tmp, opts.bill);
+  await rename(tmp, target);
+  await fsyncDir(dir);
+  return { path: target };
+}
+
+/**
+ * Stale-purge for pending-bills. Lists every .json file under
+ * `<moduleDir>/pending-bills/` and deletes any whose basename
+ * (file_no) is NOT in the keep set. Used by sync-bills after a fresh
+ * fetch to drop matters that aged out of the bills-index (enacted,
+ * withdrawn, filed, tabled).
+ *
+ * Returns the list of deleted file paths so the operator log can audit
+ * what disappeared. Idempotent; missing directory returns an empty list.
+ */
+export async function purgeStalePendingBills(opts: {
+  moduleDir: string;
+  keepFileNos: ReadonlySet<string>;
+}): Promise<{ deleted: string[] }> {
+  const dir = join(opts.moduleDir, "pending-bills");
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { deleted: [] };
+    throw err;
+  }
+  const deleted: string[] = [];
+  for (const entry of entries) {
+    if (!entry.endsWith(".json")) continue;
+    const fileNo = entry.slice(0, -".json".length);
+    if (opts.keepFileNos.has(fileNo)) continue;
+    const full = join(dir, entry);
+    await unlink(full);
+    deleted.push(full);
+  }
+  if (deleted.length > 0) {
+    await fsyncDir(dir);
+  }
+  return { deleted };
 }
 
 function toDistributedManifest(
