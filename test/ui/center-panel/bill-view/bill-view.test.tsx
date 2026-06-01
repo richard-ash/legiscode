@@ -26,7 +26,7 @@ function makeBill(over: Partial<Bill> = {}): Bill {
     text_diff: [],
     parse_status: "manual_review",
     structural_change_scope: null,
-    proposed_text: "",
+    body: { preamble: "", sections: [], closing: "" },
     ...over,
   });
 }
@@ -237,12 +237,28 @@ describe("BillView — long_title + proposed text", () => {
     expect(screen.getByText(/reduce residential speed limits/i)).toBeInTheDocument();
   });
 
-  it("renders the proposed_text block when populated", () => {
+  it("renders the structured body — preamble, action line, SEC. header, paragraphs, closing", () => {
     render(
       <BillView
         bills={[
           makeBill({
-            proposed_text: "SEC. 1.1. SPEED LIMITS. The maximum residential speed shall be 20 mph.",
+            body: {
+              preamble: "Be it ordained by the People.",
+              sections: [
+                {
+                  action: "Section 1. Article 8 of the Port Code is hereby amended.",
+                  target: { module_id: "sf-port", raw_section_id: "1.1" },
+                  body: [
+                    { kind: "section_header", number: "1.1", title: "SPEED LIMITS." },
+                    {
+                      kind: "paragraph",
+                      text: "The maximum residential speed shall be 20 mph.",
+                    },
+                  ],
+                },
+              ],
+              closing: "Section 2. Effective Date. This ordinance takes effect immediately.",
+            },
           }),
         ]}
         navigate={vi.fn()}
@@ -251,13 +267,55 @@ describe("BillView — long_title + proposed text", () => {
       />,
     );
     expect(screen.getByRole("heading", { name: /Ordinance text/i })).toBeInTheDocument();
+    expect(screen.getByText(/Be it ordained by the People/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Section 1\. Article 8 of the Port Code is hereby amended\./),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /SEC\. 1\.1\.\s+SPEED LIMITS\./ }),
+    ).toBeInTheDocument();
     expect(screen.getByText(/maximum residential speed shall be 20 mph/i)).toBeInTheDocument();
+    expect(screen.getByText(/Section 2\. Effective Date/)).toBeInTheDocument();
   });
 
-  it("omits the proposed_text block when every bill has empty text", () => {
+  it("renders subsection markers in their own block alongside the body prose", () => {
     render(
       <BillView
-        bills={[makeBill({ proposed_text: "" })]}
+        bills={[
+          makeBill({
+            body: {
+              preamble: "",
+              sections: [
+                {
+                  action: "Section 1. The Port Code is hereby amended.",
+                  target: { module_id: "sf-port", raw_section_id: "694" },
+                  body: [
+                    { kind: "section_header", number: "694", title: "WIPING RAGS." },
+                    {
+                      kind: "subsection",
+                      marker: "(a)",
+                      body: [{ kind: "paragraph", text: "Materials and Cleaning Thereof." }],
+                    },
+                  ],
+                },
+              ],
+              closing: "",
+            },
+          }),
+        ]}
+        navigate={vi.fn()}
+        tabPanel={TAB_PANEL}
+        codeLabel="Port Code"
+      />,
+    );
+    expect(screen.getByText("(a)")).toBeInTheDocument();
+    expect(screen.getByText(/Materials and Cleaning Thereof/)).toBeInTheDocument();
+  });
+
+  it("omits the ordinance text block when the body has no preamble, sections, or closing", () => {
+    render(
+      <BillView
+        bills={[makeBill({ body: { preamble: "", sections: [], closing: "" } })]}
         navigate={vi.fn()}
         tabPanel={TAB_PANEL}
         codeLabel="Port Code"

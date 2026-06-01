@@ -26,8 +26,20 @@ const ORD_SECTION_RE =
 // Spike Criterion 2: section header inside an AMEND block. Three observed
 // variants (SEC./SECTION/Section) unified into one regex. The section_id
 // capture excludes any leading whitespace and the trailing period.
+//
+// The title character class accepts uppercase letters / digits / spaces
+// plus the punctuation observed in the SF Legistar corpus:
+//   - `-` hyphen-minus, `–` en-dash, `—` em-dash (titles like
+//     "PERMIT REQUIRED – ENFORCEMENT.")
+//   - `,` `;` `:` for separators (`POLICE; TRAFFIC REGULATION.`)
+//   - `&` `'` for compound names (`POLICE & FIRE…`, `MAYOR'S OFFICE`)
+//   - `(` `)` `.` for parenthetical / abbreviated suffixes
+// New title-character variants get appended here as the corpus
+// surfaces them. Per `project_legal_corpus_zero_skip` an undetected
+// SEC. header is a parse-completeness regression, never an acceptable
+// silent skip.
 const SECTION_HEADER_RE =
-  /^\s*(?:\d+\s+)?(?:SEC\.|SECTION|Section)\s+([0-9][0-9A-Za-z.-]*)\.\s+([A-Z][A-Z0-9\s\-,&'().]+)$/gm;
+  /^\s*(?:\d+\s+)?(?:SEC\.|SECTION|Section)\s+([0-9][0-9A-Za-z.-]*)\.\s+([A-Z][A-Z0-9\s\-–—,;:&'().]+)$/gm;
 
 // Whole-chapter action patterns that promote the bill to structural_change.
 // The wording is specific enough that false positives are rare in SF's
@@ -56,14 +68,52 @@ export type CodeGroup = {
   sections: Array<{
     raw_id: string;
     title: string;
+    /** Char offset of the `SEC.` (or `SECTION`/`Section`) keyword. */
     text_offset_start: number;
+    /**
+     * Char offset of the position right after the header's last char
+     * (i.e. right after the title). The header itself can span more
+     * than one line when the PDF extractor wraps a long title at the
+     * ~80-char column. Body parsers slice from here forward to capture
+     * the section's body without re-including the title.
+     */
+    text_offset_after_header: number;
+    /** Char offset of the next section header's start (or group end). */
     text_offset_end: number;
   }>;
+};
+
+/**
+ * Half-open char offset range over the structural pass's input text.
+ * `[start, end)` — `start` is inclusive, `end` is exclusive. The body
+ * parser slices the input directly with these.
+ */
+export type TextRange = {
+  start: number;
+  end: number;
 };
 
 export type StructuralPassResult = {
   /** All AMEND ordinance-section groups in document order. */
   groups: CodeGroup[];
+  /**
+   * Char offsets of the document preamble — every character before the
+   * first AMEND group starts. Captures the bracket title block, the
+   * ordinance long-title sentence, and the "Be it ordained…" enacting
+   * clause that precede the first `Section N. <Code> Code is hereby
+   * amended…` action line. When `groups` is empty (fallback shape), the
+   * whole document is preamble.
+   */
+  preamble_range: TextRange;
+  /**
+   * Char offsets of the document closing — every character after the
+   * last AMEND group ends. Captures boilerplate sections like
+   * `Section 2. Scope of Ordinance.` / `Section 3. Effective Date.`
+   * and the signature block (`APPROVED AS TO FORM:` + names). Empty
+   * range when `groups` is empty or the document ends exactly at the
+   * last group.
+   */
+  closing_range: TextRange;
   /**
    * Promoted-to-structural-change discriminator. true when at least one
    * STRUCTURAL_PATTERN matched the document. The orchestrator emits
@@ -90,11 +140,63 @@ export function runStructuralPass(
 ): StructuralPassResult {
   const groups = findCodeGroups(text, installed);
   const structural = findStructuralAction(text);
+  const closingStart = findClosingStart(text, groups);
+  // Tighten the last group's range so closing boilerplate isn't
+  // misattributed as part of an AMEND group's body. The structural-pass
+  // group walker extends the final group's end to `text.length`; here
+  // we pull it back to the closing boundary so the body parser slices
+  // body text without the trailing "Section 2. Scope of Ordinance." /
+  // signature material.
+  if (groups.length > 0) {
+    const last = groups[groups.length - 1];
+    if (last && closingStart < last.text_offset_end) {
+      last.text_offset_end = closingStart;
+      const lastSection = last.sections[last.sections.length - 1];
+      if (lastSection && lastSection.text_offset_end > closingStart) {
+        lastSection.text_offset_end = closingStart;
+      }
+    }
+  }
+  const preambleEnd = groups[0]?.text_offset_start ?? text.length;
   return {
     groups,
+    preamble_range: { start: 0, end: preambleEnd },
+    closing_range: { start: closingStart, end: text.length },
     has_structural_action: structural !== null,
     structural_action_text: structural,
   };
+}
+
+// Closing boilerplate is identified by a non-AMEND `Section N. <Title>`
+// line (e.g. "Section 2. Scope of Ordinance.", "Section 3. Effective
+// Date.") or the `APPROVED AS TO FORM` signature opener. Both are stable
+// in the SF Legistar template; new patterns get appended here as the
+// corpus surfaces them.
+const CLOSING_MARKER_RE =
+  /^(?:\s*(?:\d+\s+)?Section\s+\d+[A-Z]?\.\s+[A-Z]|APPROVED\s+AS\s+TO\s+FORM\b)/gm;
+
+function findClosingStart(text: string, groups: readonly CodeGroup[]): number {
+  if (groups.length === 0) return text.length;
+  const last = groups[groups.length - 1];
+  if (!last) return text.length;
+  // Scan from the start of the last AMEND group. The action line itself
+  // matches CLOSING_MARKER_RE shape, so we skip every match whose trailing
+  // context contains "is hereby amended" (those are AMEND lines, already
+  // captured as groups).
+  CLOSING_MARKER_RE.lastIndex = 0;
+  const region = text.slice(last.text_offset_start);
+  let m: RegExpExecArray | null = CLOSING_MARKER_RE.exec(region);
+  while (m !== null) {
+    const absStart = last.text_offset_start + m.index;
+    const leadingWs = m[0].length - m[0].trimStart().length;
+    const lineStart = absStart + leadingWs;
+    const trailing = text.slice(lineStart, lineStart + 300);
+    if (!/\bis\s+(?:hereby\s+)?amended\b/.test(trailing)) {
+      return lineStart;
+    }
+    m = CLOSING_MARKER_RE.exec(region);
+  }
+  return text.length;
 }
 
 /** Identify every AMEND code-group and the sections nested inside it. */
@@ -139,12 +241,18 @@ function findSectionHeaders(text: string, start: number, end: number): CodeGroup
   const out: CodeGroup["sections"] = [];
   SECTION_HEADER_RE.lastIndex = 0;
   let m: RegExpExecArray | null = SECTION_HEADER_RE.exec(slice);
-  const starts: Array<{ rawId: string; title: string; rel: number }> = [];
+  const starts: Array<{
+    rawId: string;
+    title: string;
+    rel: number;
+    relAfterHeader: number;
+  }> = [];
   while (m !== null) {
     starts.push({
       rawId: (m[1] ?? "").trim(),
       title: (m[2] ?? "").trim(),
       rel: m.index,
+      relAfterHeader: m.index + m[0].length,
     });
     m = SECTION_HEADER_RE.exec(slice);
   }
@@ -157,6 +265,7 @@ function findSectionHeaders(text: string, start: number, end: number): CodeGroup
       raw_id: cur.rawId,
       title: cur.title,
       text_offset_start: start + cur.rel,
+      text_offset_after_header: start + cur.relAfterHeader,
       text_offset_end: start + relEnd,
     });
   }

@@ -10,7 +10,30 @@
   "long_title": "Hermetic fixture ordinance amending Test Section 1.1.",
   "module_id": "test-alpha",
   "parse_status": "manual_review",
-  "proposed_text": "PROPOSED TEXT — hermetic fixture body for §1.1 amendment.",
+  "body": {
+    "preamble": "Hermetic fixture preamble paragraph.",
+    "sections": [
+      {
+        "action": "Section 1. Article 1 of the Test Alpha Code is hereby amended by revising Section 1.1, to read as follows:",
+        "target": {
+          "module_id": "test-alpha",
+          "raw_section_id": "1.1"
+        },
+        "body": [
+          {
+            "kind": "section_header",
+            "number": "1.1",
+            "title": "HERMETIC TEST SECTION."
+          },
+          {
+            "kind": "paragraph",
+            "text": "PROPOSED TEXT — hermetic fixture body for §1.1 amendment."
+          }
+        ]
+      }
+    ],
+    "closing": ""
+  },
   "short_title": "Hermetic Test Ordinance",
   "sponsor": "Test Sponsor",
   "structural_change_scope": null,

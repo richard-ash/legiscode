@@ -79,7 +79,7 @@ function makeBill(over: Partial<Bill> = {}): Bill {
     text_diff: [],
     parse_status: "manual_review",
     structural_change_scope: null,
-    proposed_text: "",
+    body: { preamble: "", sections: [], closing: "" },
     ...over,
   } as Bill);
 }

@@ -142,7 +142,7 @@
   font-style: italic;
 }
 
-/* ── Proposed text (full ordinance body from source PDF) ─────────────── */
+/* ── Proposed text (structured ordinance body from source PDF) ───────── */
 
 .lc-billview-proposed {
   margin: 32px 0 0;
@@ -168,9 +168,75 @@
   font-size: 13.5px;
   line-height: 1.7;
   color: var(--subtext1);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  tab-size: 4;
+}
+
+/* AMEND code-group container — one per `Section N. <Code> Code is
+ * hereby amended…` action line. The action line itself reads as a
+ * leading directive sentence, the section_header + body blocks follow. */
+.lc-billview-section {
+  margin: 0 0 22px;
+}
+.lc-billview-section:last-child {
+  margin-bottom: 0;
+}
+.lc-billview-action {
+  margin: 18px 0 14px;
+  font-style: italic;
+  color: var(--subtext0);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.lc-billview-section:first-of-type .lc-billview-action {
+  margin-top: 0;
+}
+
+/* Nested SEC. <id>. TITLE heading inside a code-group body. */
+.lc-billview-section-header {
+  margin: 18px 0 8px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  line-height: 1.4;
+}
+.lc-billview-section-header-num {
+  font-family: var(--font-mono);
+  color: var(--peach);
+  margin-right: 4px;
+}
+.lc-billview-section-header-title {
+  color: var(--text);
+}
+
+/* Subsection (`(a)`, `(b)`, `(1)`, `(2)`, …) — flex layout pulls the
+ * paren marker into a fixed-width gutter and the body flows beside it. */
+.lc-billview-subsection {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 0;
+}
+.lc-billview-subsection-marker {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--mauve);
+  line-height: 1.7;
+}
+.lc-billview-subsection-body {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Body paragraphs — preamble, closing, SEC. body prose, subsection
+ * body prose. The block kind is the same so the typography stays
+ * uniform across surfaces. */
+.lc-billview-paragraph {
+  margin: 0 0 10px;
+}
+.lc-billview-paragraph:last-child {
+  margin-bottom: 0;
 }
 
 /* ── Bill parse-status notice ────────────────────────────────────────── */

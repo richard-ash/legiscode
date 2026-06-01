@@ -16,20 +16,20 @@
 // sections, dropping anything that doesn't to the unresolved log
 // rather than emitting affected_sections that point at nothing.
 
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { parseBill } from "@/parser/bills";
 import { purgeStalePendingBills, writePendingBill } from "@/storage/writer";
 import {
   type Bill,
   type BillMeta,
-  type BillsIndex,
   BillSchema,
+  type BillsIndex,
   BillsIndexSchema,
   type JurisdictionManifest,
   type ModuleId,
-  type SectionId,
   SectionFileSchema,
+  type SectionId,
 } from "@/types";
 import { readJurisdictionManifest } from "@/types/validate";
 
@@ -112,6 +112,13 @@ export type SyncResult = {
   purged: Record<string, number>;
   /** Section IDs the parser couldn't resolve against the loaded module tree. */
   unresolved: Array<{ file_no: string; module_id: ModuleId; raw_section_id: string }>;
+  /**
+   * Soft body-parser warnings tagged with the matter that emitted them.
+   * Surfaced in the sync summary so the operator can investigate, but
+   * not gating (the renderer always has a body to show — see A5 in the
+   * locked plan).
+   */
+  body_warnings: Array<{ file_no: string; message: string }>;
 };
 
 /**
@@ -150,6 +157,7 @@ export async function syncBills(args: {
 
   const written: Record<string, number> = {};
   const unresolved: SyncResult["unresolved"] = [];
+  const bodyWarnings: SyncResult["body_warnings"] = [];
   const keepByModule = new Map<ModuleId, Set<string>>();
 
   for (const meta of bills) {
@@ -172,6 +180,9 @@ export async function syncBills(args: {
         module_id: u.module_id,
         raw_section_id: u.raw_section_id,
       });
+    }
+    for (const message of result.body_quality_warnings) {
+      bodyWarnings.push({ file_no: meta.file_no, message });
     }
     for (const bill of result.bills) {
       if (!installedIds.has(bill.module_id)) continue;
@@ -197,7 +208,7 @@ export async function syncBills(args: {
     if (result.deleted.length > 0) purged[mod.id] = result.deleted.length;
   }
 
-  return { written, purged, unresolved };
+  return { written, purged, unresolved, body_warnings: bodyWarnings };
 }
 
 function defaultResolvePdfPath(meta: BillMeta): string {
@@ -296,7 +307,7 @@ async function main(argv: string[]): Promise<number> {
     const writtenTotal = Object.values(result.written).reduce((a, b) => a + b, 0);
     const purgedTotal = Object.values(result.purged).reduce((a, b) => a + b, 0);
     process.stdout.write(
-      `sync-bills: wrote ${writtenTotal} files across ${Object.keys(result.written).length} modules; purged ${purgedTotal} stale; unresolved sections: ${result.unresolved.length}\n`,
+      `sync-bills: wrote ${writtenTotal} files across ${Object.keys(result.written).length} modules; purged ${purgedTotal} stale; unresolved sections: ${result.unresolved.length}; body warnings: ${result.body_warnings.length}\n`,
     );
     return 0;
   } catch (err) {

@@ -409,3 +409,9 @@ End-to-end refoundation of the defined-term graph from a term-keyed dictionary t
 - **v2 missed-phrasing finder** (was T6 in the plan, explicit P3 follow-up). Filter prepositional false positives from the "candidates we should have caught" suggestions. Owner: deferred to the post-L3 follow-up plan.
 
 ---
+
+## Ordinance body parsing follow-ups (feat/ordinance-text-parsing 2026-06-01)
+
+- **Restore `lead_in` on subsection blocks when Layer 3 typography lands.** SF ordinance subsection markers like `(a)` are followed by a short bold-italic phrase ("Materials and Cleaning Thereof.") and then body prose. Layer 2's body parser doesn't extract the lead-in as a separate field — without per-span font-style information from the typography pass, the heuristics produce false positives (any subsection whose first sentence isn't a bold-italic label gets mislabeled). The schema in Layer 2 is `{ kind: "subsection"; marker: string; body: OrdinanceBlock[] }`. When Layer 3 (`docs/spike-pdf-typography-correlation.md`) ships and `italic.ts` is available, change the subsection variant to `{ kind, marker, lead_in: string | null, body }` and populate `lead_in` from the italic-decorated leading span when present. The renderer can then style lead-ins as bold per the source-PDF convention, and a future search index / citation extractor can use the lead-in as the subsection's plain-English label. Owner: the Layer 3 inline-diff PR that owns `spike-pdf-typography-correlation.md`.
+
+---

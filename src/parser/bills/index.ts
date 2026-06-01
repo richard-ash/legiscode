@@ -12,11 +12,19 @@
 
 import { loadPdfBuffer } from "@/parser/pdf/load";
 import { extractTextRuns, runsToText } from "@/parser/pdf/page-extractor";
-import type { Bill, BillMeta, JurisdictionManifest, ModuleId, SectionId } from "@/types";
+import type {
+  Bill,
+  BillMeta,
+  JurisdictionManifest,
+  ModuleId,
+  OrdinanceBody,
+  SectionId,
+} from "@/types";
+import { parseBody } from "./body-parser";
 import type { InstalledModule } from "./scope-filter";
 import { mapLegistarStatusToBillStatus } from "./status";
 import { applyDisplayRules, runStructuralPass } from "./structural-pass";
-import { cleanupOrdinanceText } from "./text-cleanup";
+import { stripChrome } from "./text-cleanup";
 
 export type ParseBillResult = {
   /** One Bill per touched + installed module. Sorted by module_id. */
@@ -34,6 +42,12 @@ export type ParseBillResult = {
     raw_section_id: string;
     candidates: SectionId[];
   }>;
+  /**
+   * Body-parser soft warnings (operator-only — see A5 in the locked
+   * plan). Empty when every Bill's body was tokenized cleanly. Flows
+   * into the operator log alongside `unresolved_sections`.
+   */
+  body_quality_warnings: string[];
 };
 
 export type ParseBillOptions = {
@@ -59,15 +73,21 @@ export async function parseBill(
   const moduleConfigByCanonical = new Map(manifest.modules.map((m) => [m.id, m]));
 
   const loaded = await loadPdfBuffer(pdfBytes);
-  let text: string;
+  let rawText: string;
   try {
     const runs = await extractTextRuns(loaded.doc);
-    text = runsToText(runs);
+    rawText = runsToText(runs);
   } finally {
     await loaded.destroy();
   }
 
+  // Chrome-stripped text is the shared substrate for the structural
+  // pass and the body parser — both consume the same offsets, so they
+  // must run against the same string. Reflow happens INSIDE the body
+  // parser per-slice, not here.
+  const text = stripChrome(rawText);
   const pass = runStructuralPass(text, installed);
+  const { body, quality_warnings: bodyQualityWarnings } = parseBody(text, pass);
   const billStatus = mapLegistarStatusToBillStatus(meta.legistar_status).status;
 
   // Group section hits by module id. Each group's affected_sections is
@@ -129,11 +149,25 @@ export async function parseBill(
       text_diff: [],
       parse_status: parseStatus,
       structural_change_scope: pass.has_structural_action ? pass.structural_action_text : null,
-      proposed_text: cleanupOrdinanceText(text),
+      // The same parsed body is shared across every per-module Bill row
+      // for a given matter — the source PDF is one document, and the
+      // structural pass / body parser run once over it. Each Bill row
+      // simply carries a reference to the same OrdinanceBody so the
+      // renderer can show the full ordinance text under whichever
+      // per-module tab the reader has open.
+      body,
     };
     bills.push(bill);
   }
   bills.sort((a, b) => a.module_id.localeCompare(b.module_id));
 
-  return { bills, unresolved_sections: unresolved };
+  return {
+    bills,
+    unresolved_sections: unresolved,
+    body_quality_warnings: bodyQualityWarnings,
+  };
 }
+
+// Re-export OrdinanceBody for callers that need to construct or annotate
+// the body shape (test fixtures, the renderer, the storage writer).
+export type { OrdinanceBody };

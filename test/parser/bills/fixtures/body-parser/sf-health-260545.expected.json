@@ -1,0 +1,120 @@
+{
+  "body": {
+    "preamble": "[Health Code - Code Cleanup]\n\nOrdinance amending the Health Code to repeal the prohibition on transporting bread in open baskets or containers on City streets, the prohibition on selling unsterilized rags and other types of cloth to be used for cleaning in industrial places of employment and related regulations, and the prohibition on operating a laundry for sterilizing such rags without a permit.\n\nBe it ordained by the People of the City and County of San Francisco:",
+    "sections": [
+      {
+        "action": "Section 1. Article 8 of the Health Code is hereby amended by deleting Section 407, to read as follows:",
+        "target": {
+          "module_id": "sf-health",
+          "raw_section_id": "407"
+        },
+        "body": [
+          {
+            "kind": "section_header",
+            "number": "407",
+            "title": "CONVEYANCE OF BREAD, ETC., THROUGH PUBLIC STREETS."
+          },
+          {
+            "kind": "paragraph",
+            "text": "It shall be unlawful for any person, company or corporation to carry, transport or convey, or to cause to be carried, transported or conveyed through the public streets in open baskets or exposed containers, or vehicles or otherwise, any bread, cakes or pastry intended for human consumption."
+          }
+        ]
+      },
+      {
+        "action": "Section 2. Article 12 of the Health Code is hereby amended by deleting Sections 694 and 695, to read as follows:",
+        "target": {
+          "module_id": "sf-health",
+          "raw_section_id": "694"
+        },
+        "body": [
+          {
+            "kind": "section_header",
+            "number": "694",
+            "title": "WIPING RAGS."
+          },
+          {
+            "kind": "subsection",
+            "marker": "(a)",
+            "body": [
+              {
+                "kind": "paragraph",
+                "text": "Materials and Cleaning Thereof. It shall be unlawful for any person, firm or corporation to sell or offer for sale, soiled clothes or rags, or soiled or disused or cast-off underclothing, garments, bedding, bedclothes or parts thereof for use as wiping rags unless the same have been cleansed and sterilized by a process of boiling continuously for a period of 40 minutes in a solution containing at least five percent of caustic soda. It shall be unlawful for any person, firm or corporation employing mechanics, workmen or laborers to furnish or supply such employees for use as wiping rags, soiled clothes or rags, or soiled or disused or cast-off underclothing, garments, bedclothes, bedding or parts thereof unless the same have been cleansed and sterilized in the manner herein prescribed."
+              }
+            ]
+          },
+          {
+            "kind": "subsection",
+            "marker": "(b)",
+            "body": [
+              {
+                "kind": "paragraph",
+                "text": "Definition. Wiping rags within the meaning of this Section are cloths and rags used for wiping and cleaning the surfaces of machinery, machines, tools, locomotives, engines, motorcars, automobiles, cars, carriages, windows, furniture and surfaces of articles, in factories, shops, steamships and steamboats, and generally in industrial employments; and also used by mechanics and workmen for wiping from their hands and bodies soil incident to their employment."
+              }
+            ]
+          },
+          {
+            "kind": "subsection",
+            "marker": "(c)",
+            "body": [
+              {
+                "kind": "paragraph",
+                "text": "Sterilization. All soiled cloths and rags and soiled and disused and cast-off underclothing, garments, bedclothes, bedding and parts thereof, before being offered for sale, or sold or furnished for use as wiping rags must be subjected to a process of sterilizing approved by the Director of Public Health of the City and County of San Francisco, including the process of boiling for a period of 40 minutes in a solution of caustic soda mentioned in this section. Before washing, all sleeves, legs and bodies of garments must be ripped and opened and all garments made into flat pieces."
+              }
+            ]
+          },
+          {
+            "kind": "subsection",
+            "marker": "(d)",
+            "body": [
+              {
+                "kind": "paragraph",
+                "text": "Use of Premises. It shall be unlawful for any person, firm or corporation to wash, cleanse, sterilize, or dry, disused or cast-off clothing, garments, underclothing, bedclothes, bedding or parts thereof, or soiled cloths or rags in the same building or by the same machines or appliances by which clothing, bedding, or other articles for personal or household use are laundered."
+              }
+            ]
+          },
+          {
+            "kind": "subsection",
+            "marker": "(e)",
+            "body": [
+              {
+                "kind": "paragraph",
+                "text": "Labels. Each package or parcel of wiping rags before being sold must be plainly marked \"Sterilized Wiping Rags,\" with the number and date of the certificate given by the Director of Public Health of the said city and county for the conducting of a laundry in which the rags contained in such package or parcel were cleansed and sterilized or with the name and location of the laundry in which said rags were cleansed and sterilized."
+              }
+            ]
+          },
+          {
+            "kind": "subsection",
+            "marker": "(f)",
+            "body": [
+              {
+                "kind": "paragraph",
+                "text": "Imported Wiping Rags. Wiping rags imported into this city and county from other cities, counties or states, shall not be used, sold or offered for sale, unless they have been cleansed and sterilized as herein required or unless such imported rags are inspected by the Director of Public Health, and a certificate given by him that such rags have been inspected and cleansed and sterilized as required by this Section."
+              }
+            ]
+          },
+          {
+            "kind": "subsection",
+            "marker": "(g)",
+            "body": [
+              {
+                "kind": "paragraph",
+                "text": "Inspection, Etc. The Director of Public Health shall inspect all wiping rags and give a certificate to that effect when the rags inspected have been cleansed and sterilized as required by this Section. Such certificate shall also state the date of inspection, the quantity and number of parcels inspected, the name of the owner and the place where the wiping rags were cleansed and sterilized. All persons having wiping rags in their possession for sale or for use shall, upon demand of any officer of the Department of Public Health or any police officer, exhibit such wiping rags for inspection and give all information as to where and from whom said wiping rags were obtained."
+              }
+            ]
+          },
+          {
+            "kind": "section_header",
+            "number": "695",
+            "title": "PERMIT REQUIRED – ENFORCEMENT."
+          },
+          {
+            "kind": "paragraph",
+            "text": "It shall be unlawful for any person, firm or corporation to establish or maintain a laundry for cleaning or sterilizing wiping rags or soiled clothes or rags or soiled and disused or cast-off clothing, garments, underclothing, bedclothes, bedding or parts thereof, within the limits of the City and County of San Francisco, without having first complied with Section 354 of Article 7 hereof, regulating the conducting of public laundries and obtain a permit therefor as required by Section 695 of this Article. No person, firm or corporation shall engage in the business of laundering, cleaning or sterilizing cloths or material for wiping rags, or selling wiping rags without a permit therefor from the Department of Public Health. Such permit shall be granted as a matter of course on the first application, and may be revoked by the Department of Public Health for violation by the holder of any of the provisions of Section 694 of this Article. Subsequent permits to a person, firm or corporation in place of a permit revoked may be granted or refused at the discretion of the Department. The Department of Public Health shall keep a register of all persons engaged in laundering, cleaning, sterilizing or selling wiping rags, and shall enter therein the place of business, the date of issue and the revocation of permit."
+          }
+        ]
+      }
+    ],
+    "closing": "Section 3. Scope of Ordinance. In enacting this ordinance, the Board of Supervisors intends to amend only those words, phrases, paragraphs, subsections, sections, articles, numbers, punctuation marks, charts, diagrams, or any other constituent parts of the Municipal Code that are explicitly shown in this ordinance as additions, deletions, Board amendment additions, and Board amendment deletions in accordance with the “Note” that appears under the official title of the ordinance.\n\nSection 4. Effective Date. This ordinance shall become effective on the 31st day after enactment. Enactment occurs when the Mayor signs the ordinance, the Mayor returns the ordinance unsigned or does not sign the ordinance within ten days of receiving it, or the Board of Supervisors overrides the Mayor’s veto of the ordinance.\n\nAPPROVED AS TO FORM: DAVID CHIU, City Attorney By: /s/ Bradley A. Russi BRADLEY A. RUSSI Deputy City Attorney"
+  },
+  "quality_warnings": []
+}
