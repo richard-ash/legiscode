@@ -11,6 +11,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@tanstack/react-virtual": "^3.13.24",
     "cheerio": "^1.2.0",
+    "pdfjs-dist": "^6.0.227",
     "react": "19.2.5",
     "react-dom": "19.2.5",
     "react-resizable-panels": "^4.11.1",

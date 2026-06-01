@@ -4,7 +4,7 @@
 import { useCallback, useState } from "react";
 import { type CorpusRef, parse as corpusRefParse } from "@/corpus/refs";
 import type { CorpusTreeNode } from "@/corpus/wire";
-import { buildTitleMap, TabStrip } from "@/ui/tabs/tab-strip";
+import { buildPendingBillsById, buildTitleMap, TabStrip } from "@/ui/tabs/tab-strip";
 import { useTabs } from "@/ui/tabs/use-tabs";
 import type { NavigationIntent } from "@/workbench/navigate";
 import {
@@ -57,6 +57,7 @@ const TREE: CorpusTreeNode[] = [
 ];
 
 const TITLE_MAP = buildTitleMap(TREE);
+const PENDING_BILLS_BY_ID = buildPendingBillsById([]);
 
 export interface TabHostProps {
   initial: OpenItemsState;
@@ -94,6 +95,7 @@ export function TabHost({ initial, onState }: TabHostProps) {
       openItems={state}
       setOpenItems={setOpenItems}
       titleMap={TITLE_MAP}
+      pendingBillsById={PENDING_BILLS_BY_ID}
       closeAt={close}
       closeOthers={closeOthers}
       closeToRight={closeToRight}

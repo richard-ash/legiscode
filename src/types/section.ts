@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { CitationSchema } from "./citation";
-import { DefinitionIdSchema, type DefinitionId } from "./definitions";
+import { type DefinitionId, DefinitionIdSchema } from "./definitions";
 import { SectionIdSchema } from "./identifiers";
 
 // editorial_status captures AmLegal's per-section publication state.

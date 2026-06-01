@@ -20,7 +20,7 @@
 // Failures here mean a parser change drifted text. Investigate root cause
 // before regenerating.
 
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";

@@ -19,14 +19,14 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { type CorpusRef, hash as refHash } from "@/corpus/refs";
 import type { NavigationIntent } from "@/workbench/navigate";
 import {
-  closeAll as workbenchCloseAll,
   closeItem,
-  closeOthers as workbenchCloseOthers,
-  closeToRight as workbenchCloseToRight,
   itemIdentity,
   type OpenItem,
   type OpenItemsState,
   validateRecentlyClosed,
+  closeAll as workbenchCloseAll,
+  closeOthers as workbenchCloseOthers,
+  closeToRight as workbenchCloseToRight,
 } from "@/workbench/open-items";
 
 const RECENTLY_CLOSED_CAP = 10;

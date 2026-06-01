@@ -12,14 +12,14 @@
 
 import { readFile } from "node:fs/promises";
 import { type ZodType, z } from "zod";
+import type { Bill } from "../bill";
+import { BillSchema } from "../bill";
 import type { CorpusMeta } from "../corpus-meta";
 import { CorpusMetaSchema } from "../corpus-meta";
 import type { ModuleDefinitions } from "../definitions";
 import { ModuleDefinitionsSchema } from "../definitions";
 import type { DistributedModuleManifest, JurisdictionManifest } from "../manifest";
 import { DistributedModuleManifestSchema, JurisdictionManifestSchema } from "../manifest";
-import type { OrdinanceFile } from "../ordinance";
-import { OrdinanceFileSchema } from "../ordinance";
 import type { SectionFile } from "../section";
 import { SectionFileSchema } from "../section";
 import { formatZodError } from "./format-error";
@@ -69,8 +69,7 @@ async function parseFile<T>(path: string, schema: ZodType<T>): Promise<T> {
 export const readSection = (path: string): Promise<SectionFile> =>
   parseFile(path, SectionFileSchema);
 
-export const readOrdinance = (path: string): Promise<OrdinanceFile> =>
-  parseFile(path, OrdinanceFileSchema);
+export const readBill = (path: string): Promise<Bill> => parseFile(path, BillSchema);
 
 export const readJurisdictionManifest = (path: string): Promise<JurisdictionManifest> =>
   parseFile(path, JurisdictionManifestSchema);

@@ -3,6 +3,11 @@
 // run in pure Node and future filters / nav features compose without
 // rewrites.
 
+export type { Predicate } from "./filter-predicate";
+export { alwaysTrue, and, or, prefixMatch } from "./filter-predicate";
+export type { Action, KeyboardState } from "./keyboard-actions";
+export { keyboardAction } from "./keyboard-actions";
+export type { ExpansionState } from "./tree-model";
 export {
   collapse,
   defaultExpansion,
@@ -11,13 +16,5 @@ export {
   isExpanded,
   toggle,
 } from "./tree-model";
-export type { ExpansionState } from "./tree-model";
-
-export { __resetVisibleRowsCache, visibleRows } from "./visible-rows";
 export type { Row } from "./visible-rows";
-
-export { alwaysTrue, and, or, prefixMatch } from "./filter-predicate";
-export type { Predicate } from "./filter-predicate";
-
-export { keyboardAction } from "./keyboard-actions";
-export type { Action, KeyboardState } from "./keyboard-actions";
+export { __resetVisibleRowsCache, visibleRows } from "./visible-rows";

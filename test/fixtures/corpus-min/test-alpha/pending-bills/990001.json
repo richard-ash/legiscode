@@ -1,0 +1,18 @@
+{
+  "affected_sections": [
+    "1.1"
+  ],
+  "bill_status": "committee",
+  "file_no": "990001",
+  "introduced_at": "2026-05-19",
+  "legistar_status": "30 Day Rule",
+  "legistar_url": "https://example.test/legislation?id=990001",
+  "long_title": "Hermetic fixture ordinance amending Test Section 1.1.",
+  "module_id": "test-alpha",
+  "parse_status": "manual_review",
+  "proposed_text": "PROPOSED TEXT — hermetic fixture body for §1.1 amendment.",
+  "short_title": "Hermetic Test Ordinance",
+  "sponsor": "Test Sponsor",
+  "structural_change_scope": null,
+  "text_diff": []
+}

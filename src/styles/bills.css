@@ -1,0 +1,263 @@
+/* Bill renderer surfaces — r11 bill-view tab body. Pending bills no
+ * longer surface in the file tree (r11); the file-tree row variant
+ * was removed alongside the bill-branch nodes. */
+
+/* ── Bill view container ────────────────────────────────────────────── */
+
+.lc-billview {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--bg-base);
+}
+.lc-billview-inner {
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 28px 36px 80px;
+  font-family: var(--font-serif);
+  color: var(--text);
+}
+
+/* ── Kicker (Code · status badge) ───────────────────────────────────── */
+
+.lc-billheader {
+  margin: 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-family: var(--font-sans);
+}
+.lc-billheader-kicker {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-weight: 700;
+  color: var(--overlay1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lc-billheader-kicker-sep {
+  color: var(--overlay0);
+  margin: 0 2px;
+  font-weight: 400;
+}
+.lc-billheader-kicker-status {
+  padding: 1px 7px;
+  border-radius: 3px;
+  letter-spacing: 0.05em;
+}
+.lc-billheader-kicker-status[data-s="sky"] {
+  color: var(--sky);
+  background: color-mix(in oklab, var(--sky) 14%, transparent);
+}
+.lc-billheader-kicker-status[data-s="yellow"] {
+  color: var(--yellow);
+  background: color-mix(in oklab, var(--yellow) 14%, transparent);
+}
+.lc-billheader-kicker-status[data-s="mauve"] {
+  color: var(--mauve);
+  background: color-mix(in oklab, var(--mauve) 14%, transparent);
+}
+.lc-billheader-kicker-status[data-s="peach"] {
+  color: var(--peach);
+  background: color-mix(in oklab, var(--peach) 14%, transparent);
+}
+.lc-billheader-kicker-status[data-s="green"] {
+  color: var(--green);
+  background: color-mix(in oklab, var(--green) 14%, transparent);
+}
+
+/* ── Title (h1 with file_no + short_title) ──────────────────────────── */
+
+.lc-billheader-title {
+  margin: 0 0 6px;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.lc-billheader-fileno {
+  font-family: var(--font-mono);
+  color: var(--peach);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* ── Bill meta row (date · sponsor · Open in Legistar) ──────────────── */
+
+.lc-billheader-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: var(--subtext0);
+}
+.lc-billheader-meta strong {
+  color: var(--text);
+  font-weight: 500;
+}
+.lc-billheader-meta-sep {
+  color: var(--overlay0);
+}
+.lc-billheader-legistar {
+  margin-left: auto;
+  color: var(--blue);
+  cursor: pointer;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: 5px;
+  border: 1px solid var(--border-soft);
+  font-size: 11.5px;
+  background: transparent;
+  font-family: inherit;
+}
+.lc-billheader-legistar:hover,
+.lc-billheader-legistar:focus {
+  background: color-mix(in oklab, var(--blue) 10%, transparent);
+  border-color: var(--blue);
+  outline: none;
+}
+.lc-billheader-legistar:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ── Purpose block (long_title — the bill's plain-English statement) ─── */
+
+.lc-billview-purpose {
+  margin: 0 0 16px;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--subtext1);
+  font-style: italic;
+}
+
+/* ── Proposed text (full ordinance body from source PDF) ─────────────── */
+
+.lc-billview-proposed {
+  margin: 32px 0 0;
+  padding-top: 22px;
+  border-top: 1px solid var(--hairline);
+}
+.lc-billview-proposed-label {
+  margin: 0 0 12px;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--overlay1);
+}
+.lc-billview-proposed-body {
+  margin: 0;
+  padding: 18px 22px;
+  background: var(--bg-mantle);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  font-family: var(--font-serif);
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--subtext1);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+}
+
+/* ── Bill parse-status notice ────────────────────────────────────────── */
+
+.lc-billparse-notice {
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  background: color-mix(in oklab, var(--yellow) 8%, var(--bg-mantle));
+  border-left: 2px solid var(--yellow);
+  color: var(--subtext1);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.lc-billparse-notice.is-structural {
+  background: color-mix(in oklab, var(--sky) 8%, var(--bg-mantle));
+  border-left-color: var(--sky);
+}
+
+/* ── Amends section + chips ─────────────────────────────────────────── */
+
+.lc-amends {
+  margin: 26px 0 32px;
+}
+.lc-amends-label {
+  margin: 0 0 10px;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--overlay1);
+}
+.lc-amends-count {
+  color: var(--peach);
+  font-family: var(--font-mono);
+}
+.lc-amends-chips {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  list-style: none;
+}
+.lc-amends-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-mantle);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease;
+  flex: 1;
+  min-width: 220px;
+  font-family: var(--font-sans);
+  color: var(--subtext1);
+}
+.lc-amends-chip:hover,
+.lc-amends-chip:focus {
+  border-color: var(--blue);
+  background: color-mix(in oklab, var(--bg-surface0) 50%, var(--bg-mantle));
+  transform: translateY(-1px);
+  outline: none;
+  color: var(--text);
+}
+.lc-amends-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.lc-amends-chip-section {
+  font-family: var(--font-mono);
+  color: var(--peach);
+  font-size: 12.5px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.lc-amends-chip-title {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}

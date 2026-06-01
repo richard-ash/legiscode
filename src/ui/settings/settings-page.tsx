@@ -16,10 +16,10 @@ import {
   formatShortcut,
   GROUP_LABELS,
   SCOPE_LABELS,
+  SHORTCUTS,
   type Shortcut,
   type ShortcutGroup,
   type ShortcutScope,
-  SHORTCUTS,
 } from "@/ui/shortcuts/registry";
 import type { SettingsSection } from "@/workbench/open-items";
 

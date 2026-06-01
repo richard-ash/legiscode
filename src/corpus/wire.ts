@@ -12,13 +12,23 @@
 // needs validation, validation lives in the boundary helper (e.g.
 // corpusRefFromWire in @/corpus/refs), not in this file.
 
-import type { DefinitionId, ScopeExpr, SectionFile, SectionId } from "@/types";
+import type { Bill, DefinitionId, ScopeExpr, SectionFile, SectionId } from "@/types";
 
 /**
  * Tree node returned by `corpus:list`. Tree levels:
- *   level 0 — module ("code" kind)
- *   level 1 — intra-module hierarchy ("chapter" kind)
+ *   level 0 — jurisdiction ("jurisdiction" kind) — single root wrapping
+ *             every code module for one jurisdiction. Multi-jurisdiction
+ *             installs add sibling jurisdiction roots without reshaping
+ *             the tree.
+ *   level 1 — module ("code" kind)
+ *   level 2 — intra-module hierarchy ("chapter" kind)
  *   leaf    — section ("section" kind)
+ *
+ * Pending bills are NOT tree nodes. r11 (feat/ordinance-ingestion) moved
+ * them to a sibling left-panel activity panel sourced from
+ * `CorpusModuleSummary.pendingBills`. The `bill-branch` and `bill` kinds
+ * were removed because bills aren't sections — collapsing them into the
+ * section-tree shape was a category error.
  */
 export interface CorpusTreeNode {
   /** Stable id, unique across the entire jurisdiction. */
@@ -28,7 +38,7 @@ export interface CorpusTreeNode {
   /** Display name, e.g. "Article 1 — General Provisions". */
   name: string;
   /** Discriminator drives the icon (folder vs section) in the file tree. */
-  kind: "code" | "chapter" | "section";
+  kind: "jurisdiction" | "code" | "chapter" | "section";
   /**
    * Section pointer — only set on `kind: "section"` leaves. Carries the
    * (moduleId, sectionId) split so the renderer can issue a `corpus:read`
@@ -90,6 +100,22 @@ export interface CorpusModuleSummary {
     moduleId: string;
     definers: ReadonlyArray<SectionId>;
   }>;
+  /**
+   * Pending-bill payload — drives the left-panel activity panel, the
+   * status-bar count, the section pending-rail, and the bill-view tab
+   * content. `count` is the unique file_no count across modules (a
+   * multi-code bill counts once); `bills` is the raw per-(module,
+   * file_no) Bill rows, which the activity panel and bill-view aggregate
+   * by file_no for display.
+   *
+   * `bills` is empty when no module has pending bills; per
+   * `feedback_no_placeholder_ui`, the renderer suppresses the activity
+   * panel rows + status-bar indicator entirely in that case.
+   */
+  pendingBills: {
+    count: number;
+    bills: ReadonlyArray<Bill>;
+  };
 }
 
 export interface CorpusReadRequest {

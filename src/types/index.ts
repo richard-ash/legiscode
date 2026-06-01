@@ -4,6 +4,7 @@
 // `import { SectionFileSchema }`. See docs/GIT.md for repo conventions.
 
 export * from "./appendix";
+export * from "./bill";
 export * from "./citation";
 export * from "./corpus-entry";
 export * from "./corpus-meta";
@@ -11,7 +12,6 @@ export * from "./definitions";
 export * from "./identifiers";
 export * from "./legal-instrument-entry";
 export * from "./manifest";
-export * from "./ordinance";
 export * from "./ordinance-history";
 export * from "./parsed-module";
 export * from "./resolution-history";

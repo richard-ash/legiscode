@@ -38,7 +38,7 @@ import type { ResolutionResult } from "@/citations/resolver";
 import type { CorpusRef } from "@/corpus/refs";
 import { parse as parseCorpusRef } from "@/corpus/refs";
 import type { CorpusError, CorpusSectionView } from "@/corpus/wire";
-import type { BodySegment, Citation, SectionId } from "@/types";
+import type { Bill, BodySegment, Citation, SectionId } from "@/types";
 import type { OpenItem } from "@/workbench";
 import type { NavigationIntent } from "@/workbench/navigate";
 import { CitationLink } from "./citation-link";
@@ -46,6 +46,7 @@ import { CitationPopover } from "./citation-popover";
 import { Crumb } from "./crumb";
 import { DefinedTerm, DefinedTermPopover } from "./defined-term";
 import { type HoverPayload, SectionHoverContext } from "./hover-context";
+import { SectionPendingRail } from "./section-pending-rail";
 import "./section-view.css";
 import { useHoverPopover } from "./use-hover-popover";
 
@@ -91,6 +92,12 @@ export interface SectionViewProps {
    *  that would otherwise break the `.lc-center` flex chain that pins
    *  the TabStrip and Breadcrumb above the scroll viewport. */
   tabPanel?: { id: string; labelledBy: string };
+  /** Pending Bill rows whose `affected_sections` include this section.
+   *  Drives the peach-left-border pending-rail above the body. Empty
+   *  array (or undefined) suppresses the rail entirely (Pass 2 lock). */
+  pendingRailBills?: ReadonlyArray<Bill>;
+  /** Dispatches the bill open when a pending-rail row is clicked. */
+  onOpenBill?: (fileNo: string, mode: "primary" | "background") => void;
 }
 
 interface RenderCtx {
@@ -116,6 +123,8 @@ export function SectionView({
   scrollContainerRef,
   onScrollY,
   tabPanel,
+  pendingRailBills,
+  onOpenBill,
 }: SectionViewProps) {
   const tabPanelAttrs = tabPanel
     ? { role: "tabpanel" as const, id: tabPanel.id, "aria-labelledby": tabPanel.labelledBy }
@@ -346,6 +355,9 @@ export function SectionView({
                 </button>
               ) : null}
             </div>
+          ) : null}
+          {pendingRailBills && pendingRailBills.length > 0 && onOpenBill ? (
+            <SectionPendingRail bills={pendingRailBills} onOpenBill={onOpenBill} />
           ) : null}
           {/** biome-ignore lint/a11y/noStaticElementInteractions: the div is a pure event-delegation seam — roles live on the inner cite span (tabIndex={0} + role="link"), not the wrapping div. */}
           <div

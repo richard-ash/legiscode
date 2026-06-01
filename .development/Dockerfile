@@ -34,8 +34,15 @@ ENV PATH="/root/.local/bin:/root/.local/share/mise/shims:${PATH}"
 ENV MISE_DATA_DIR="/root/.local/share/mise"
 
 # Install Node + pnpm at versions pinned in mise.toml.
+# Authenticate to GitHub when the secret is mounted — mise's aqua backend
+# resolves pnpm via the GitHub releases API, and the unauthenticated 60
+# req/hr quota will trip when parallel CI jobs race the same cold cache.
 COPY mise.toml ./
-RUN mise trust && mise install
+RUN --mount=type=secret,id=github_token \
+    if [ -s /run/secrets/github_token ]; then \
+        export GITHUB_API_TOKEN="$(cat /run/secrets/github_token)"; \
+    fi && \
+    mise trust && mise install
 
 FROM base AS deps
 # Skip Electron's prebuilt binary download during `pnpm install`. CI only
@@ -50,6 +57,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
 
 FROM deps AS source
 COPY tsconfig.json tsconfig.build.json tsconfig.electron.json biome.json vitest.config.ts ./
+COPY manifests/ ./manifests/
 COPY src/ ./src/
 COPY electron/ ./electron/
 COPY scripts/ ./scripts/

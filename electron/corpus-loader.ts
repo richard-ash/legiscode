@@ -21,6 +21,8 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import {
+  type Bill,
+  BillSchema,
   type BodySegment,
   type Definition,
   type DefinitionId,
@@ -101,6 +103,15 @@ interface LoadedModule {
    * re-querying.
    */
   ancestorIndex: ReadonlyMap<SectionId, ReadonlyArray<AncestorEntry>>;
+  /**
+   * Pending Bills loaded from this module's pending-bills/ directory.
+   * Empty array when the directory is missing, when sync-bills has not
+   * been run, or when no matters currently target this module.
+   * Per `feedback_no_placeholder_ui`, the renderer hides the pending-
+   * bill surfaces (tree branch, banner, Impact tab, bill-detail tab)
+   * entirely when this is empty across all modules.
+   */
+  pendingBills: readonly Bill[];
 }
 
 interface LoadedCorpus {
@@ -410,6 +421,7 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
   const definitions = await loadDefinitions(moduleDir, manifest.id);
   const definitionsById = indexDefinitionsById(definitions);
   const ancestorIndex = buildAncestorIndex(sections);
+  const pendingBills = await loadPendingBills(moduleDir, manifest.id);
 
   return {
     id: manifest.id,
@@ -421,7 +433,64 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
     definitions,
     definitionsById,
     ancestorIndex,
+    pendingBills,
   };
+}
+
+/**
+ * Scan `<moduleDir>/pending-bills/` and return every Bill validated
+ * against BillSchema. Missing directory returns an empty array — modules
+ * without pending bills (or with no sync-bills run yet) are a normal
+ * steady-state; per `feedback_no_placeholder_ui` the renderer hides the
+ * surface entirely instead of rendering an empty stub.
+ *
+ * Hard-fails on a malformed Bill file: same posture as the section
+ * loader. The build pipeline + sync-bills both validate against
+ * BillSchema before write, so an invalid Bill on disk means the bundle
+ * is corrupt and should surface as CorpusError("corrupt") rather than
+ * silently skipping.
+ */
+async function loadPendingBills(moduleDir: string, moduleId: string): Promise<readonly Bill[]> {
+  const dir = join(moduleDir, "pending-bills");
+  const exists = await stat(dir).catch(() => null);
+  if (!exists || !exists.isDirectory()) return [];
+  const entries = await readdir(dir, { withFileTypes: true });
+  const bills: Bill[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const path = join(dir, entry.name);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await readFile(path, "utf8"));
+    } catch (cause) {
+      throw new Error(
+        `module ${moduleId}: pending-bill ${path} is not valid JSON: ${describe(cause)}`,
+      );
+    }
+    const result = BillSchema.safeParse(parsed);
+    if (!result.success) {
+      const issues = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+      throw new Error(`module ${moduleId}: pending-bill ${path} failed schema: ${issues}`);
+    }
+    bills.push(result.data);
+  }
+  bills.sort((a, b) => a.file_no.localeCompare(b.file_no));
+  return bills;
+}
+
+/**
+ * Aggregate every pending Bill across all loaded modules. Returns an
+ * empty array when no module has pending bills; the renderer uses the
+ * length as the "show or hide the pending UI surfaces" gate per
+ * `feedback_no_placeholder_ui`.
+ */
+export function listPendingBills(): readonly Bill[] {
+  if (state === null || state.kind !== "ok") return [];
+  const out: Bill[] = [];
+  for (const mod of state.modules) {
+    for (const bill of mod.pendingBills) out.push(bill);
+  }
+  return out;
 }
 
 /**
@@ -535,9 +604,9 @@ function buildSummary(
   jurisdiction: string,
   jurisdictionVersion: string,
 ): CorpusModuleSummary {
-  const tree: CorpusTreeNode[] = modules.map(buildModuleTree);
   const totalSections = modules.reduce((n, m) => n + m.sections.length, 0);
   const definitions = aggregateDefinitions(modules);
+  const pendingBillCount = modules.reduce((n, m) => n + m.pendingBills.length, 0);
   const firstModule = modules[0];
   const firstSection = firstModule?.sections[0];
   if (!firstModule || !firstSection) {
@@ -552,8 +621,18 @@ function buildSummary(
       defaultRef: { moduleId: "", sectionId: "" },
       tree: [],
       definitions: [],
+      pendingBills: { count: 0, bills: [] },
     };
   }
+  const allBills: Bill[] = [];
+  for (const m of modules) {
+    for (const bill of m.pendingBills) allBills.push(bill);
+  }
+  allBills.sort((a, b) => {
+    if (a.file_no !== b.file_no) return a.file_no.localeCompare(b.file_no);
+    return a.module_id.localeCompare(b.module_id);
+  });
+  const uniqueFileNoCount = new Set(allBills.map((b) => b.file_no)).size;
   return {
     jurisdiction,
     rootLabel: rootLabelFromJurisdiction(jurisdiction),
@@ -561,8 +640,9 @@ function buildSummary(
     codeCount: modules.length,
     sectionCount: totalSections,
     defaultRef: { moduleId: firstModule.id, sectionId: firstSection.section.id },
-    tree,
+    tree: buildJurisdictionTree(modules, jurisdiction),
     definitions,
+    pendingBills: { count: uniqueFileNoCount, bills: allBills },
   };
 }
 
@@ -605,6 +685,34 @@ function aggregateDefinitions(
 function rootLabelFromJurisdiction(jurisdiction: string): string {
   // Heuristic: strip "City and County of " prefix to fit the chrome chip.
   return jurisdiction.replace(/^City and County of\s+/i, "").concat(" Municipal Code");
+}
+
+function jurisdictionDisplayName(jurisdiction: string): string {
+  return jurisdiction.replace(/^City and County of\s+/i, "");
+}
+
+/**
+ * Assemble the single jurisdiction-rooted tree. Modules become children
+ * of the jurisdiction node. Pending bills live OUTSIDE the tree (in the
+ * left-panel activity panel, sourced from `CorpusModuleSummary.pendingBills`)
+ * per the r11 design — bills aren't sections, so collapsing them into
+ * the section-tree shape was a category error.
+ */
+function buildJurisdictionTree(
+  modules: readonly LoadedModule[],
+  jurisdiction: string,
+): CorpusTreeNode[] {
+  const kids: CorpusTreeNode[] = modules.map(buildModuleTree);
+  const displayName = jurisdictionDisplayName(jurisdiction);
+  return [
+    {
+      id: `jurisdiction::${displayName}`,
+      code: "",
+      name: displayName,
+      kind: "jurisdiction",
+      kids,
+    },
+  ];
 }
 
 function buildModuleTree(m: LoadedModule): CorpusTreeNode {

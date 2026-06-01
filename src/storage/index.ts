@@ -8,20 +8,20 @@
 
 export {
   AtomicWriteError,
+  acquireLock,
+  computeChecksum,
   DEFAULT_GRACE_SECONDS,
   DEFAULT_MAX_BUILD_AGE_SECONDS,
   type ExitCode,
   ExitCodes,
-  type Lock,
-  SENTINEL_FILENAME,
-  acquireLock,
-  computeChecksum,
   ensureCleanNew,
   isSentinelValid,
+  type Lock,
   promote,
   recover,
   releaseLock,
+  SENTINEL_FILENAME,
 } from "./atomic-write";
 export { canonicalStringify, fsyncDir, writeJson } from "./canonical-json";
 export { type ComposeCorpusMetaInput, composeCorpusMeta, writeCorpusMeta } from "./corpus-meta";
-export { writeModule, type WriteModuleOptions } from "./writer";
+export { type WriteModuleOptions, writeModule } from "./writer";

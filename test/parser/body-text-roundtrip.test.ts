@@ -12,13 +12,13 @@
 // operator-driven `mise run validate:full` extends the same invariant
 // to the full ~11,659 production sections via build/modules/.
 
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildCorpus } from "@/corpus";
-import { bodyToText } from "@/types";
 import type { SectionFile } from "@/types";
+import { bodyToText } from "@/types";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const FIXTURE_MANIFEST = join(REPO_ROOT, "test", "fixtures", "sf", "jurisdiction.json");

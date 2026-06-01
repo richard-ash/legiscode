@@ -4,10 +4,11 @@
 // orthogonal to the tree itself — the tree describes structure, the
 // expansion describes which parents are open.
 //
-// The default expansion auto-opens the top two levels (depth 0 = code
-// modules, depth 1 = chapters/articles) so first-launch matches the
-// populated mockup state without a user click; deeper levels stay
-// collapsed until the user expands them.
+// The default expansion auto-opens the top three levels (depth 0 =
+// jurisdiction, depth 1 = code modules + bill-branch, depth 2 =
+// chapters/articles + bills) so the first-launch view matches the
+// populated mockup state without a user click; section leaves and any
+// deeper subdivisions stay collapsed until the user expands them.
 
 import type { CorpusTreeNode } from "@/corpus/wire";
 
@@ -18,11 +19,11 @@ export function emptyExpansion(): ExpansionState {
 }
 
 /**
- * Auto-expand all parents at depth ≤ `maxDepth`. The default of 1 opens
- * codes + chapters but leaves sections collapsed (they have no children
- * to reveal anyway).
+ * Auto-expand all parents at depth ≤ `maxDepth`. The default of 2 opens
+ * jurisdiction + codes + chapters but leaves sections collapsed (they
+ * have no children to reveal anyway).
  */
-export function defaultExpansion(tree: readonly CorpusTreeNode[], maxDepth = 1): ExpansionState {
+export function defaultExpansion(tree: readonly CorpusTreeNode[], maxDepth = 2): ExpansionState {
   const out = new Set<string>();
   const walk = (node: CorpusTreeNode, depth: number): void => {
     if (depth <= maxDepth && node.kids && node.kids.length > 0) {

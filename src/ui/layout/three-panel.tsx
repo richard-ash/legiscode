@@ -8,7 +8,7 @@
 // Keyboard toggles ⌘B (left) and ⌘⌥B (right) collapse panels via the
 // imperative API.
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from "react-resizable-panels";
 import { getStorageBackend } from "@/persistence";
 import { useShortcut } from "@/ui/shortcuts/use-shortcut";

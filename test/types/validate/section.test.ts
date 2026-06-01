@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SectionFileSchema, bodyToText } from "@/types";
+import { bodyToText, SectionFileSchema } from "@/types";
 
 // validSection's `text` is empty so body defaults to [] and the
 // roundtrip invariant (bodyToText(body) === text) passes vacuously.

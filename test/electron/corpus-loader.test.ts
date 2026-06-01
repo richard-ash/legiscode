@@ -227,8 +227,10 @@ describe("loadCorpus + listCorpus + readSection", () => {
     expect(result.value.sectionCount).toBe(3);
     expect(result.value.jurisdictionVersion).toBe("2026.05.01");
     expect(result.value.rootLabel).toContain("San Francisco");
-    expect(result.value.tree).toHaveLength(2);
-    expect(result.value.tree[0]?.kind).toBe("code");
+    expect(result.value.tree).toHaveLength(1);
+    expect(result.value.tree[0]?.kind).toBe("jurisdiction");
+    expect(result.value.tree[0]?.kids).toHaveLength(2);
+    expect(result.value.tree[0]?.kids?.[0]?.kind).toBe("code");
     expect(result.value.defaultRef).toEqual({ moduleId: "sf-fire", sectionId: "1" });
     // No definitions-v2.json in either module fixture → field is the
     // empty array, not undefined. Consumers can branch on length
@@ -431,7 +433,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
     const result = listCorpus();
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const codeNode = result.value.tree[0];
+    const codeNode = result.value.tree[0]?.kids?.[0];
     const chapterNode = codeNode?.kids?.[0];
     const sectionNode = chapterNode?.kids?.[0];
     expect(sectionNode?.kind).toBe("section");
@@ -469,7 +471,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
     const result = listCorpus();
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0];
+    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0]?.kids?.[0];
     expect(sectionNode?.preview).toBeTruthy();
     expect(sectionNode?.preview?.startsWith("Notwithstanding any other provision")).toBe(true);
     expect(sectionNode?.preview?.endsWith("…")).toBe(true);
@@ -505,7 +507,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
     const result = listCorpus();
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0];
+    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0]?.kids?.[0];
     expect(sectionNode?.preview).toBeUndefined();
   });
 
@@ -545,7 +547,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
     const result = listCorpus();
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0];
+    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0]?.kids?.[0];
     expect(sectionNode?.subsectionPreviews).toBeDefined();
     expect(sectionNode?.subsectionPreviews?.["(a)"]).toBe(
       "Minimum side yards shall be provided as follows:",
@@ -576,7 +578,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
     const result = listCorpus();
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0];
+    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0]?.kids?.[0];
     expect(sectionNode?.subsectionPreviews).toBeUndefined();
   });
 
@@ -607,7 +609,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
     const result = listCorpus();
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0];
+    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0]?.kids?.[0];
     expect(sectionNode?.subsectionPreviews?.["(a)"]?.endsWith("…")).toBe(true);
     expect(sectionNode?.subsectionPreviews?.["(a)"]?.length).toBeLessThanOrEqual(181);
   });
@@ -652,7 +654,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
     const result = listCorpus();
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0];
+    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0]?.kids?.[0];
     expect(sectionNode?.subsectionPreviews?.["(a)"]).toBe("Inside list");
   });
 
@@ -679,7 +681,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
     const result = listCorpus();
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0];
+    const sectionNode = result.value.tree[0]?.kids?.[0]?.kids?.[0]?.kids?.[0];
     expect(sectionNode?.preview).toBe(shortText);
   });
 

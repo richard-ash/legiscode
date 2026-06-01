@@ -30,9 +30,9 @@
 //                          console.error so dev catches drift.
 
 import { type CorpusRef, parse as parseRef } from "@/corpus/refs";
-import { getModule } from "./module-registry";
 import type { AppendixId, ModuleId } from "@/types";
 import type { Citation, StructuralLevel } from "@/types/citation";
+import { getModule } from "./module-registry";
 
 export type ResolutionResult =
   | { kind: "navigate-section"; ref: CorpusRef; subsection?: string }

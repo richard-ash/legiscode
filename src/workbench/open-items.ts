@@ -28,7 +28,8 @@ export type SettingsSection = "shortcuts";
 export type OpenItem =
   | { kind: "section"; ref: CorpusRef }
   | { kind: "chat"; chatId: string }
-  | { kind: "settings"; section: SettingsSection };
+  | { kind: "settings"; section: SettingsSection }
+  | { kind: "bill"; billId: string };
 
 /**
  * Stable identity key for an OpenItem — used by sibling state (history,
@@ -47,6 +48,8 @@ export function itemIdentity(item: OpenItem): string {
       return `chat::${item.chatId}`;
     case "settings":
       return `settings::${item.section}`;
+    case "bill":
+      return `bill::${item.billId}`;
   }
 }
 
@@ -309,7 +312,10 @@ export function findItemIndex(items: readonly OpenItem[], target: OpenItem): num
 
 // ─── Persistence interop ────────────────────────────────────────────────────
 
-export function fromPersisted(persisted: PersistedOpenItems): OpenItemsState {
+export function fromPersisted(
+  persisted: PersistedOpenItems,
+  isKnownBill: (billId: string) => boolean = () => true,
+): OpenItemsState {
   const items: OpenItem[] = [];
   const surviving: number[] = [];
   for (let i = 0; i < persisted.items.length; i++) {
@@ -325,6 +331,14 @@ export function fromPersisted(persisted: PersistedOpenItems): OpenItemsState {
     } else if (p.kind === "settings") {
       items.push({ kind: "settings", section: p.section });
       surviving.push(i);
+    } else if (p.kind === "bill") {
+      // Drop bills that no longer appear in the corpus (advanced through
+      // committee + signed → no longer pending). Tabs go away cleanly the
+      // next time the user launches the app.
+      if (isKnownBill(p.billId)) {
+        items.push({ kind: "bill", billId: p.billId });
+        surviving.push(i);
+      }
     }
     // Future kinds: chat is feat/ai-agent's problem; unknown kinds drop
     // here AND at the schema layer (item-wise tolerant parsing in storage.ts).
@@ -350,6 +364,8 @@ export function toPersisted(state: OpenItemsState): PersistedOpenItems {
       });
     } else if (it.kind === "settings") {
       items.push({ kind: "settings", section: it.section });
+    } else if (it.kind === "bill") {
+      items.push({ kind: "bill", billId: it.billId });
     } else {
       // chat persistence is feat/ai-agent's problem
       continue;
