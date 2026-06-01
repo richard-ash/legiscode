@@ -85,7 +85,7 @@ describe("parseBill round-trip against committed fixtures (real PDFs)", () => {
     expect(() => BillSchema.parse(bill)).not.toThrow();
   }, 30_000);
 
-  it("preserves the extracted PDF body in proposed_text, with page chrome stripped", async () => {
+  it("populates Bill.body with the parsed ordinance structure", async () => {
     const manifest = await loadManifest();
     const bytes = await readFile(join(BILLS_FIXTURE, "260217.pdf"));
     const meta = buildMeta({
@@ -95,10 +95,24 @@ describe("parseBill round-trip against committed fixtures (real PDFs)", () => {
     });
     const result = await parseBill(new Uint8Array(bytes), meta, manifest);
     const bill = result.bills[0];
-    expect(bill?.proposed_text.length ?? 0).toBeGreaterThan(200);
-    // Page chrome should be gone after the cleanup pass.
-    expect(bill?.proposed_text).not.toContain("BOARD OF SUPERVISORS  Page");
-    expect(bill?.proposed_text).not.toMatch(/^FILE NO\.\s+\d+\s+ORDINANCE NO/m);
-    expect(bill?.proposed_text).not.toMatch(/^\s*1\s*$/m); // PDF page line numbers
+    expect(bill?.body.preamble.length ?? 0).toBeGreaterThan(50);
+    expect(bill?.body.sections.length ?? 0).toBeGreaterThan(0);
+    // Page chrome should never reach the body — every preamble / section
+    // body / closing string is chrome-stripped + reflowed prose.
+    const stringified = JSON.stringify(bill?.body);
+    expect(stringified).not.toContain("BOARD OF SUPERVISORS  Page");
+    expect(stringified).not.toMatch(/FILE NO\.\s+\d+\s+ORDINANCE NO/);
+  }, 30_000);
+
+  it("emits body_quality_warnings as a flat array (empty for clean parses)", async () => {
+    const manifest = await loadManifest();
+    const bytes = await readFile(join(BILLS_FIXTURE, "260217.pdf"));
+    const meta = buildMeta({
+      file_no: "260217",
+      touched: ["sf-administrative"],
+      long_title: "Ordinance amending the Administrative Code.",
+    });
+    const result = await parseBill(new Uint8Array(bytes), meta, manifest);
+    expect(Array.isArray(result.body_quality_warnings)).toBe(true);
   }, 30_000);
 });

@@ -1,0 +1,36 @@
+{
+  "body": {
+    "preamble": "[Police Code - Lending Books to Individuals Under 21 Years Old]\n\nOrdinance amending the Police Code to repeal the prohibition on certain types of libraries lending or renting any book, magazine, pamphlet, or other printed matter to any person under the age of 21, unless the person has obtained a membership card with the consent of a parent or legal guardian.\n\nBe it ordained by the People of the City and County of San Francisco:",
+    "sections": [
+      {
+        "action": "Section 1. Article 8 of the Police Code is hereby amended by deleting Sections 515 and 516, to read as follows:",
+        "target": {
+          "module_id": "sf-police",
+          "raw_section_id": "515"
+        },
+        "body": [
+          {
+            "kind": "section_header",
+            "number": "515",
+            "title": "REGULATING ISSUANCE OF BOOKS TO MINORS BY CIRCULATING LIBRARIES."
+          },
+          {
+            "kind": "paragraph",
+            "text": "It shall be unlawful for any person, firm, corporation or association owning, operating or having charge of any circulating or lending library to lend or rent to any person under the age of 21 years any book, magazine, pamphlet or other printed matter, unless and until such minor shall have registered with such circulating or lending library, and shall have received therefrom a membership card; provided, however, that such membership card shall not be issued to any person under the age of 21 years without the consent of the parent or legal guardian of such minor in writing, signed by such parent or legal guardian in the presence of the Librarian in charge of such Library. In case such minor has no regularly appointed legal guardian in the City and County of San Francisco, then such written consent must in like manner be obtained from the person who has the care or custody of said minor."
+          },
+          {
+            "kind": "section_header",
+            "number": "516",
+            "title": "EXCEPTIONS."
+          },
+          {
+            "kind": "paragraph",
+            "text": "The provisions of Section 515 of this Article shall not apply to libraries maintained or operated by the United States, the State of California, the City and County of San Francisco, or any non-profit, technical and reference libraries."
+          }
+        ]
+      }
+    ],
+    "closing": "Section 2. Scope of Ordinance. In enacting this ordinance, the Board of Supervisors intends to amend only those words, phrases, paragraphs, subsections, sections, articles, numbers, punctuation marks, charts, diagrams, or any other constituent parts of the Municipal Code that are explicitly shown in this ordinance as additions, deletions, Board amendment additions, and Board amendment deletions in accordance with the “Note” that appears under the official title of the ordinance.\n\nSection 3. Effective Date. This ordinance shall become effective on the 31st day after enactment. Enactment occurs when the Mayor signs the ordinance, the Mayor returns the ordinance unsigned or does not sign the ordinance within ten days of receiving it, or the Board of Supervisors overrides the Mayor’s veto of the ordinance.\n\nAPPROVED AS TO FORM: DAVID CHIU, City Attorney By: /s/ Bradley A. Russi BRADLEY A. RUSSI Deputy City Attorney"
+  },
+  "quality_warnings": []
+}

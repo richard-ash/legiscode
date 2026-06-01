@@ -97,6 +97,100 @@ export const BillStatusSchema = z.enum(["filed", "committee", "engrossed", "floo
 
 export type BillStatus = z.infer<typeof BillStatusSchema>;
 
+// OrdinanceBlock — the discriminated union of structured content nodes
+// inside an AMEND section's body. The body parser tokenises the slice
+// between two SEC. headers into a list of these.
+//
+//   section_header — `SEC. 407. CONVEYANCE OF BREAD...` style entry that
+//                    introduces a code section. Always present for every
+//                    SEC. header the structural pass identified — the A3
+//                    parse-quality gate throws if the parser emits fewer.
+//   subsection     — paren-marker entry (`(a)`, `(b)`, `(1)`, ...). The
+//                    body is recursive so nested markers like `(a)(1)`
+//                    represent cleanly. NO lead_in field in Layer 2 —
+//                    extracting the bold-italic phrase that precedes
+//                    body prose requires Layer 3 typography info, so
+//                    the heuristic is deferred (see TODOS.md).
+//   paragraph      — every other prose paragraph inside a section. Layer
+//                    2 emits all body prose as paragraph blocks; Layer 3
+//                    typography decoration sits on top.
+//
+// Zod schemas use z.lazy() so subsection.body can recurse into the same
+// shape.
+export type OrdinanceBlock =
+  | { kind: "section_header"; number: string; title: string }
+  | { kind: "subsection"; marker: string; body: OrdinanceBlock[] }
+  | { kind: "paragraph"; text: string };
+
+export const OrdinanceBlockSchema: z.ZodType<OrdinanceBlock> = z.lazy(() =>
+  z.discriminatedUnion("kind", [
+    z
+      .object({
+        kind: z.literal("section_header"),
+        number: z.string().min(1),
+        title: z.string().min(1),
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal("subsection"),
+        marker: z.string().min(1),
+        body: z.array(OrdinanceBlockSchema),
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal("paragraph"),
+        text: z.string().min(1),
+      })
+      .strict(),
+  ]),
+);
+
+// OrdinanceBody — the document model for a single Bill, replacing the
+// flat `proposed_text` string. The body parser produces one of these
+// from the cleaned PDF text + structural-pass output.
+//
+//   preamble    — text before the first AMEND group: bracket-title,
+//                 long-title boilerplate, the "Be it ordained…"
+//                 enacting clause. Plain string in Layer 2; Layer 3
+//                 can decorate later.
+//   sections    — one entry per AMEND code-group (`Section N. <Code>
+//                 Code is hereby amended…`), in document order. Each
+//                 entry's `body` holds the structured content for that
+//                 group.
+//   closing     — text after the last AMEND group: boilerplate
+//                 (`Section N. Scope of Ordinance.`, `Section M.
+//                 Effective Date.`) + the signature block.
+//
+// Fallback shape (when the structural pass found zero groups, or the
+// PDF text-extractor returned nothing): `{ preamble: <all text>,
+// sections: [], closing: "" }`. The renderer always has something to
+// show.
+export const OrdinanceBodySchema = z
+  .object({
+    preamble: z.string(),
+    sections: z.array(
+      z
+        .object({
+          action: z.string().min(1),
+          target: z
+            .object({
+              module_id: ModuleIdSchema,
+              raw_section_id: z.string().min(1),
+            })
+            .strict()
+            .nullable(),
+          body: z.array(OrdinanceBlockSchema),
+        })
+        .strict(),
+    ),
+    closing: z.string(),
+  })
+  .strict();
+
+export type OrdinanceBody = z.infer<typeof OrdinanceBodySchema>;
+
 // Bill — one per (matter, module). A multi-code bill emits N Bills, one
 // per module it touches. text_diff[] is the inline-diff content (empty
 // in v1; the inline-diff PR — see commit-plan footnote 11 of the locked
@@ -134,12 +228,16 @@ export const BillSchema = z
     parse_status: z.enum(["ok", "manual_review", "structural_change"]),
     /** Free-text scope description; only set when parse_status === "structural_change". */
     structural_change_scope: z.string().min(1).nullable(),
-    /** Raw ordinance text extracted from the source PDF. Empty when the
-     *  PDF text-extractor returned nothing (rare; corrupt PDF, image-only
-     *  scan). Renderer surfaces this as the "Proposed text" block so
-     *  readers can see what the bill actually says without leaving the
-     *  app. Pre-typography-spike: no styling info preserved. */
-    proposed_text: z.string(),
+    /** Structured document body produced by the body parser. Replaces
+     *  the pre-Layer-2 `proposed_text` string with preamble + per-AMEND
+     *  sections + closing. Always present and always renderable — the
+     *  fallback shape `{ preamble: <all cleaned text>, sections: [],
+     *  closing: "" }` is emitted when the structural pass found no
+     *  groups (rare; non-AMEND ordinance), so the renderer never has
+     *  to branch on null. Layer 3 typography colorization will sit
+     *  on top by replacing paragraph/subsection prose with text_diff
+     *  spans. */
+    body: OrdinanceBodySchema,
   })
   .strict()
   .refine((b) => b.parse_status !== "ok" || b.text_diff.length > 0, {

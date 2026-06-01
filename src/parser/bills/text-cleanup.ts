@@ -88,7 +88,10 @@ function isReflowBreak(line: string): boolean {
 // are joined with spaces, blank lines stay as paragraph breaks. This
 // keeps the reflow logic and the marker-detection logic separated: the
 // reflow doesn't need to know which side of a marker the body sits on.
-function reflowParagraphs(text: string): string {
+//
+// Exported so the body parser can apply the same reflow rule to the
+// preamble + closing slices it carves out of the chrome-stripped text.
+export function reflowParagraphs(text: string): string {
   const rawLines = text.split("\n");
   const withBreaks: string[] = [];
   for (const line of rawLines) {
@@ -119,7 +122,18 @@ function reflowParagraphs(text: string): string {
   return paragraphs.join("\n\n");
 }
 
-export function cleanupOrdinanceText(raw: string): string {
+/**
+ * Strip known PDF chrome from the raw text — page-margin line numbers,
+ * page footers, FILE NO. headers, sponsor reprints (both standalone
+ * lines and inline-merged tails), and the typography legend block.
+ * Returns text with line breaks preserved (no paragraph reflow).
+ *
+ * Exposed separately from `cleanupOrdinanceText` so consumers that need
+ * to walk the document structurally (the structural pass + body
+ * parser) can operate on chrome-stripped lines without losing the
+ * column-wrapped line breaks that anchor regex-based section detection.
+ */
+export function stripChrome(raw: string): string {
   const stripped = raw.replace(INLINE_SPONSOR_REPRINT, "");
   const lines = stripped.split("\n");
   const kept: string[] = [];
@@ -139,8 +153,14 @@ export function cleanupOrdinanceText(raw: string): string {
     if (LEGEND_PREFIXES.some((p) => trimmed.startsWith(p))) continue;
     kept.push(line);
   }
-  // Collapse runs of 3+ blank lines so the reflow pass sees at most one
-  // blank between paragraphs.
-  const collapsed = kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-  return reflowParagraphs(collapsed);
+  // Collapse runs of 3+ blank lines so downstream consumers see at most
+  // one blank between paragraphs.
+  return kept
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+export function cleanupOrdinanceText(raw: string): string {
+  return reflowParagraphs(stripChrome(raw));
 }

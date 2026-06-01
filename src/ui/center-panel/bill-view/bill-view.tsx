@@ -1,15 +1,17 @@
 // r11 bill detail. Compose the kicker + h1 + meta header, the long_title
 // purpose block, the parse-status notice (when applicable), the Amends
-// chips (navigation to affected sections), and the raw ordinance text
-// from the source PDF.
+// chips (navigation to affected sections), and the structured ordinance
+// body parsed from the source PDF.
 //
-// Pre-typography-spike: the PDF text is rendered as a single preformatted
-// block (no insertion/deletion coloring). When the spike addendum lands,
-// `text_diff[]` will replace this block with styled per-section diffs.
+// Pre-typography-spike: each block renders without insertion/deletion
+// coloring. When the spike addendum lands, paragraph + subsection
+// content will be replaced by styled `text_diff[]` spans inside the
+// same OrdinanceBlock tree, so the renderer's block layout doesn't
+// change.
 
 import { useCallback } from "react";
 import type { CorpusRef } from "@/corpus/refs";
-import type { Bill } from "@/types";
+import type { Bill, OrdinanceBlock } from "@/types";
 import type { NavigationIntent } from "@/workbench/navigate";
 import type { OpenItem } from "@/workbench/open-items";
 import { AmendsChips } from "./amends-chips";
@@ -90,17 +92,77 @@ function noopLookup(): null {
 
 function ProposedText({ bills }: { bills: ReadonlyArray<Bill> }) {
   // The same source PDF generates every per-module Bill row for a given
-  // file_no, so `proposed_text` is identical across `bills`. Render the
-  // first non-empty one.
-  const text = bills.find((b) => b.proposed_text.length > 0)?.proposed_text;
-  if (!text) return null;
+  // file_no, so `body` is identical across `bills`. Render the first
+  // one that has any content.
+  const body = bills.find((b) => bodyHasContent(b.body))?.body;
+  if (!body) return null;
   return (
     <section className="lc-billview-proposed" aria-labelledby="lc-billview-proposed-label">
       <h2 id="lc-billview-proposed-label" className="lc-billview-proposed-label">
         Ordinance text
       </h2>
-      <pre className="lc-billview-proposed-body">{text}</pre>
+      <div className="lc-billview-proposed-body">
+        {body.preamble.length > 0 ? <ProseBlock text={body.preamble} /> : null}
+        {body.sections.map((section, sIdx) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: section order is the body parser's emit order; no stable id exists.
+          <article key={sIdx} className="lc-billview-section">
+            <p className="lc-billview-action">{section.action}</p>
+            {section.body.map((block, bIdx) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: block order is fixed by the tokenizer for a given section.
+              <OrdinanceBlockView key={bIdx} block={block} />
+            ))}
+          </article>
+        ))}
+        {body.closing.length > 0 ? <ProseBlock text={body.closing} /> : null}
+      </div>
     </section>
+  );
+}
+
+function bodyHasContent(body: Bill["body"]): boolean {
+  return body.preamble.length > 0 || body.sections.length > 0 || body.closing.length > 0;
+}
+
+// Render a paragraph-separated string (preamble / closing slices) as a
+// stack of <p> elements. `\n\n` is the body parser's paragraph
+// separator inside these slices.
+function ProseBlock({ text }: { text: string }) {
+  const paragraphs = text.split(/\n{2,}/).filter((p) => p.trim().length > 0);
+  return (
+    <>
+      {paragraphs.map((p, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: paragraph order in a fixed-content prose slice is stable.
+        <p key={i} className="lc-billview-paragraph">
+          {p}
+        </p>
+      ))}
+    </>
+  );
+}
+
+function OrdinanceBlockView({ block }: { block: OrdinanceBlock }) {
+  if (block.kind === "section_header") {
+    return (
+      <h3 className="lc-billview-section-header">
+        <span className="lc-billview-section-header-num">SEC. {block.number}.</span>{" "}
+        <span className="lc-billview-section-header-title">{block.title}</span>
+      </h3>
+    );
+  }
+  if (block.kind === "paragraph") {
+    return <p className="lc-billview-paragraph">{block.text}</p>;
+  }
+  // subsection
+  return (
+    <div className="lc-billview-subsection">
+      <span className="lc-billview-subsection-marker">{block.marker}</span>
+      <div className="lc-billview-subsection-body">
+        {block.body.map((child, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: subsection child order is fixed by the tokenizer.
+          <OrdinanceBlockView key={i} block={child} />
+        ))}
+      </div>
+    </div>
   );
 }
 
