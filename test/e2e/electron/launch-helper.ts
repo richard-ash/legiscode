@@ -3,8 +3,8 @@
 // posture test passes window.api but the smoke test fails to find the tree,
 // the divergence is in the spec, not the launch shape.
 
-import { _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
 import { resolve } from "node:path";
+import { type ElectronApplication, _electron as electron, type Page } from "@playwright/test";
 
 const projectRoot = resolve(import.meta.dirname, "..", "..", "..");
 const mainEntry = resolve(projectRoot, "out", "main", "main.js");

@@ -13,11 +13,15 @@
 // extractCitations from outside" answers are actually "you need a fatter
 // ParsedModule field."
 
+// ParsedModule and ParseWarning are contract types between parser and
+// storage; they live in @/types so both modules can depend on the contract
+// layer instead of each other. Re-exported here so consumers reaching for
+// "the parser's result type" find it via the parser barrel.
+export type { ParsedModule, ParseWarning } from "@/types";
 export { CitationPatternError } from "./citations";
 export { DefinedTermPatternError } from "./defined-terms";
 export { ParseAbortError } from "./parse-html";
 export { parseExport } from "./pipeline";
-export { validateCorpus } from "./validate-corpus";
 export type {
   CitationReport,
   CorpusValidationResult,
@@ -27,8 +31,4 @@ export type {
   TocCoverageReport,
   UnresolvedCitation,
 } from "./validate-corpus";
-// ParsedModule and ParseWarning are contract types between parser and
-// storage; they live in @/types so both modules can depend on the contract
-// layer instead of each other. Re-exported here so consumers reaching for
-// "the parser's result type" find it via the parser barrel.
-export type { ParsedModule, ParseWarning } from "@/types";
+export { validateCorpus } from "./validate-corpus";

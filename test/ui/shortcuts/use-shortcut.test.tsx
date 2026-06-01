@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent } from "@testing-library/react";
-import { renderHook } from "@testing-library/react";
+import { fireEvent, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useShortcut } from "@/ui/shortcuts/use-shortcut";
 

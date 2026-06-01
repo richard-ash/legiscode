@@ -509,3 +509,45 @@ describe("itemIdentity / findItemIndex", () => {
     expect(findItemIndex([section], section2)).toBe(-1);
   });
 });
+
+describe("bill tabs (kind: 'bill')", () => {
+  const bill: OpenItem = { kind: "bill", billId: "260217" };
+  const bill2: OpenItem = { kind: "bill", billId: "260296" };
+
+  it("dedupes by file_no — opening the same bill twice activates the existing tab", () => {
+    const s1 = openItem(emptyOpenItems(), bill);
+    const s2 = openItem(s1, { kind: "section", ref: refA });
+    const s3 = openItem(s2, bill);
+    expect(s3.items).toHaveLength(2);
+    expect(s3.activeIndex).toBe(0);
+  });
+
+  it("persists and rehydrates a bill tab alongside sections + settings", () => {
+    const items: OpenItem[] = [
+      { kind: "section", ref: refA },
+      { kind: "settings", section: "shortcuts" },
+      bill,
+    ];
+    const round = fromPersisted(toPersisted({ items, activeIndex: 2 }));
+    expect(round.items).toHaveLength(3);
+    expect(round.items[2]).toEqual(bill);
+    expect(round.activeIndex).toBe(2);
+  });
+
+  it("drops persisted bills whose file_no is no longer in the pending set", () => {
+    const items: OpenItem[] = [{ kind: "section", ref: refA }, bill, bill2];
+    const persisted = toPersisted({ items, activeIndex: 1 });
+    // Only billId 260296 is still pending.
+    const round = fromPersisted(persisted, (billId) => billId === "260296");
+    expect(round.items).toEqual([{ kind: "section", ref: refA }, bill2]);
+    // activeIndex remaps: the surviving bill was at index 2 in input, now
+    // at index 1; the original activeIndex 1 (bill 260217) dropped, so
+    // activeIndex falls back to null per the surviving-index rule.
+    expect(round.activeIndex).toBeNull();
+  });
+
+  it("returns 'bill::<file_no>' as a stable identity", () => {
+    expect(itemIdentity(bill)).toBe("bill::260217");
+    expect(itemIdentity(bill2)).toBe("bill::260296");
+  });
+});

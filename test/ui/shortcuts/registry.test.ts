@@ -9,8 +9,8 @@ import {
   matchEvent,
   matchShortcut,
   SCOPE_LABELS,
-  type ShortcutScope,
   SHORTCUTS,
+  type ShortcutScope,
 } from "@/ui/shortcuts/registry";
 
 const SCOPES: readonly ShortcutScope[] = [

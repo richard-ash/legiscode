@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  CorpusRefParseError,
   type CorpusRef,
+  CorpusRefParseError,
   corpusRefFromWire,
   corpusRefToWire,
   equals,

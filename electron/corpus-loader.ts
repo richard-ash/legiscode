@@ -604,9 +604,9 @@ function buildSummary(
   jurisdiction: string,
   jurisdictionVersion: string,
 ): CorpusModuleSummary {
-  const tree: CorpusTreeNode[] = modules.map(buildModuleTree);
   const totalSections = modules.reduce((n, m) => n + m.sections.length, 0);
   const definitions = aggregateDefinitions(modules);
+  const pendingBillCount = modules.reduce((n, m) => n + m.pendingBills.length, 0);
   const firstModule = modules[0];
   const firstSection = firstModule?.sections[0];
   if (!firstModule || !firstSection) {
@@ -621,8 +621,18 @@ function buildSummary(
       defaultRef: { moduleId: "", sectionId: "" },
       tree: [],
       definitions: [],
+      pendingBills: { count: 0, bills: [] },
     };
   }
+  const allBills: Bill[] = [];
+  for (const m of modules) {
+    for (const bill of m.pendingBills) allBills.push(bill);
+  }
+  allBills.sort((a, b) => {
+    if (a.file_no !== b.file_no) return a.file_no.localeCompare(b.file_no);
+    return a.module_id.localeCompare(b.module_id);
+  });
+  const uniqueFileNoCount = new Set(allBills.map((b) => b.file_no)).size;
   return {
     jurisdiction,
     rootLabel: rootLabelFromJurisdiction(jurisdiction),
@@ -630,8 +640,9 @@ function buildSummary(
     codeCount: modules.length,
     sectionCount: totalSections,
     defaultRef: { moduleId: firstModule.id, sectionId: firstSection.section.id },
-    tree,
+    tree: buildJurisdictionTree(modules, jurisdiction),
     definitions,
+    pendingBills: { count: uniqueFileNoCount, bills: allBills },
   };
 }
 
@@ -674,6 +685,34 @@ function aggregateDefinitions(
 function rootLabelFromJurisdiction(jurisdiction: string): string {
   // Heuristic: strip "City and County of " prefix to fit the chrome chip.
   return jurisdiction.replace(/^City and County of\s+/i, "").concat(" Municipal Code");
+}
+
+function jurisdictionDisplayName(jurisdiction: string): string {
+  return jurisdiction.replace(/^City and County of\s+/i, "");
+}
+
+/**
+ * Assemble the single jurisdiction-rooted tree. Modules become children
+ * of the jurisdiction node. Pending bills live OUTSIDE the tree (in the
+ * left-panel activity panel, sourced from `CorpusModuleSummary.pendingBills`)
+ * per the r11 design — bills aren't sections, so collapsing them into
+ * the section-tree shape was a category error.
+ */
+function buildJurisdictionTree(
+  modules: readonly LoadedModule[],
+  jurisdiction: string,
+): CorpusTreeNode[] {
+  const kids: CorpusTreeNode[] = modules.map(buildModuleTree);
+  const displayName = jurisdictionDisplayName(jurisdiction);
+  return [
+    {
+      id: `jurisdiction::${displayName}`,
+      code: "",
+      name: displayName,
+      kind: "jurisdiction",
+      kids,
+    },
+  ];
 }
 
 function buildModuleTree(m: LoadedModule): CorpusTreeNode {

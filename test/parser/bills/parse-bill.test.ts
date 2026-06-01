@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseBill } from "@/parser/bills";
-import { BillSchema, type BillMeta, type JurisdictionManifest } from "@/types";
+import { type BillMeta, BillSchema, type JurisdictionManifest } from "@/types";
 import { readJurisdictionManifest } from "@/types/validate";
 
 const REPO_ROOT = join(import.meta.dirname, "..", "..", "..");
@@ -91,8 +91,7 @@ describe("parseBill round-trip against committed fixtures (real PDFs)", () => {
     const meta = buildMeta({
       file_no: "260217",
       touched: ["sf-administrative"],
-      long_title:
-        "Ordinance amending the Administrative Code, Health Code, and Planning Code.",
+      long_title: "Ordinance amending the Administrative Code, Health Code, and Planning Code.",
     });
     const result = await parseBill(new Uint8Array(bytes), meta, manifest);
     const bill = result.bills[0];

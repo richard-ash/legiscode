@@ -114,10 +114,11 @@ export function FileTree({ tree, openItems, navigate }: FileTreeProps) {
       const row = idx === undefined ? undefined : rowsRef.current[idx];
       if (!row) return;
       const openMod = e.metaKey || e.ctrlKey;
+      const intent = openMod ? "background" : "primary";
       if (row.hasKids) {
         setExpansion((prev) => toggle(prev, row.id));
       } else if (row.ref !== null) {
-        navigate({ kind: "section", ref: row.ref }, openMod ? "background" : "primary");
+        navigate({ kind: "section", ref: row.ref }, intent);
       }
       setFocusedRowId(row.id);
       resetTypeahead();
@@ -202,11 +203,14 @@ export function FileTree({ tree, openItems, navigate }: FileTreeProps) {
   // rather than per-row inside the map below.
   const { activeRef, openSectionIds } = useMemo(() => {
     const active = activeSectionRef(openItems);
-    const openIds = new Set<string>();
+    const openSec = new Set<string>();
     for (const item of openItems.items) {
-      if (item.kind === "section") openIds.add(refHash(item.ref));
+      if (item.kind === "section") openSec.add(refHash(item.ref));
     }
-    return { activeRef: active, openSectionIds: openIds };
+    return {
+      activeRef: active,
+      openSectionIds: openSec,
+    };
   }, [openItems]);
 
   // Tree-follows-active-tab: when the active tab changes (citation click,

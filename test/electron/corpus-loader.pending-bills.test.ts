@@ -2,8 +2,13 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { __resetCorpusForTests, listPendingBills, loadCorpus } from "../../electron/corpus-loader";
 import { type Bill, BillSchema } from "@/types";
+import {
+  __resetCorpusForTests,
+  listCorpus,
+  listPendingBills,
+  loadCorpus,
+} from "../../electron/corpus-loader";
 
 // Minimal corpus skeleton — just enough for loadCorpus to succeed so we
 // can exercise the pending-bills scan. Each module gets one section so
@@ -156,5 +161,89 @@ describe("corpus-loader: pending-bills/ scan", () => {
     const bills = listPendingBills();
     expect(bills).toHaveLength(2);
     expect(new Set(bills.map((b) => b.module_id))).toEqual(new Set(["sf-admin", "sf-health"]));
+  });
+});
+
+describe("corpus-loader: jurisdiction-rooted tree", () => {
+  let root: string;
+  beforeEach(async () => {
+    __resetCorpusForTests();
+    root = await mkdtemp(join(tmpdir(), "legiscode-loader-jurisdiction-"));
+  });
+  afterEach(async () => {
+    __resetCorpusForTests();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("wraps every module under a single jurisdiction root", async () => {
+    await buildFixtureModule(root, { id: "sf-admin" });
+    await buildFixtureModule(root, { id: "sf-health" });
+    const result = await loadCorpus(root);
+    expect(result.kind).toBe("ok");
+    const summary = listCorpus();
+    expect(summary.ok).toBe(true);
+    if (!summary.ok) return;
+    expect(summary.value.tree).toHaveLength(1);
+    const root0 = summary.value.tree[0];
+    expect(root0?.kind).toBe("jurisdiction");
+    expect(root0?.name).toBe("Test City");
+    expect(root0?.kids).toHaveLength(2);
+    expect(root0?.kids?.map((k) => k.kind)).toEqual(["code", "code"]);
+  });
+
+  it("reports zero pending bills when no module has pending-bills entries", async () => {
+    // r11: pending bills live on `summary.pendingBills`, not as tree nodes.
+    await buildFixtureModule(root, { id: "sf-admin" });
+    const summary = (await loadCorpus(root), listCorpus());
+    if (!summary.ok) throw new Error("unreachable");
+    const root0 = summary.value.tree[0];
+    // Tree kids are only `code` modules — no bill branch ever appears.
+    expect(root0?.kids?.map((k) => k.kind)).toEqual(["code"]);
+    expect(summary.value.pendingBills.count).toBe(0);
+    expect(summary.value.pendingBills.bills).toEqual([]);
+  });
+
+  it("exposes pending bills via `pendingBills`, not as tree nodes", async () => {
+    await buildFixtureModule(root, {
+      id: "sf-admin",
+      pendingBills: [
+        makeBill({ file_no: "260217", module_id: "sf-admin", short_title: "Speed Reduction" }),
+      ],
+    });
+    await buildFixtureModule(root, {
+      id: "sf-health",
+      pendingBills: [
+        makeBill({ file_no: "260218", module_id: "sf-health", short_title: "School Buffer" }),
+      ],
+    });
+    const summary = (await loadCorpus(root), listCorpus());
+    if (!summary.ok) throw new Error("unreachable");
+    const root0 = summary.value.tree[0];
+    // Tree only carries `code` modules — bills are not tree nodes.
+    expect(root0?.kids?.map((k) => k.kind)).toEqual(["code", "code"]);
+    expect(summary.value.pendingBills.count).toBe(2);
+    expect(summary.value.pendingBills.bills.map((b) => b.file_no).sort()).toEqual([
+      "260217",
+      "260218",
+    ]);
+  });
+
+  it("counts multi-code bills once by file_no", async () => {
+    // Same file_no in two modules — the bill touches sf-admin AND sf-health.
+    await buildFixtureModule(root, {
+      id: "sf-admin",
+      pendingBills: [makeBill({ file_no: "260300", module_id: "sf-admin" })],
+    });
+    await buildFixtureModule(root, {
+      id: "sf-health",
+      pendingBills: [makeBill({ file_no: "260300", module_id: "sf-health" })],
+    });
+    const summary = (await loadCorpus(root), listCorpus());
+    if (!summary.ok) throw new Error("unreachable");
+    // pendingBills.count is the unique file_no count, not the row count.
+    expect(summary.value.pendingBills.count).toBe(1);
+    // bills carries every per-(module, file_no) row so the BillView can
+    // aggregate across modules.
+    expect(summary.value.pendingBills.bills).toHaveLength(2);
   });
 });

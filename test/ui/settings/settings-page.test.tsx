@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { SHORTCUTS } from "@/ui/shortcuts/registry";
 import { SettingsPage } from "@/ui/settings/settings-page";
+import { SHORTCUTS } from "@/ui/shortcuts/registry";
 
 describe("SettingsPage — keyboard shortcuts", () => {
   it("renders the Commands and In-view navigation groups", () => {

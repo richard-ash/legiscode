@@ -1,8 +1,9 @@
 // ─── Canonical Definition[] extraction (L2a) ───────────────────────────────
 
 import type { Definition, ModuleConfig, ModuleId, SectionFile, SectionId } from "@/types";
-import { buildDefinitionId, canonicalizeTerm } from "./definition-id";
 import type { DefinedTermMatch } from "./defined-terms";
+import { buildDefinitionId, canonicalizeTerm } from "./definition-id";
+
 //
 // Per the definitions-foundation plan §4 build-time pipeline:
 //   PARSE        → DefinedTermMatch[] per section (defined-terms.ts)

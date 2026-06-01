@@ -69,5 +69,8 @@ export function cleanupOrdinanceText(raw: string): string {
     kept.push(line);
   }
   // Collapse runs of 3+ blank lines into a paragraph break.
-  return kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return kept
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }

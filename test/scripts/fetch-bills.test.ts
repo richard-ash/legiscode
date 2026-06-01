@@ -1,17 +1,17 @@
-import { readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtempSync } from "node:fs";
+import { readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { readJurisdictionManifest } from "@/types/validate";
 import {
-  type HttpClient,
   buildPdfCachePath,
   fetchPendingBills,
+  type HttpClient,
   makeHttpClient,
   parseArgs,
   sha256Hex,
 } from "../../scripts/fetch-bills";
-import { readJurisdictionManifest } from "@/types/validate";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 
 const FIXTURE_HTML = join(import.meta.dirname, "..", "fixtures", "sf", "legistar-html");
 

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFINITION_ID_RE,
+  type Definition,
   DefinitionIdSchema,
   DefinitionSchema,
-  ModuleDefinitionsSchema,
   formatDefinitionId,
-  type Definition,
+  ModuleDefinitionsSchema,
 } from "@/types";
 
 const validDefinition: Definition = {

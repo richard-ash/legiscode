@@ -28,6 +28,7 @@ function buildApi(overrides: Partial<Api["corpus"]> = {}): Api {
           defaultRef: { moduleId: "m", sectionId: "1" },
           tree: [],
           definitions: [],
+          pendingBills: { count: 0, bills: [] },
         },
       }),
       read: vi.fn().mockResolvedValue({
@@ -131,6 +132,7 @@ const populatedCorpus: CorpusModuleSummary = {
   sectionCount: 2,
   defaultRef: { moduleId: "sf-port", sectionId: "1.1" },
   definitions: [],
+  pendingBills: { count: 0, bills: [] },
   tree: [
     {
       id: "sf-port",

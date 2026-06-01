@@ -21,6 +21,7 @@
 //   legiscode.openItems            — workbench OpenItems[] + activeIndex
 //   legiscode.activeSection        — legacy single-ref (read-once + delete on migrate)
 //   legiscode.section.lineHeightMult — section body line-height multiplier ("1" | "1.7")
+//   legiscode.activityPane            — activity-pane splitter state ({height, collapsed})
 
 import { z } from "zod";
 
@@ -29,6 +30,7 @@ const KEY_THEME = `${NAMESPACE}.theme`;
 const KEY_OPEN_ITEMS = `${NAMESPACE}.openItems`;
 const KEY_LEGACY_ACTIVE_SECTION = `${NAMESPACE}.activeSection`;
 const KEY_LINE_HEIGHT_MULT = `${NAMESPACE}.section.lineHeightMult`;
+const KEY_ACTIVITY_PANE = `${NAMESPACE}.activityPane`;
 
 // ─── Schemas ────────────────────────────────────────────────────────────────
 
@@ -50,14 +52,21 @@ const PersistedSettingsItemSchema = z.object({
   section: z.literal("shortcuts"),
 });
 
+const PersistedBillItemSchema = z.object({
+  kind: z.literal("bill"),
+  billId: z.string().min(1),
+});
+
 // The `kind` discriminator lets future tab kinds (chat) plug in
 // additively, and lets legacy stored payloads carrying a removed kind
 // drop cleanly on read. Settings tabs persist so a reopened app keeps
 // the surface open (App applies a cold-start guard so it never restores
-// as the active tab).
+// as the active tab). Bill tabs persist by file_no; bills that aged out
+// of the pending set drop at hydrate-time via `fromPersisted(_, isKnownBill)`.
 const PersistedOpenItemSchema = z.discriminatedUnion("kind", [
   PersistedSectionItemSchema,
   PersistedSettingsItemSchema,
+  PersistedBillItemSchema,
 ]);
 
 // Strict per-item items array — the post-drop, post-remap shape that
@@ -177,6 +186,53 @@ export function writeLineHeightMult(value: LineHeightMult): void {
   if (!backend) return;
   try {
     backend.setItem(KEY_LINE_HEIGHT_MULT, value);
+  } catch {
+    // Quota / private-mode failure: stays in-memory for this session.
+  }
+}
+
+// ─── Activity-pane splitter state ───────────────────────────────────────────
+//
+// The left panel splits between the corpus file tree (top) and the
+// pending-bills activity panel (bottom). `height` is the activity pane's
+// share of the left panel as a fraction in [0.2, 0.8] — clamped so neither
+// pane can fully starve the other while still leaving room for the future
+// collapse affordance. `collapsed` snaps the activity pane to its 34px
+// header; expand returns to the last persisted `height`.
+
+export const ActivityPaneStateSchema = z.object({
+  height: z.number().min(0.2).max(0.8),
+  collapsed: z.boolean(),
+});
+export type ActivityPaneState = z.infer<typeof ActivityPaneStateSchema>;
+
+export function readActivityPaneState(): ActivityPaneState | null {
+  const backend = getStorageBackend();
+  if (!backend) return null;
+  const raw = safeGetItem(backend, KEY_ACTIVITY_PANE);
+  if (raw === null) return null;
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    console.warn("[persistence] discarding corrupt activityPane JSON");
+    return null;
+  }
+  const parsed = ActivityPaneStateSchema.safeParse(json);
+  if (!parsed.success) {
+    console.warn(
+      `[persistence] discarding unrecognized activityPane value: ${JSON.stringify(json)}`,
+    );
+    return null;
+  }
+  return parsed.data;
+}
+
+export function writeActivityPaneState(value: ActivityPaneState): void {
+  const backend = getStorageBackend();
+  if (!backend) return;
+  try {
+    backend.setItem(KEY_ACTIVITY_PANE, JSON.stringify(value));
   } catch {
     // Quota / private-mode failure: stays in-memory for this session.
   }

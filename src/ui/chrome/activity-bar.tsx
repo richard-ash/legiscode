@@ -16,14 +16,14 @@
 // count once real state has been published.
 
 import {
+  type ComponentType,
   type KeyboardEvent,
   useCallback,
   useEffect,
   useRef,
   useState,
-  type ComponentType,
 } from "react";
-import { Icons, type IconProps } from "@/ui/icons";
+import { type IconProps, Icons } from "@/ui/icons";
 
 export type ActivityMode = "structure";
 

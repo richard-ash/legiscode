@@ -29,6 +29,7 @@ export function rowPaddingLeft(row: Row): number {
 
 export function TreeRowContent({ row, isActive }: TreeRowContentProps) {
   const node = row.node;
+  const leafIcon = <Icons.Section size={13} color={isActive ? "var(--blue)" : "var(--overlay0)"} />;
   return (
     <>
       <span
@@ -45,11 +46,11 @@ export function TreeRowContent({ row, isActive }: TreeRowContentProps) {
             <Icons.Folder size={14} color="var(--overlay1)" />
           )
         ) : (
-          <Icons.Section size={13} color={isActive ? "var(--blue)" : "var(--overlay0)"} />
+          leafIcon
         )}
       </span>
       <span className="lc-tree-label">
-        <code>{node.code}</code>
+        {node.code ? <code>{node.code}</code> : null}
         {node.name}
       </span>
     </>

@@ -23,23 +23,27 @@ import type {
   CorpusTreeNode,
 } from "@/corpus/wire";
 import { readOpenItems, writeOpenItems } from "@/persistence";
+import type { Bill } from "@/types";
 import { type ModuleId, ModuleIdSchema } from "@/types";
 import type { Citation } from "@/types/citation";
 import { ActivityBar } from "@/ui/chrome/activity-bar";
 import { BootOverlay } from "@/ui/chrome/boot-overlay";
 import { Breadcrumb } from "@/ui/chrome/breadcrumb";
-import { CommandPalette } from "@/ui/command-palette/command-palette";
-import { useCommandPalette } from "@/ui/command-palette/use-command-palette";
-import { getKeySpec, matchEvent } from "@/ui/shortcuts/registry";
-import { useShortcut } from "@/ui/shortcuts/use-shortcut";
 import { StatusBar } from "@/ui/chrome/status-bar";
 import { TitleBar } from "@/ui/chrome/title-bar";
+import { usePendingBillsStatus } from "@/ui/chrome/use-pending-bills-status";
+import { CommandPalette } from "@/ui/command-palette/command-palette";
+import { useCommandPalette } from "@/ui/command-palette/use-command-palette";
 import { ThreePanel } from "@/ui/layout/three-panel";
+import { usePendingBills } from "@/ui/left-panel/activity/use-pending-bills";
 import { FileTree } from "@/ui/left-panel/file-tree/file-tree";
+import { LeftPanel } from "@/ui/left-panel/left-panel";
+import { getKeySpec, matchEvent } from "@/ui/shortcuts/registry";
+import { useShortcut } from "@/ui/shortcuts/use-shortcut";
 import { TabEmptyState } from "@/ui/tabs/empty-state";
 import { useTabKeyboardShortcuts } from "@/ui/tabs/keyboard-shortcuts";
 import { TabContent } from "@/ui/tabs/tab-content";
-import { buildTitleMap, TabStrip } from "@/ui/tabs/tab-strip";
+import { buildPendingBillsById, buildTitleMap, TabStrip } from "@/ui/tabs/tab-strip";
 import { useTabs } from "@/ui/tabs/use-tabs";
 import { useNavigation } from "@/ui/use-navigation";
 import {
@@ -66,6 +70,7 @@ export function App() {
   const [sectionError, setSectionError] = useState<CorpusError | null>(null);
   const [crashed, setCrashed] = useState(false);
   const palette = useCommandPalette(corpus);
+  usePendingBillsStatus(corpus);
 
   // Detect renderer recovery — main.ts appends ?recovered=1 after crash.
   useEffect(() => {
@@ -98,7 +103,10 @@ export function App() {
         setCorpus(r.value);
 
         const persisted = readOpenItems();
-        let state = persisted ? fromPersisted(persisted) : emptyOpenItems();
+        const knownBills = new Set(r.value.pendingBills.bills.map((b) => b.file_no));
+        let state = persisted
+          ? fromPersisted(persisted, (billId) => knownBills.has(billId))
+          : emptyOpenItems();
         state = validateAgainstCorpus(state, (ref) => hasRefInTree(r.value.tree, ref));
         // Boot into law: ensure the active tab is a section. One condition
         // covers every cold-start path where it isn't —
@@ -204,6 +212,56 @@ export function App() {
   // O(1) per-tab title lookup (P1).
   const titleMap = useMemo(() => buildTitleMap(corpus?.tree ?? []), [corpus]);
 
+  // O(1) bill-title lookup for tab labels, mirroring titleMap. Bills are
+  // not tree nodes (r11) so the tab strip needs a separate index.
+  const pendingBillsById = useMemo(
+    () => buildPendingBillsById(corpus?.pendingBills.bills ?? []),
+    [corpus],
+  );
+
+  // Display-name lookup for a module id — feeds the bill kicker
+  // ("Police Code · 1st Reading"). Walks the top-level tree once and
+  // memoizes; module rows live at depth 1 in the jurisdiction-rooted
+  // tree (r11 removed the bill-branch sibling).
+  const codeLabelByModuleId = useMemo(() => {
+    const out = new Map<string, string>();
+    const stack = [...(corpus?.tree ?? [])];
+    while (stack.length > 0) {
+      const node = stack.pop();
+      if (!node) continue;
+      if (node.kind === "code") out.set(node.id, node.code || node.name || node.id);
+      if (node.kids) for (const k of node.kids) stack.push(k);
+    }
+    return out;
+  }, [corpus]);
+
+  const lookupCodeLabel = useCallback(
+    (moduleId: string): string | null => codeLabelByModuleId.get(moduleId) ?? null,
+    [codeLabelByModuleId],
+  );
+
+  const lookupSectionTitle = useCallback(
+    (ref: CorpusRef): string | null => {
+      const node = titleMap.get(refHash(ref));
+      return node?.name ?? null;
+    },
+    [titleMap],
+  );
+
+  const onOpenLegistar = useCallback((url: string) => {
+    // Fire-and-forget. The main-side handler validates http(s) before
+    // dispatching to shell.openExternal; renderer failure logging is
+    // intentionally minimal (the user will notice the browser didn't
+    // open faster than any toast we could surface).
+    void api()
+      .shell.openExternal({ url })
+      .catch((err) => {
+        console.warn("[bill] shell.openExternal failed", err);
+      });
+  }, []);
+
+  const pendingBillsView = usePendingBills(corpus);
+
   // CQ4-adjacent: use the title map as the corpus-validity predicate for
   // recentlyClosed re-validation. Cheap, no second tree walk.
   const isRefInCorpus = useCallback((ref: CorpusRef) => titleMap.has(refHash(ref)), [titleMap]);
@@ -230,6 +288,13 @@ export function App() {
     openItems,
     setOpenItems,
   });
+
+  const onOpenBill = useCallback(
+    (fileNo: string, mode: "primary" | "background") => {
+      navigate({ kind: "bill", billId: fileNo }, mode === "background" ? "background" : "primary");
+    },
+    [navigate],
+  );
 
   // ⌘, opens (or focuses, via the settings::shortcuts identity) the
   // Settings tab. Routed through the catalog hook so it shares the
@@ -488,6 +553,7 @@ export function App() {
             openItems={openItems}
             setOpenItems={setOpenItems}
             titleMap={titleMap}
+            pendingBillsById={pendingBillsById}
             closeAt={closeTabAt}
             closeOthers={closeOthersAt}
             closeToRight={closeToRightAt}
@@ -513,6 +579,12 @@ export function App() {
               getCitationPreview={getCitationPreview}
               scrollContainerRef={setScrollEl}
               onScrollY={onScrollY}
+              pendingBills={corpus?.pendingBills.bills}
+              lookupCodeLabel={lookupCodeLabel}
+              lookupSectionTitle={lookupSectionTitle}
+              onOpenLegistar={onOpenLegistar}
+              pendingRailBills={pendingRailBillsForSection(pendingBillsView, section)}
+              onOpenBill={onOpenBill}
             />
           ) : null}
         </>
@@ -537,21 +609,31 @@ export function App() {
         <div className="lc-body">
           <ThreePanel
             left={
-              <div className="lc-leftpanel">
-                <div className="lc-leftpanel-title">
-                  <span>Structure</span>
-                  <span className="lc-leftpanel-title-count">{corpus?.codeCount ?? 0} codes</span>
-                </div>
-                <FileTree
-                  // Remount once the corpus arrives so `useCorpusTree`'s
-                  // useState initializer computes default expansion against
-                  // the populated tree, not the boot-time empty placeholder.
-                  key={corpus?.jurisdictionVersion ?? "boot"}
-                  tree={corpus?.tree ?? []}
-                  openItems={openItems}
-                  navigate={navigate}
-                />
-              </div>
+              <LeftPanel
+                corpus={corpus}
+                activeBillId={active?.kind === "bill" ? active.billId : null}
+                onOpenBill={onOpenBill}
+                lookupCodeLabel={lookupCodeLabel}
+                codesPane={
+                  <>
+                    <div className="lc-leftpanel-title">
+                      <span>Structure</span>
+                      <span className="lc-leftpanel-title-count">
+                        {corpus?.codeCount ?? 0} codes
+                      </span>
+                    </div>
+                    <FileTree
+                      // Remount once the corpus arrives so `useCorpusTree`'s
+                      // useState initializer computes default expansion against
+                      // the populated tree, not the boot-time empty placeholder.
+                      key={corpus?.jurisdictionVersion ?? "boot"}
+                      tree={corpus?.tree ?? []}
+                      openItems={openItems}
+                      navigate={navigate}
+                    />
+                  </>
+                }
+              />
             }
             center={center}
             right={<div className="lc-rightpanel" />}
@@ -629,7 +711,7 @@ export function findStructuralRef(
   level: "article" | "chapter" | "division" | "title",
   number: string,
 ): CorpusRef | null {
-  const moduleRoot = tree.find((n) => n.kind === "code" && n.id === module);
+  const moduleRoot = findModuleRoot(tree, module);
   if (!moduleRoot?.kids) return null;
   const labelUpper = level.toUpperCase();
   const candidates = new Set<string>([number]);
@@ -681,4 +763,40 @@ export function findStructuralRef(
     if (node.kids) for (const k of node.kids) stack.push(k);
   }
   return null;
+}
+
+/**
+ * Locate a module's root tree node, walking through any jurisdiction
+ * wrapper. Returns null when the module isn't loaded.
+ */
+function findModuleRoot(
+  tree: readonly CorpusTreeNode[],
+  moduleId: ModuleId,
+): CorpusTreeNode | null {
+  const stack: CorpusTreeNode[] = [...tree];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) continue;
+    if (node.kind === "code" && node.id === moduleId) return node;
+    if (node.kids) for (const k of node.kids) stack.push(k);
+  }
+  return null;
+}
+
+/**
+ * Filter `bySection` (sectionId → bill rows across modules) down to
+ * only those rows whose `module_id` matches the active section's
+ * module. Without this, a bill affecting "1.0" in sf-admin would
+ * surface on a section "1.0" in sf-police — wrong, because those are
+ * different legal targets.
+ */
+function pendingRailBillsForSection(
+  view: ReturnType<typeof usePendingBills>,
+  section: CorpusSectionView | null,
+): ReadonlyArray<Bill> | undefined {
+  if (!section) return undefined;
+  const rows = view.bySection.get(section.section.id);
+  if (!rows || rows.length === 0) return undefined;
+  const filtered = rows.filter((b) => b.module_id === section.moduleId);
+  return filtered.length > 0 ? filtered : undefined;
 }

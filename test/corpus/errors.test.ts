@@ -4,7 +4,7 @@
 // test is the runtime confirmation of the table.
 
 import { describe, expect, it } from "vitest";
-import { type BuildError, errorsToExitCode, ExitCodes } from "@/corpus";
+import { type BuildError, ExitCodes, errorsToExitCode } from "@/corpus";
 
 const cases: ReadonlyArray<{ name: string; error: BuildError; expected: number }> = [
   {

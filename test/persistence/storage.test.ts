@@ -5,12 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getStorageBackend,
   listOwnedKeys,
+  type PersistedOpenItems,
+  readActivityPaneState,
   readOpenItems,
   readTheme,
   removeOpenItems,
+  writeActivityPaneState,
   writeOpenItems,
   writeTheme,
-  type PersistedOpenItems,
 } from "@/persistence";
 
 beforeEach(() => {
@@ -260,5 +262,35 @@ describe("persistence/storage — listOwnedKeys", () => {
   it("returns an empty array when no legiscode keys are present", () => {
     localStorage.setItem("unrelated.key", "value");
     expect(listOwnedKeys()).toEqual([]);
+  });
+});
+
+describe("persistence/storage — activityPane", () => {
+  it("returns null when nothing is stored", () => {
+    expect(readActivityPaneState()).toBeNull();
+  });
+
+  it("round-trips height + collapsed", () => {
+    writeActivityPaneState({ height: 0.45, collapsed: false });
+    expect(readActivityPaneState()).toEqual({ height: 0.45, collapsed: false });
+    writeActivityPaneState({ height: 0.6, collapsed: true });
+    expect(readActivityPaneState()).toEqual({ height: 0.6, collapsed: true });
+  });
+
+  it("rejects out-of-range height + warns", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    localStorage.setItem(
+      "legiscode.activityPane",
+      JSON.stringify({ height: 0.05, collapsed: false }),
+    );
+    expect(readActivityPaneState()).toBeNull();
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it("rejects corrupt JSON + warns", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    localStorage.setItem("legiscode.activityPane", "{not json");
+    expect(readActivityPaneState()).toBeNull();
+    expect(warn).toHaveBeenCalled();
   });
 });

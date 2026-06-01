@@ -1,0 +1,245 @@
+/* Pending-bills activity panel — left-panel sibling of the corpus
+ * tree. Three states: empty, populated, collapsed-to-header.
+ * Tokens come from src/styles/tokens.css + globals.css. */
+
+.lc-activity-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-mantle);
+  border-top: 1px solid var(--border);
+}
+.lc-activity-pane.is-collapsed {
+  flex: 0 0 34px;
+}
+.lc-activity-pane.is-collapsed .lc-activity-list,
+.lc-activity-pane.is-collapsed .lc-activity-retry {
+  display: none;
+}
+
+/* ── Header (collapsible) ───────────────────────────────────────────── */
+
+.lc-activity-header {
+  flex: 0 0 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  background: transparent;
+  border: none;
+  width: 100%;
+  cursor: pointer;
+  color: var(--subtext0);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+.lc-activity-header:hover {
+  background: var(--bg-surface0);
+  color: var(--text);
+}
+.lc-activity-header:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.lc-activity-header-label {
+  color: var(--subtext1);
+}
+.lc-activity-header-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  color: var(--peach);
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--peach) 12%, transparent);
+}
+.lc-activity-header-grow {
+  flex: 1;
+}
+.lc-activity-header-chev {
+  color: var(--overlay1);
+  transition: transform 120ms ease;
+}
+.lc-activity-header-chev.is-collapsed {
+  transform: rotate(-90deg);
+}
+
+/* ── Retry hairline (fetch-failure state) ───────────────────────────── */
+
+.lc-activity-retry {
+  flex: 0 0 22px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: color-mix(in oklab, var(--yellow) 7%, transparent);
+  color: var(--subtext0);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  border-top: 1px solid color-mix(in oklab, var(--yellow) 18%, transparent);
+}
+.lc-activity-retry-link {
+  margin-left: 4px;
+  background: transparent;
+  border: none;
+  color: var(--blue);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
+}
+.lc-activity-retry-link:hover,
+.lc-activity-retry-link:focus {
+  color: var(--accent);
+  outline: none;
+}
+
+/* ── List + scroll ──────────────────────────────────────────────────── */
+
+.lc-activity-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0 8px;
+}
+
+/* ── Empty state ────────────────────────────────────────────────────── */
+
+.lc-activity-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 16px;
+  color: var(--overlay1);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  gap: 8px;
+}
+
+/* ── Bill row ───────────────────────────────────────────────────────── */
+
+.lc-bill-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-sans);
+  color: var(--subtext1);
+  gap: 4px;
+}
+.lc-bill-row:hover {
+  background: var(--bg-surface0);
+  color: var(--text);
+}
+.lc-bill-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.lc-bill-row.is-active {
+  background: color-mix(in oklab, var(--peach) 10%, var(--bg-mantle));
+  color: var(--text);
+}
+.lc-bill-row.is-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--peach);
+}
+.lc-bill-row-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lc-bill-row-fileno {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--peach);
+}
+.lc-bill-row-title {
+  font-size: 12.5px;
+  color: var(--text);
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lc-bill-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--overlay1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lc-bill-row-meta-sep {
+  color: var(--overlay0);
+}
+
+/* ── Touches strip ──────────────────────────────────────────────────── */
+
+.lc-bill-row-touches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+.lc-bill-row-touch {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--overlay1);
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--peach) 8%, transparent);
+}
+
+/* ── Status pill (shared across activity rows + section pending-rail) ── */
+
+.lc-status-pill {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+.lc-status-pill[data-s="sky"] {
+  color: var(--sky);
+  background: color-mix(in oklab, var(--sky) 14%, transparent);
+}
+.lc-status-pill[data-s="yellow"] {
+  color: var(--yellow);
+  background: color-mix(in oklab, var(--yellow) 14%, transparent);
+}
+.lc-status-pill[data-s="mauve"] {
+  color: var(--mauve);
+  background: color-mix(in oklab, var(--mauve) 14%, transparent);
+}
+.lc-status-pill[data-s="peach"] {
+  color: var(--peach);
+  background: color-mix(in oklab, var(--peach) 14%, transparent);
+}
+.lc-status-pill[data-s="green"] {
+  color: var(--green);
+  background: color-mix(in oklab, var(--green) 14%, transparent);
+}

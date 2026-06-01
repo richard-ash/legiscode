@@ -1,11 +1,11 @@
 import { mkdtempSync } from "node:fs";
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { syncBills } from "../../scripts/sync-bills";
-import { readJurisdictionManifest } from "@/types/validate";
 import { BILLS_INDEX_SCHEMA_VERSION, BillSchema, type BillsIndex } from "@/types";
+import { readJurisdictionManifest } from "@/types/validate";
+import { syncBills } from "../../scripts/sync-bills";
 
 const REPO_ROOT = join(import.meta.dirname, "..", "..");
 const MANIFEST_PATH = join(REPO_ROOT, "manifests", "sf", "jurisdiction.json");

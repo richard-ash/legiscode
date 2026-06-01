@@ -11,7 +11,9 @@ import type { ReactNode } from "react";
 import type { ResolutionResult } from "@/citations/resolver";
 import type { CorpusRef } from "@/corpus/refs";
 import type { CorpusError, CorpusSectionView } from "@/corpus/wire";
+import type { Bill } from "@/types";
 import type { Citation } from "@/types/citation";
+import { BillView } from "@/ui/center-panel/bill-view/bill-view";
 import { SectionView } from "@/ui/center-panel/section-view/section-view";
 import { SettingsPage } from "@/ui/settings/settings-page";
 import type { NavigationIntent } from "@/workbench/navigate";
@@ -38,6 +40,23 @@ export interface TabContentProps {
   scrollContainerRef?: (el: HTMLElement | null) => void;
   /** Called on every scroll event for the active section. */
   onScrollY?: (y: number) => void;
+  /** Every pending Bill row in the loaded corpus, sorted by
+   *  (file_no, module_id). Used to render bill tabs by filtering to the
+   *  active item's billId. Empty array when no module has pending bills. */
+  pendingBills?: ReadonlyArray<Bill>;
+  /** Resolves a module_id to its display name (e.g. "Police Code") for
+   *  the bill kicker. Falls back to the module_id when unresolved. */
+  lookupCodeLabel?: (moduleId: string) => string | null;
+  /** Resolves a section ref to its display title for the AmendsChips
+   *  surface in BillView. Returns null when the ref isn't loaded. */
+  lookupSectionTitle?: (ref: CorpusRef) => string | null;
+  /** Dispatches shell.openExternal for a bill's legistar_url. */
+  onOpenLegistar?: (url: string) => void;
+  /** Pending Bill rows affecting the active section, for the
+   *  pending-rail above the body. Empty / undefined suppresses the rail. */
+  pendingRailBills?: ReadonlyArray<Bill>;
+  /** Opens a bill tab. Used by the section pending-rail rows. */
+  onOpenBill?: (fileNo: string, mode: "primary" | "background") => void;
 }
 
 export function TabContent({
@@ -51,6 +70,12 @@ export function TabContent({
   getCitationPreview,
   scrollContainerRef,
   onScrollY,
+  pendingBills,
+  lookupCodeLabel,
+  lookupSectionTitle,
+  onOpenLegistar,
+  pendingRailBills,
+  onOpenBill,
 }: TabContentProps): ReactNode {
   switch (item.kind) {
     case "section": {
@@ -78,6 +103,8 @@ export function TabContent({
           scrollContainerRef={scrollContainerRef}
           onScrollY={onScrollY}
           tabPanel={{ id: tabPanelId, labelledBy: tabId }}
+          pendingRailBills={pendingRailBills}
+          onOpenBill={onOpenBill}
         />
       );
     }
@@ -87,6 +114,23 @@ export function TabContent({
         <SettingsPage
           section={item.section}
           tabPanel={{ id: `tabpanel-${identity}`, labelledBy: `tab-${identity}` }}
+        />
+      );
+    }
+    case "bill": {
+      const identity = itemIdentity(item);
+      const billsForFileNo = (pendingBills ?? []).filter((b) => b.file_no === item.billId);
+      const codeLabel = billsForFileNo[0]
+        ? (lookupCodeLabel?.(billsForFileNo[0].module_id) ?? undefined)
+        : undefined;
+      return (
+        <BillView
+          bills={billsForFileNo}
+          navigate={navigate}
+          tabPanel={{ id: `tabpanel-${identity}`, labelledBy: `tab-${identity}` }}
+          codeLabel={codeLabel}
+          lookupSectionTitle={lookupSectionTitle}
+          onOpenLegistar={onOpenLegistar}
         />
       );
     }

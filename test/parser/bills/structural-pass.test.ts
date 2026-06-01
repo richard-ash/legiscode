@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyDisplayRules, runStructuralPass } from "@/parser/bills/structural-pass";
 import type { InstalledModule } from "@/parser/bills/scope-filter";
+import { applyDisplayRules, runStructuralPass } from "@/parser/bills/structural-pass";
 
 const SF_MODULES: InstalledModule[] = [
   { id: "sf-administrative", code_title: "Administrative Code" },

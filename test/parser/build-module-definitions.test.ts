@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { DefinedTermMatch } from "@/parser/defined-terms";
 import {
   buildModuleDefinitions,
   buildSectionDefinitions,
   type SectionDefinitionContext,
 } from "@/parser/definitions";
-import type { DefinedTermMatch } from "@/parser/defined-terms";
 import type { ModuleConfig, SectionFile } from "@/types";
 
 const module: ModuleConfig = {

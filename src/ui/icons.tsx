@@ -71,6 +71,9 @@ export const Icons = {
     '<path d="M5 3.5A1.5 1.5 0 1 1 6.5 5v6A1.5 1.5 0 1 1 5 12.5M11 3.5A1.5 1.5 0 1 0 9.5 5v6A1.5 1.5 0 1 0 11 12.5"/><path d="M6.5 5h3M6.5 11h3M6.5 8h3"/>',
   ),
   Close: makeIcon('<path d="M4 4l8 8M12 4l-8 8"/>'),
+  Bill: makeIcon(
+    '<path d="M3.5 2.5h6L12 5v8a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z"/><path d="M9 2.5V5h3M5 7.5h5M5 10h3.5"/>',
+  ),
 };
 
 export type IconName = keyof typeof Icons;

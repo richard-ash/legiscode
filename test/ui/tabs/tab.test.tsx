@@ -57,4 +57,20 @@ describe("Tab — per-tab markup", () => {
     expect(inactiveCloseBtn).not.toBeNull();
     expect(inactiveCloseBtn?.getAttribute("tabindex")).toBe("-1");
   });
+
+  it("bill tabs carry data-kind=bill so the peach underline + icon CSS selectors hit", () => {
+    // The activity-panel → bill flow opens a bill tab. The
+    // [data-kind="bill"] selector on .lc-tab.is-active::after and on
+    // .lc-tab-ico is the only thing distinguishing the bill underline
+    // (peach) from the section underline (blue); the test ensures the
+    // attribute is actually emitted on render.
+    const state = {
+      items: [{ kind: "bill" as const, billId: "260544" }],
+      activeIndex: 0,
+    };
+    render(<TabHost initial={state} />);
+    const tab = screen.getByRole("tab");
+    expect(tab).toHaveAttribute("data-kind", "bill");
+    expect(tab.className).toContain("is-active");
+  });
 });

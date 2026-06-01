@@ -1,10 +1,10 @@
 import { mkdtempSync } from "node:fs";
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { purgeStalePendingBills, writePendingBill } from "@/storage/writer";
-import { BillSchema, type Bill } from "@/types";
+import { type Bill, BillSchema } from "@/types";
 
 function makeBill(overrides: Partial<Bill> = {}): Bill {
   const base: Bill = {

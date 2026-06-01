@@ -10,9 +10,9 @@
 // the structural pass so the v1 renderer can still surface which sections
 // a bill touches without inline content.
 
-import type { Bill, BillMeta, JurisdictionManifest, ModuleId, SectionId } from "@/types";
 import { loadPdfBuffer } from "@/parser/pdf/load";
 import { extractTextRuns, runsToText } from "@/parser/pdf/page-extractor";
+import type { Bill, BillMeta, JurisdictionManifest, ModuleId, SectionId } from "@/types";
 import type { InstalledModule } from "./scope-filter";
 import { mapLegistarStatusToBillStatus } from "./status";
 import { applyDisplayRules, runStructuralPass } from "./structural-pass";

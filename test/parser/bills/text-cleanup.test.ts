@@ -3,7 +3,14 @@ import { cleanupOrdinanceText } from "@/parser/bills/text-cleanup";
 
 describe("cleanupOrdinanceText", () => {
   it("strips PDF page-margin line numbers (1..25)", () => {
-    const input = ["Section 1 of the Code provides:", "1", "2", "3", "25", "The actual text here."].join("\n");
+    const input = [
+      "Section 1 of the Code provides:",
+      "1",
+      "2",
+      "3",
+      "25",
+      "The actual text here.",
+    ].join("\n");
     expect(cleanupOrdinanceText(input)).toBe(
       ["Section 1 of the Code provides:", "The actual text here."].join("\n"),
     );
@@ -16,11 +23,9 @@ describe("cleanupOrdinanceText", () => {
   });
 
   it("strips BOARD OF SUPERVISORS Page N footers", () => {
-    const input = [
-      "End of section.",
-      "BOARD OF SUPERVISORS  Page 2",
-      "Next page begins.",
-    ].join("\n");
+    const input = ["End of section.", "BOARD OF SUPERVISORS  Page 2", "Next page begins."].join(
+      "\n",
+    );
     expect(cleanupOrdinanceText(input)).toBe(["End of section.", "Next page begins."].join("\n"));
   });
 
@@ -68,7 +73,9 @@ describe("cleanupOrdinanceText", () => {
 
   it("collapses runs of 3+ blank lines into a paragraph break", () => {
     const input = ["First paragraph.", "", "", "", "Second paragraph."].join("\n");
-    expect(cleanupOrdinanceText(input)).toBe(["First paragraph.", "", "Second paragraph."].join("\n"));
+    expect(cleanupOrdinanceText(input)).toBe(
+      ["First paragraph.", "", "Second paragraph."].join("\n"),
+    );
   });
 
   it("strips inline sponsor reprints (when page-break merged into the preceding line)", () => {
