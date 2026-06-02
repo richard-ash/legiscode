@@ -175,6 +175,32 @@ describe("persistence/storage — openItems", () => {
     expect(readOpenItems()).toEqual({ items: [], activeIndex: null });
   });
 
+  it("drops a persisted tab whose kind is no longer in the schema (e.g. legacy diff)", () => {
+    // Legacy diff-tab payloads stored before the inline-overlay rewrite
+    // drop cleanly through the tolerant per-item parse.
+    localStorage.setItem(
+      "legiscode.openItems",
+      JSON.stringify({
+        items: [
+          { kind: "section", ref: { module: "sf-port", section: "1.1" } },
+          {
+            kind: "diff",
+            file_no: "260217",
+            module_id: "sf-port",
+            section_id: "1.1",
+          },
+        ],
+        activeIndex: 1,
+      }),
+    );
+    const result = readOpenItems();
+    expect(result?.items).toEqual([
+      { kind: "section", ref: { module: "sf-port", section: "1.1" } },
+    ]);
+    // Active fell back to the surviving section tab.
+    expect(result?.activeIndex).toBe(0);
+  });
+
   it("removeOpenItems clears the key", () => {
     writeOpenItems(sample);
     expect(readOpenItems()).not.toBeNull();

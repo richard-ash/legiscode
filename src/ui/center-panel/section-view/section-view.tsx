@@ -33,12 +33,20 @@
 // `<div>`-inside-`<p>` DOM-validity issue that an inline render would
 // hit.
 
-import { type KeyboardEvent, type MouseEvent, type ReactNode, useCallback } from "react";
+import {
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+  useCallback,
+  useRef,
+  useState,
+} from "react";
 import type { ResolutionResult } from "@/citations/resolver";
 import type { CorpusRef } from "@/corpus/refs";
 import { parse as parseCorpusRef } from "@/corpus/refs";
 import type { CorpusError, CorpusSectionView } from "@/corpus/wire";
 import type { Bill, BodySegment, Citation, SectionId } from "@/types";
+import { reconstructInline, type SegmentedText } from "@/ui/diff/apply-text-diff";
 import type { OpenItem } from "@/workbench";
 import type { NavigationIntent } from "@/workbench/navigate";
 import { CitationLink } from "./citation-link";
@@ -96,7 +104,8 @@ export interface SectionViewProps {
    *  Drives the peach-left-border pending-rail above the body. Empty
    *  array (or undefined) suppresses the rail entirely (Pass 2 lock). */
   pendingRailBills?: ReadonlyArray<Bill>;
-  /** Dispatches the bill open when a pending-rail row is clicked. */
+  /** Dispatches the bill open when the bill identifier in a pending-
+   *  rail row is activated (Cmd-click / Enter). */
   onOpenBill?: (fileNo: string, mode: "primary" | "background") => void;
 }
 
@@ -129,6 +138,18 @@ export function SectionView({
   const tabPanelAttrs = tabPanel
     ? { role: "tabpanel" as const, id: tabPanel.id, "aria-labelledby": tabPanel.labelledBy }
     : null;
+  // Per-section local state — when set, the body re-renders as an
+  // inline overlay showing the bill's proposed changes applied in
+  // place. The pending-rail panel is the toggle target (variant B).
+  // Resets to null whenever the section identity changes so a stale
+  // overlay can't leak across tab navigation.
+  const [activeOverlayBillId, setActiveOverlayBillId] = useState<string | null>(null);
+  const sectionKey = view !== null ? `${view.moduleId}::${view.section.id}` : null;
+  const lastSectionKeyRef = useRef<string | null>(null);
+  if (lastSectionKeyRef.current !== sectionKey) {
+    lastSectionKeyRef.current = sectionKey;
+    if (activeOverlayBillId !== null) setActiveOverlayBillId(null);
+  }
   // Single hover-popover hook for the whole section. Citation handlers
   // and DefinedTerm (via SectionHoverContext) dispatch into the same
   // instance — guarantees "one popover at a time" without needing to
@@ -307,6 +328,25 @@ export function SectionView({
 
   const paragraphs = splitParagraphs(section.body);
 
+  // Overlay mode: when a pending bill is selected as the active overlay
+  // for this section, the body re-renders as an inline diff against the
+  // bill's text_diff spans for this section. Citations and defined-term
+  // popovers don't render inside the overlay — reading a diff is a
+  // distinct mode from exploring the citation graph.
+  const overlayBill = activeOverlayBillId
+    ? (pendingRailBills?.find((b) => b.file_no === activeOverlayBillId) ?? null)
+    : null;
+  const overlaySpansForSection = overlayBill
+    ? overlayBill.text_diff.filter((s) => s.section_id === section.id)
+    : [];
+  const overlayUnavailable =
+    overlayBill !== null &&
+    (overlayBill.parse_status !== "ok" || overlaySpansForSection.length === 0);
+  const overlayParagraphs: SegmentedText[] =
+    overlayBill !== null && !overlayUnavailable
+      ? paragraphizeOverlay(reconstructInline(overlaySpansForSection, section.text))
+      : [];
+
   return (
     <SectionHoverContext.Provider value={hover}>
       <div
@@ -357,25 +397,52 @@ export function SectionView({
             </div>
           ) : null}
           {pendingRailBills && pendingRailBills.length > 0 && onOpenBill ? (
-            <SectionPendingRail bills={pendingRailBills} onOpenBill={onOpenBill} />
+            <SectionPendingRail
+              bills={pendingRailBills}
+              onOpenBill={onOpenBill}
+              activeOverlayBillId={activeOverlayBillId}
+              onToggleOverlay={setActiveOverlayBillId}
+              overlayUnavailable={overlayUnavailable}
+            />
           ) : null}
-          {/** biome-ignore lint/a11y/noStaticElementInteractions: the div is a pure event-delegation seam — roles live on the inner cite span (tabIndex={0} + role="link"), not the wrapping div. */}
-          <div
-            className="lc-section-body"
-            onClick={onBodyClick}
-            onKeyDown={onBodyKeyDown}
-            onMouseOver={onBodyMouseOver}
-            onMouseOut={onBodyMouseOut}
-            onFocus={onBodyFocus}
-            onBlur={onBodyBlur}
-          >
-            {paragraphs.map((segs, pi) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: paragraphs are positional within a stable section render
-              <p key={pi} className="lc-para">
-                {renderInline(segs, ctx, `p${pi}`)}
-              </p>
-            ))}
-          </div>
+          {overlayBill !== null && !overlayUnavailable ? (
+            <div
+              className="lc-section-body lc-section-body--overlay"
+              data-testid="section-body-overlay"
+            >
+              {overlayParagraphs.length > 0 ? (
+                overlayParagraphs.map((segs, pi) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: paragraphs are positional within a stable overlay render
+                  <p key={pi} className="lc-para">
+                    {renderOverlaySegments(segs, `op${pi}`)}
+                  </p>
+                ))
+              ) : (
+                // Overlay computed against an empty resulting body — the
+                // bill repeals the entire section. Show a one-line
+                // explainer in place of a blank reader.
+                <p className="lc-para lc-overlay-empty">This section would be removed entirely.</p>
+              )}
+            </div>
+          ) : (
+            // biome-ignore lint/a11y/noStaticElementInteractions: the div is a pure event-delegation seam — roles live on the inner cite span (tabIndex={0} + role="link"), not the wrapping div.
+            <div
+              className="lc-section-body"
+              onClick={onBodyClick}
+              onKeyDown={onBodyKeyDown}
+              onMouseOver={onBodyMouseOver}
+              onMouseOut={onBodyMouseOut}
+              onFocus={onBodyFocus}
+              onBlur={onBodyBlur}
+            >
+              {paragraphs.map((segs, pi) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: paragraphs are positional within a stable section render
+                <p key={pi} className="lc-para">
+                  {renderInline(segs, ctx, `p${pi}`)}
+                </p>
+              ))}
+            </div>
+          )}
           {hover.state?.kind === "citation" ? (
             <CitationPopover
               resolution={hover.state.resolution}
@@ -527,6 +594,71 @@ function renderSegment(seg: BodySegment, ctx: RenderCtx, key: string): ReactNode
       // so a regression doesn't surface as a crash.
       return null;
   }
+}
+
+/**
+ * Split an inline-diff stream into paragraphs at `\n` boundaries
+ * (matches bodyToText's paragraph_break emission). Per-segment kind is
+ * preserved across the split so a delete chunk spanning two paragraphs
+ * renders as one struck-through chunk per paragraph. Empty paragraphs
+ * (consecutive `\n`s, leading/trailing whitespace) are dropped.
+ */
+function paragraphizeOverlay(segments: SegmentedText): SegmentedText[] {
+  const paragraphs: SegmentedText[] = [];
+  let current: SegmentedText = [];
+  for (const seg of segments) {
+    if (seg.kind === "elision") {
+      current.push(seg);
+      continue;
+    }
+    const parts = seg.text.split("\n");
+    for (let i = 0; i < parts.length; i++) {
+      if (i > 0) {
+        if (current.length > 0) paragraphs.push(current);
+        current = [];
+      }
+      const text = parts[i];
+      if (text && text.length > 0) {
+        current.push({ kind: seg.kind, text });
+      }
+    }
+  }
+  if (current.length > 0) paragraphs.push(current);
+  return paragraphs;
+}
+
+/**
+ * Per-chunk renderer for the overlay body. Citations and defined-term
+ * markers are dropped intentionally — the overlay strips back to a
+ * pure prose diff so the reader's eye tracks struck vs inserted
+ * without competing legal-link affordances.
+ */
+function renderOverlaySegments(segments: SegmentedText, keyPrefix: string): ReactNode[] {
+  return segments.map((seg, i) => {
+    const key = `${keyPrefix}-${i}`;
+    switch (seg.kind) {
+      case "delete":
+        return (
+          <span key={key} className="lc-overlay-delete">
+            {seg.text}
+          </span>
+        );
+      case "insert":
+        return (
+          <span key={key} className="lc-overlay-insert">
+            {seg.text}
+          </span>
+        );
+      case "elision":
+        return (
+          <span key={key} className="lc-overlay-elision" aria-hidden>
+            [ unchanged text omitted ]
+          </span>
+        );
+      default:
+        return <span key={key}>{seg.text}</span>;
+    }
+  });
 }
 
 function renderFormat(

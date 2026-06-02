@@ -9,7 +9,7 @@
   "legistar_url": "https://example.test/legislation?id=990001",
   "long_title": "Hermetic fixture ordinance amending Test Section 1.1.",
   "module_id": "test-alpha",
-  "parse_status": "manual_review",
+  "parse_status": "ok",
   "body": {
     "preamble": "Hermetic fixture preamble paragraph.",
     "sections": [
@@ -37,5 +37,18 @@
   "short_title": "Hermetic Test Ordinance",
   "sponsor": "Test Sponsor",
   "structural_change_scope": null,
-  "text_diff": []
+  "text_diff": [
+    {
+      "op": "context",
+      "text": "Hermetic fixture content for section 1.1.",
+      "section_id": "1.1",
+      "anchor": { "baseline_offset": 0, "baseline_length": 41 }
+    },
+    {
+      "op": "insert",
+      "text": " (revised by Ord. 990001)",
+      "section_id": "1.1",
+      "anchor": { "baseline_offset": 41, "baseline_length": 0 }
+    }
+  ]
 }

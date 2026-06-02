@@ -61,8 +61,9 @@ const PersistedBillItemSchema = z.object({
 // additively, and lets legacy stored payloads carrying a removed kind
 // drop cleanly on read. Settings tabs persist so a reopened app keeps
 // the surface open (App applies a cold-start guard so it never restores
-// as the active tab). Bill tabs persist by file_no; bills that aged out
-// of the pending set drop at hydrate-time via `fromPersisted(_, isKnownBill)`.
+// as the active tab). Bill tabs persist by content key; rows whose
+// underlying bill aged out of the pending set drop at hydrate-time via
+// `fromPersisted(_, isKnownBill)`.
 const PersistedOpenItemSchema = z.discriminatedUnion("kind", [
   PersistedSectionItemSchema,
   PersistedSettingsItemSchema,
