@@ -1,6 +1,6 @@
 {
   "module_id": "test-alpha",
   "module_version": "2026.05.10",
-  "schema_version": 2,
+  "schema_version": 3,
   "jurisdiction": "Test Jurisdiction"
 }

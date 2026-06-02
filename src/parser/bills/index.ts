@@ -11,7 +11,13 @@
 // a bill touches without inline content.
 
 import { loadPdfBuffer } from "@/parser/pdf/load";
-import { extractTextRuns, runsToText } from "@/parser/pdf/page-extractor";
+import type { TextRun } from "@/parser/pdf/page-extractor";
+import {
+  extractFontMetadata,
+  extractGraphicsOps,
+  extractTextRuns,
+  runsToText,
+} from "@/parser/pdf/page-extractor";
 import type {
   Bill,
   BillMeta,
@@ -21,6 +27,8 @@ import type {
   SectionId,
 } from "@/types";
 import { parseBody } from "./body-parser";
+import type { ClassifiedSpan } from "./classify-spans";
+import { classifySpans } from "./classify-spans";
 import type { InstalledModule } from "./scope-filter";
 import { mapLegistarStatusToBillStatus } from "./status";
 import { applyDisplayRules, runStructuralPass } from "./structural-pass";
@@ -48,6 +56,27 @@ export type ParseBillResult = {
    * into the operator log alongside `unresolved_sections`.
    */
   body_quality_warnings: string[];
+  /**
+   * Layer-3 classified text runs, in source order across the whole PDF.
+   * Sidecar data for the build-time anchorer (`anchorTextDiff` in
+   * `emit-diff.ts`, called from `scripts/sync-bills.ts`): the parser
+   * itself stays pure-PDF (codex C1 lock), so we surface the typography
+   * classification here rather than mutating `Bill.text_diff` directly.
+   * The Bill record continues to ship with `text_diff: []` until the
+   * downstream alignment step succeeds per-section.
+   *
+   * Length parity with the runs returned by `extractTextRuns` — each
+   * span's `source_index` indexes into that array.
+   */
+  classified_spans: ClassifiedSpan[];
+  /**
+   * The exact `TextRun[]` the classifier saw, retained so the build-time
+   * anchorer can rebuild the section→span mapping without re-parsing
+   * the PDF. Captured here to keep parseBill's "open PDF once, do
+   * everything" contract intact — re-opening a 308-page bill PDF in
+   * sync-bills would double the CI cost.
+   */
+  runs: TextRun[];
 };
 
 export type ParseBillOptions = {
@@ -74,9 +103,19 @@ export async function parseBill(
 
   const loaded = await loadPdfBuffer(pdfBytes);
   let rawText: string;
+  let runs: TextRun[];
+  let classifiedSpans: ClassifiedSpan[];
   try {
-    const runs = await extractTextRuns(loaded.doc);
+    // Pull text runs, graphics-op decoration, and font metadata in one
+    // pass so we don't open the PDF twice. Layer 3 (classify-spans)
+    // consumes all three to flag amendment-class runs.
+    [runs] = await Promise.all([extractTextRuns(loaded.doc)]);
+    const [graphicsOps, fontMeta] = await Promise.all([
+      extractGraphicsOps(loaded.doc),
+      extractFontMetadata(loaded.doc),
+    ]);
     rawText = runsToText(runs);
+    classifiedSpans = classifySpans(runs, graphicsOps, fontMeta);
   } finally {
     await loaded.destroy();
   }
@@ -165,6 +204,8 @@ export async function parseBill(
     bills,
     unresolved_sections: unresolved,
     body_quality_warnings: bodyQualityWarnings,
+    classified_spans: classifiedSpans,
+    runs,
   };
 }
 

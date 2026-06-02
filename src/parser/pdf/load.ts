@@ -18,7 +18,7 @@ let cachedLib: typeof import("pdfjs-dist") | null = null;
  * paying the ~3MB import cost in code paths that never touch a PDF
  * (e.g. test/unit/* runs that mock the parser surface).
  */
-async function getPdfjs(): Promise<typeof import("pdfjs-dist")> {
+export async function getPdfjs(): Promise<typeof import("pdfjs-dist")> {
   if (cachedLib !== null) return cachedLib;
   const lib = (await import("pdfjs-dist/legacy/build/pdf.mjs")) as typeof import("pdfjs-dist");
   // Point workerSrc at the legacy worker bundle on disk. pdfjs-dist 6.x

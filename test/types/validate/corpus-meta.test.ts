@@ -13,8 +13,8 @@ const validMeta = {
 };
 
 describe("CorpusMetaSchema", () => {
-  it("KNOWN_SCHEMA_VERSION is exported as 2", () => {
-    expect(KNOWN_SCHEMA_VERSION).toBe(2);
+  it("KNOWN_SCHEMA_VERSION is exported as 3", () => {
+    expect(KNOWN_SCHEMA_VERSION).toBe(3);
   });
 
   it("accepts a valid corpus-meta", () => {

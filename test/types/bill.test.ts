@@ -97,7 +97,14 @@ describe("BillSchema", () => {
       BillSchema.parse(
         validBill({
           parse_status: "ok",
-          text_diff: [{ op: "insert", text: "new text", section_id: "10.04.020" }],
+          text_diff: [
+            {
+              op: "insert",
+              text: "new text",
+              section_id: "10.04.020",
+              anchor: { baseline_offset: 0, baseline_length: 0 },
+            },
+          ],
         }),
       ),
     ).not.toThrow();

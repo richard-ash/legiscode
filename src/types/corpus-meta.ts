@@ -12,15 +12,23 @@ import { ModuleIdSchema, SectionIdSchema } from "./identifiers";
 // MIN_SUPPORTED_SCHEMA_VERSION and fails loudly when a stale bundle
 // would otherwise crash downstream on field-shape mismatches.
 //
-// KNOWN_SCHEMA_VERSION = 2: definitions graph is canonical Definition[]
-// (id, body_anchor, scope, extracted_by); defined_term body segments
-// require def_id + raw; legacy term-keyed DefinitionsFile is gone.
-// MIN_SUPPORTED_SCHEMA_VERSION starts equal to KNOWN_SCHEMA_VERSION —
-// there are no older schema versions in the wild yet. When the app
-// learns to read additive future versions, bump KNOWN above MIN; when
-// it stops supporting older shapes, bump MIN to match.
-export const KNOWN_SCHEMA_VERSION = 2;
-export const MIN_SUPPORTED_SCHEMA_VERSION = 2;
+// KNOWN_SCHEMA_VERSION = 3: TextDiffSpan now carries a required
+// build-time `anchor` ({baseline_offset, baseline_length}) binding each
+// span to a char range in its corpus section's baseline text, and the
+// `op` enum gains "elision" for the city's "* * * *" wildcard sentinel.
+// A v2 bundle's text_diff[] spans would fail the new BillSchema invariant,
+// so MIN_SUPPORTED_SCHEMA_VERSION advances in lock-step.
+//
+// KNOWN_SCHEMA_VERSION = 2 (historical): definitions graph is canonical
+// Definition[] (id, body_anchor, scope, extracted_by); defined_term body
+// segments require def_id + raw; legacy term-keyed DefinitionsFile is gone.
+//
+// MIN_SUPPORTED_SCHEMA_VERSION moves with KNOWN whenever a required field
+// is added, since a stale bundle's records would fail schema validation
+// downstream. When the app learns to read additive future versions, bump
+// KNOWN above MIN.
+export const KNOWN_SCHEMA_VERSION = 3;
+export const MIN_SUPPORTED_SCHEMA_VERSION = 3;
 
 // CorpusEntry kinds enumerated in corpus-meta.json's `corpus_entry_kinds`
 // field, so consumers can detect kind-extension at meta-read time without

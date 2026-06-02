@@ -41,7 +41,7 @@ describe("baseline", () => {
   });
 
   it("the @/* path alias resolves to src in vitest", () => {
-    expect(KNOWN_SCHEMA_VERSION).toBe(2);
+    expect(KNOWN_SCHEMA_VERSION).toBe(3);
   });
 });
 
@@ -119,6 +119,14 @@ describe("baseline grep gates", () => {
         "src/ui/command-palette/score.ts",
         "src/ui/command-palette/use-command-palette.ts",
         "src/ui/command-palette/command-palette.tsx",
+        // T11 + D-T6 (feat/diff #12): the section-pending-rail row
+        // dispatches a diff-tab open with the three-tuple payload
+        // (file_no, module_id, section_id) per codex C6 lock. The
+        // grep flags the {currentModuleId, currentSectionId} props
+        // block + the (moduleId, sectionId) callback parameter
+        // signature, both of which are at the section-view ↔ diff-tab
+        // boundary, not ad-hoc downstream uses.
+        "src/ui/center-panel/section-view/section-pending-rail.tsx",
       ].map((p) => resolve(REPO_ROOT, p)),
     );
     const sourceFiles = [
