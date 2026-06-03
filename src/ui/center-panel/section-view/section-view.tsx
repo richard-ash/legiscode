@@ -45,7 +45,7 @@ import type { ResolutionResult } from "@/citations/resolver";
 import type { CorpusRef } from "@/corpus/refs";
 import { parse as parseCorpusRef } from "@/corpus/refs";
 import type { CorpusError, CorpusSectionView } from "@/corpus/wire";
-import type { Bill, BodySegment, Citation, SectionId } from "@/types";
+import { type Bill, type BodySegment, type Citation, type SectionId, walkBody } from "@/types";
 import { reconstructInline, type SegmentedText } from "@/ui/diff/apply-text-diff";
 import type { OpenItem } from "@/workbench";
 import type { NavigationIntent } from "@/workbench/navigate";
@@ -503,16 +503,9 @@ function resolvePreview(
  */
 function collectDistinctLabels(body: readonly BodySegment[]): ReadonlySet<string> {
   const result = new Set<string>();
-  const walk = (segs: readonly BodySegment[]): void => {
-    for (const seg of segs) {
-      if (seg.kind === "subsection_label") {
-        result.add(seg.label);
-      } else if (seg.kind === "format") {
-        walk(seg.children);
-      }
-    }
-  };
-  walk(body);
+  walkBody(body, (seg) => {
+    if (seg.kind === "subsection_label") result.add(seg.label);
+  });
   return result;
 }
 

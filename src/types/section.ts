@@ -195,11 +195,36 @@ const BodySegmentSchema: z.ZodType<BodySegment> = z.lazy(() =>
   ]),
 );
 
+/**
+ * Depth-first walk over a body[] tree. The visitor is called once per
+ * segment, before recursion descends into format.children. Use this
+ * everywhere a consumer needs to scan body[] for a particular variant
+ * (defined-term occurrences, subsection labels, etc.); the recursion
+ * into format children is uniform so consumers don't reimplement it.
+ *
+ * Not used by bodyToText (whose switch is tight enough to read on its
+ * own) or by forEachCitationSegment / splitParagraphs (which each have
+ * traversal semantics this generic walker doesn't capture — path
+ * tracking and top-level-only splitting respectively).
+ */
+export function walkBody(
+  segments: readonly BodySegment[],
+  visit: (segment: BodySegment) => void,
+): void {
+  for (const seg of segments) {
+    visit(seg);
+    if (seg.kind === "format") {
+      walkBody(seg.children, visit);
+    }
+  }
+}
+
 // Walk a body[] tree (recursing into format.children) and visit every
 // citation segment so the section-level superRefine can verify each
-// citation_index points at a real entry in `citations[]`. Pure traversal
-// helper — bound to BodySegmentSchema so segment shapes are already
-// validated before this runs.
+// citation_index points at a real entry in `citations[]`. Path
+// tracking is specific to the superRefine — zod uses it to point at
+// the exact body[i].children[j] coordinate that failed — so this
+// walker isn't expressible as a thin wrapper over walkBody.
 function forEachCitationSegment(
   segments: readonly BodySegment[],
   visit: (
