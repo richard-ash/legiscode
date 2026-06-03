@@ -73,7 +73,14 @@ export type BillMeta = z.infer<typeof BillMetaSchema>;
 // BillsIndex is the top-level shape of bills-index.json — a versioned
 // wrapper so the schema can evolve without re-scraping. Lane-2 (sync) refuses
 // to read an index whose schema version it doesn't recognize.
-export const BILLS_INDEX_SCHEMA_VERSION = 1 as const;
+//
+// v2: BillMeta will gain `enacted_at` + `terminal_at` action-history
+// timestamps (T3 of feat/session-bills) so the Activity panel can sort
+// the enacted/terminal group by Mayor-signing date desc. The version
+// bumps here in T1 alongside KNOWN_SCHEMA_VERSION so the corpus and
+// bills-index schemas advance together — a v1 BillsIndex would lack
+// the timestamps the v4 renderer needs.
+export const BILLS_INDEX_SCHEMA_VERSION = 2 as const;
 
 export const BillsIndexSchema = z
   .object({

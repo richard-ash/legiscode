@@ -9,6 +9,14 @@
     "format": "legistar-search-html",
     "url": "https://sfgov.legistar.com/Legislation.aspx"
   },
+  "legislative_session": {
+    "current": {
+      "start": "2025-01-01",
+      "end": "2026-12-31",
+      "label": "2025–2026"
+    },
+    "cycle_months": 24
+  },
   "bill_label": {
     "singular": "Ordinance",
     "plural": "Ordinances",

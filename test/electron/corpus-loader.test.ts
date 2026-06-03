@@ -321,8 +321,9 @@ describe("loadCorpus + listCorpus + readSection", () => {
     // The --corpus-path flag bypasses the backend's per-version URL
     // namespacing, so a stale local bundle would otherwise crash
     // downstream on now-required record-level fields (def_id at v2;
-    // text_diff anchor at v3). Loader catches it at the trust boundary
-    // with a clear "rebuild your corpus" message.
+    // text_diff anchor at v3; widened BillStatus enum at v4). Loader
+    // catches it at the trust boundary with a clear "rebuild your
+    // corpus" message.
     await buildFixtureCorpus(dir, [
       {
         id: "sf-port",
@@ -331,7 +332,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
         moduleVersion: "2026.05.20",
         jurisdiction: "City and County of San Francisco",
         sections: [{ id: "1.1", title: "X", hierarchy: ["Port"] }],
-        schemaVersion: 2, // stale: app requires >= 3
+        schemaVersion: 3, // stale: app requires >= 4
       },
     ]);
     await loadCorpus(dir);
@@ -339,8 +340,8 @@ describe("loadCorpus + listCorpus + readSection", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.kind).toBe("corrupt");
-    expect(result.error.detail).toMatch(/schema_version 2/);
-    expect(result.error.detail).toMatch(/requires >= 3/);
+    expect(result.error.detail).toMatch(/schema_version 3/);
+    expect(result.error.detail).toMatch(/requires >= 4/);
   });
 
   it("loadCorpus accepts a bundle whose schema_version matches MIN_SUPPORTED_SCHEMA_VERSION", async () => {
@@ -352,7 +353,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
         moduleVersion: "2026.05.20",
         jurisdiction: "City and County of San Francisco",
         sections: [{ id: "1.1", title: "X", hierarchy: ["Port"] }],
-        schemaVersion: 3,
+        schemaVersion: 4,
       },
     ]);
     await loadCorpus(dir);

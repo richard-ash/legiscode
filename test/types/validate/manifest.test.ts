@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DistributedModuleManifestSchema,
   JurisdictionManifestSchema,
+  LegislativeSessionSchema,
   ModuleConfigSchema,
 } from "@/types";
 
@@ -374,6 +375,108 @@ describe("JurisdictionManifestSchema — modules[]", () => {
       defined_term_patterns: [],
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("LegislativeSessionSchema", () => {
+  const validSession = {
+    current: { start: "2025-01-01", end: "2026-12-31", label: "2025–2026" },
+    cycle_months: 24,
+  };
+
+  it("accepts a well-formed 2-year session", () => {
+    const parsed = LegislativeSessionSchema.parse(validSession);
+    expect(parsed.current.label).toBe("2025–2026");
+    expect(parsed.cycle_months).toBe(24);
+  });
+
+  it("rejects an inverted date range (end before start)", () => {
+    const result = LegislativeSessionSchema.safeParse({
+      ...validSession,
+      current: { start: "2026-12-31", end: "2025-01-01", label: "bad" },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects start === end (start must precede end)", () => {
+    const result = LegislativeSessionSchema.safeParse({
+      ...validSession,
+      current: { start: "2025-01-01", end: "2025-01-01", label: "same" },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a non-ISO start date", () => {
+    const result = LegislativeSessionSchema.safeParse({
+      ...validSession,
+      current: { ...validSession.current, start: "1/1/2025" },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an empty label (label drives panel header copy)", () => {
+    const result = LegislativeSessionSchema.safeParse({
+      ...validSession,
+      current: { ...validSession.current, label: "" },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects non-positive cycle_months", () => {
+    expect(LegislativeSessionSchema.safeParse({ ...validSession, cycle_months: 0 }).success).toBe(
+      false,
+    );
+    expect(LegislativeSessionSchema.safeParse({ ...validSession, cycle_months: -12 }).success).toBe(
+      false,
+    );
+  });
+
+  it("rejects extra fields under strict()", () => {
+    const result = LegislativeSessionSchema.safeParse({
+      ...validSession,
+      future: "unsupported",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("JurisdictionManifestSchema — legislative_session cross-field", () => {
+  const billSource = {
+    format: "legistar-search-html" as const,
+    url: "https://example.test/legislation.aspx",
+  };
+  const session = {
+    current: { start: "2025-01-01", end: "2026-12-31", label: "2025–2026" },
+    cycle_months: 24,
+  };
+
+  it("accepts a manifest without pending_bill_source or legislative_session", () => {
+    expect(JurisdictionManifestSchema.safeParse(validJurisdiction).success).toBe(true);
+  });
+
+  it("accepts pending_bill_source paired with legislative_session", () => {
+    const result = JurisdictionManifestSchema.safeParse({
+      ...validJurisdiction,
+      pending_bill_source: billSource,
+      legislative_session: session,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects pending_bill_source without legislative_session", () => {
+    const result = JurisdictionManifestSchema.safeParse({
+      ...validJurisdiction,
+      pending_bill_source: billSource,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts legislative_session without pending_bill_source (scope-only declaration)", () => {
+    const result = JurisdictionManifestSchema.safeParse({
+      ...validJurisdiction,
+      legislative_session: session,
+    });
+    expect(result.success).toBe(true);
   });
 });
 

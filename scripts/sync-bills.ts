@@ -27,6 +27,7 @@ import {
   type BillMeta,
   BillSchema,
   type BillsIndex,
+  BILLS_INDEX_SCHEMA_VERSION,
   BillsIndexSchema,
   type JurisdictionManifest,
   type ModuleId,
@@ -332,7 +333,26 @@ async function main(argv: string[]): Promise<number> {
   let billsIndex: BillsIndex;
   try {
     const raw = await readFile(indexPath, "utf8");
-    billsIndex = BillsIndexSchema.parse(JSON.parse(raw));
+    const parsed = JSON.parse(raw);
+    // Schema-version preflight: the most common cause of "bills-index
+    // invalid" in practice is a cached file from before a schema bump,
+    // not a structurally broken file. Catch that case explicitly so
+    // the operator sees one actionable line instead of a 70-line Zod
+    // dump that buries the real cause.
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      typeof parsed.schema_version === "number" &&
+      parsed.schema_version !== BILLS_INDEX_SCHEMA_VERSION
+    ) {
+      process.stderr.write(
+        `bills-index schema mismatch: file is schema v${parsed.schema_version}, ` +
+          `parser expects v${BILLS_INDEX_SCHEMA_VERSION}. ` +
+          `Run \`make bills-fetch\` to refresh the cache.\n`,
+      );
+      return 3;
+    }
+    billsIndex = BillsIndexSchema.parse(parsed);
   } catch (err) {
     process.stderr.write(`bills-index invalid: ${(err as Error).message}\n`);
     return 3;
