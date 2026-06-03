@@ -335,7 +335,7 @@ describe("SectionView overlay — multi-bill section", () => {
 });
 
 describe("SectionView overlay — unavailable", () => {
-  it("manual_review bill: rail toggles, body stays in resting state, row shows unavailable reason", () => {
+  it("manual_review bill: rail row appears but the Show changes toggle is suppressed", () => {
     const view = buildSectionView();
     const bill = manualReviewBill("260999", "sf-health", "695");
     render(
@@ -348,17 +348,15 @@ describe("SectionView overlay — unavailable", () => {
         onOpenBill={vi.fn()}
       />,
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: /view this section as if ord\. 260999 had passed/i }),
-    );
-    // Toggle fired (button reads Clear overlay), body did NOT swap to overlay.
+    // Bill row + file_no open affordance still render — the user can
+    // open the bill and see the manual_review status. The diff-overlay
+    // toggle is suppressed because the parser couldn't produce a diff
+    // for this section, so promising "Show changes" would lie.
+    expect(screen.getByRole("button", { name: /open ord\. 260999/i })).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /clear overlay for ord\. 260999/i }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: /view this section as if ord\. 260999 had passed/i }),
+    ).toBeNull();
     expect(document.querySelector(".lc-section-body--overlay")).toBeNull();
-    expect(
-      screen.getByText(/We couldn't compute changes for this section under Ord\. 260999/i),
-    ).toBeInTheDocument();
   });
 });
 

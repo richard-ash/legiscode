@@ -518,6 +518,18 @@ function hasRefInTree(tree: readonly CorpusTreeNode[], ref: CorpusRef): boolean 
  * module. Without this, a bill affecting "1.0" in sf-admin would
  * surface on a section "1.0" in sf-police — wrong, because those are
  * different legal targets.
+ *
+ * Rail-eligibility (status filter) is decided at the hook level
+ * `useSessionBills.bySection` — currently PENDING_STATES plus enacted.
+ * Vetoed, withdrawn, and failed bills never enter the rail because
+ * they won't affect the section's text. Enacted bills stay on the
+ * rail forever until they age out by other means — the
+ * AmLegal-absorption signal that would drop them once the canonical
+ * code reflects the change is deferred (TODOS.md, T4 originally).
+ * Trigger to revisit: signed-bill clutter on a high-traffic section
+ * (Police Code §96, Planning Code 309, etc.) OR users complaining
+ * about reading stale section text without realizing a signed
+ * amendment exists.
  */
 function pendingRailBillsForSection(
   view: ReturnType<typeof useSessionBills>,
