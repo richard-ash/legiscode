@@ -26,7 +26,7 @@ function makeBill(over: Partial<Bill> = {}): Bill {
     text_diff: [],
     parse_status: "manual_review",
     structural_change_scope: null,
-    body: { preamble: "", sections: [], closing: "" },
+    body: { preamble: "", amendments: [], closing: "" },
     ...over,
   });
 }
@@ -244,12 +244,12 @@ describe("BillView — long_title + proposed text", () => {
           makeBill({
             body: {
               preamble: "Be it ordained by the People.",
-              sections: [
+              amendments: [
                 {
                   action: "Section 1. Article 8 of the Port Code is hereby amended.",
                   target: { module_id: "sf-port", raw_section_id: "1.1" },
                   body: [
-                    { kind: "section_header", number: "1.1", title: "SPEED LIMITS." },
+                    { kind: "code_section_header", number: "1.1", title: "SPEED LIMITS." },
                     {
                       kind: "paragraph",
                       text: "The maximum residential speed shall be 20 mph.",
@@ -285,12 +285,12 @@ describe("BillView — long_title + proposed text", () => {
           makeBill({
             body: {
               preamble: "",
-              sections: [
+              amendments: [
                 {
                   action: "Section 1. The Port Code is hereby amended.",
                   target: { module_id: "sf-port", raw_section_id: "694" },
                   body: [
-                    { kind: "section_header", number: "694", title: "WIPING RAGS." },
+                    { kind: "code_section_header", number: "694", title: "WIPING RAGS." },
                     {
                       kind: "subsection",
                       marker: "(a)",
@@ -312,10 +312,10 @@ describe("BillView — long_title + proposed text", () => {
     expect(screen.getByText(/Materials and Cleaning Thereof/)).toBeInTheDocument();
   });
 
-  it("omits the ordinance text block when the body has no preamble, sections, or closing", () => {
+  it("omits the ordinance text block when the body has no preamble, amendments, or closing", () => {
     render(
       <BillView
-        bills={[makeBill({ body: { preamble: "", sections: [], closing: "" } })]}
+        bills={[makeBill({ body: { preamble: "", amendments: [], closing: "" } })]}
         navigate={vi.fn()}
         tabPanel={TAB_PANEL}
         codeLabel="Port Code"

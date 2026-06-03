@@ -18,14 +18,14 @@ describe("parseBody — fallback shape", () => {
     const text = "Some prose with no AMEND structure at all.";
     const pass = runStructuralPass(text, SF_MODULES);
     const { body, quality_warnings } = parseBody(text, pass);
-    expect(body.sections).toHaveLength(0);
+    expect(body.amendments).toHaveLength(0);
     expect(body.preamble).toBe(text);
     expect(body.closing).toBe("");
     expect(quality_warnings).toHaveLength(0);
   });
 });
 
-describe("parseBody — preamble / sections / closing split", () => {
+describe("parseBody — preamble / amendments / closing split", () => {
   it("tokenises action lines, SEC. headers, and a closing block", () => {
     const text = [
       "[Health Code - Hello]",
@@ -39,12 +39,12 @@ describe("parseBody — preamble / sections / closing split", () => {
     const { body } = parseBody(text, pass);
     expect(body.preamble).toContain("[Health Code - Hello]");
     expect(body.preamble).toContain("Be it ordained by");
-    expect(body.sections).toHaveLength(1);
-    const first = body.sections[0];
+    expect(body.amendments).toHaveLength(1);
+    const first = body.amendments[0];
     expect(first?.action).toContain("Section 1. Article 8 of the Health Code");
     expect(first?.target).toEqual({ module_id: "sf-health", raw_section_id: "407" });
     expect(first?.body).toEqual([
-      { kind: "section_header", number: "407", title: "CONVEYANCE OF BREAD." },
+      { kind: "code_section_header", number: "407", title: "CONVEYANCE OF BREAD." },
       {
         kind: "paragraph",
         text: "It shall be unlawful for any person to carry bread.",
@@ -61,7 +61,7 @@ describe("parseBody — preamble / sections / closing split", () => {
     ].join("\n");
     const pass = runStructuralPass(text, SF_MODULES);
     const { body } = parseBody(text, pass);
-    expect(body.sections[0]?.target).toBeNull();
+    expect(body.amendments[0]?.target).toBeNull();
   });
 });
 
@@ -75,8 +75,8 @@ describe("parseBody — subsection tokenisation", () => {
     ].join("\n");
     const pass = runStructuralPass(text, SF_MODULES);
     const { body } = parseBody(text, pass);
-    expect(body.sections[0]?.body).toEqual([
-      { kind: "section_header", number: "694", title: "WIPING RAGS." },
+    expect(body.amendments[0]?.body).toEqual([
+      { kind: "code_section_header", number: "694", title: "WIPING RAGS." },
       {
         kind: "subsection",
         marker: "(a)",
@@ -109,7 +109,7 @@ describe("parseBody — subsection tokenisation", () => {
     ].join("\n");
     const pass = runStructuralPass(text, SF_MODULES);
     const { body } = parseBody(text, pass);
-    const blocks = body.sections[0]?.body ?? [];
+    const blocks = body.amendments[0]?.body ?? [];
     const markers = blocks
       .filter((b): b is Extract<typeof b, { kind: "subsection" }> => b.kind === "subsection")
       .map((b) => b.marker);
@@ -118,24 +118,24 @@ describe("parseBody — subsection tokenisation", () => {
 });
 
 describe("parseBody — A3 parse-quality gate", () => {
-  it("throws when group.sections claims more SEC. headers than the parser can emit", () => {
+  it("throws when group.targetHeaders claims more SEC. headers than the parser can emit", () => {
     // Hand-build a StructuralPassResult that claims two SEC. headers
     // in a group, but trigger an internal miscount by leaving the
-    // group's section list with an entry whose offsets sit OUTSIDE
-    // the text. The walker emits one header per claimed section, so
+    // group's header list with an entry whose offsets sit OUTSIDE
+    // the text. The walker emits one header per claimed entry, so
     // to organically trip the gate we need an external mismatch —
-    // simulated by mutating `group.sections` between expected-count
-    // accrual and emission, achieved here by passing a Proxy whose
-    // length differs across reads.
+    // simulated by mutating `group.targetHeaders` between
+    // expected-count accrual and emission, achieved here by passing
+    // a Proxy whose length differs across reads.
     let firstRead = true;
-    const phantomSection = {
+    const phantomHeader = {
       raw_id: "100",
       title: "ONE.",
       text_offset_start: 0,
       text_offset_after_header: 14,
       text_offset_end: 14,
     };
-    const sectionsProxy = new Proxy([phantomSection, phantomSection], {
+    const headersProxy = new Proxy([phantomHeader, phantomHeader], {
       get(target, prop, receiver) {
         if (prop === "length") {
           // First read (expectedHeaders accumulation) sees 2 entries;
@@ -157,7 +157,7 @@ describe("parseBody — A3 parse-quality gate", () => {
           module_id: "sf-health",
           text_offset_start: 0,
           text_offset_end: text.length,
-          sections: sectionsProxy as unknown as never,
+          targetHeaders: headersProxy as unknown as never,
         },
       ],
       preamble_range: { start: 0, end: 0 },

@@ -21,7 +21,7 @@ function makeBill(overrides: Partial<Bill> = {}): Bill {
     text_diff: [],
     parse_status: "manual_review",
     structural_change_scope: null,
-    body: { preamble: "", sections: [], closing: "" },
+    body: { preamble: "", amendments: [], closing: "" },
   };
   return BillSchema.parse({ ...base, ...overrides });
 }

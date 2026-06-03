@@ -97,12 +97,12 @@ function ProposedText({ bills }: { bills: ReadonlyArray<Bill> }) {
       </h2>
       <div className="lc-billview-proposed-body">
         {body.preamble.length > 0 ? <ProseBlock text={body.preamble} /> : null}
-        {body.sections.map((section, sIdx) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: section order is the body parser's emit order; no stable id exists.
-          <article key={sIdx} className="lc-billview-section">
-            <p className="lc-billview-action">{section.action}</p>
-            {section.body.map((block, bIdx) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: block order is fixed by the tokenizer for a given section.
+        {body.amendments.map((amendment, aIdx) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: amendment order is the body parser's emit order; no stable id exists.
+          <article key={aIdx} className="lc-billview-section">
+            <p className="lc-billview-action">{amendment.action}</p>
+            {amendment.body.map((block, bIdx) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: block order is fixed by the tokenizer for a given amendment.
               <OrdinanceBlockView key={bIdx} block={block} />
             ))}
           </article>
@@ -114,7 +114,7 @@ function ProposedText({ bills }: { bills: ReadonlyArray<Bill> }) {
 }
 
 function bodyHasContent(body: Bill["body"]): boolean {
-  return body.preamble.length > 0 || body.sections.length > 0 || body.closing.length > 0;
+  return body.preamble.length > 0 || body.amendments.length > 0 || body.closing.length > 0;
 }
 
 // Render a paragraph-separated string (preamble / closing slices) as a
@@ -135,7 +135,7 @@ function ProseBlock({ text }: { text: string }) {
 }
 
 function OrdinanceBlockView({ block }: { block: OrdinanceBlock }) {
-  if (block.kind === "section_header") {
+  if (block.kind === "code_section_header") {
     return (
       <h3 className="lc-billview-section-header">
         <span className="lc-billview-section-header-num">SEC. {block.number}.</span>{" "}

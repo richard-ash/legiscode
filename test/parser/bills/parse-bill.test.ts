@@ -96,7 +96,7 @@ describe("parseBill round-trip against committed fixtures (real PDFs)", () => {
     const result = await parseBill(new Uint8Array(bytes), meta, manifest);
     const bill = result.bills[0];
     expect(bill?.body.preamble.length ?? 0).toBeGreaterThan(50);
-    expect(bill?.body.sections.length ?? 0).toBeGreaterThan(0);
+    expect(bill?.body.amendments.length ?? 0).toBeGreaterThan(0);
     // Page chrome should never reach the body — every preamble / section
     // body / closing string is chrome-stripped + reflowed prose.
     const stringified = JSON.stringify(bill?.body);

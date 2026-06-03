@@ -142,16 +142,16 @@ export async function parseBill(
     const moduleConfig = moduleConfigByCanonical.get(group.module_id);
     const index = opts.sectionIndex?.get(group.module_id);
     const acc = perModule.get(group.module_id) ?? { affected: [], rawHits: [] };
-    for (const section of group.sections) {
-      const candidates = applyDisplayRules(section.raw_id, moduleConfig?.display_rules);
-      acc.rawHits.push({ raw: section.raw_id, candidates });
+    for (const header of group.targetHeaders) {
+      const candidates = applyDisplayRules(header.raw_id, moduleConfig?.display_rules);
+      acc.rawHits.push({ raw: header.raw_id, candidates });
       const resolved = index === undefined ? candidates[0] : candidates.find((c) => index.has(c));
       if (resolved !== undefined) {
         if (!acc.affected.includes(resolved)) acc.affected.push(resolved);
       } else if (index !== undefined) {
         unresolved.push({
           module_id: group.module_id,
-          raw_section_id: section.raw_id,
+          raw_section_id: header.raw_id,
           candidates,
         });
       }
