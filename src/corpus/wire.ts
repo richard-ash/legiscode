@@ -12,7 +12,7 @@
 // needs validation, validation lives in the boundary helper (e.g.
 // corpusRefFromWire in @/corpus/refs), not in this file.
 
-import type { Bill, DefinitionId, ScopeExpr, SectionFile, SectionId } from "@/types";
+import type { Bill, BillMeta, DefinitionId, ScopeExpr, SectionFile, SectionId } from "@/types";
 
 /**
  * Tree node returned by `corpus:list`. Tree levels:
@@ -25,7 +25,7 @@ import type { Bill, DefinitionId, ScopeExpr, SectionFile, SectionId } from "@/ty
  *   leaf    — section ("section" kind)
  *
  * Pending bills are NOT tree nodes. They live in a sibling left-panel
- * activity panel sourced from `CorpusModuleSummary.pendingBills` —
+ * activity panel sourced from `CorpusModuleSummary.sessionBills` —
  * bills aren't sections, so collapsing them into the section-tree
  * shape would be a category error.
  */
@@ -100,20 +100,28 @@ export interface CorpusModuleSummary {
     definers: ReadonlyArray<SectionId>;
   }>;
   /**
-   * Pending-bill payload — drives the left-panel activity panel, the
+   * Session-bill payload — drives the left-panel activity panel, the
    * status-bar count, the section pending-rail, and the bill-view tab
    * content. `count` is the unique file_no count across modules (a
    * multi-code bill counts once); `bills` is the raw per-(module,
-   * file_no) Bill rows, which the activity panel and bill-view aggregate
-   * by file_no for display.
+   * file_no) Bill rows for Class A (code-amending) ordinances, which
+   * the activity panel and bill-view aggregate by file_no for display.
    *
-   * `bills` is empty when no module has pending bills; per
+   * `classBMeta` carries Class B (non-code) ordinances as bare BillMeta
+   * rows — no parsed body, no affected_sections, no module_id. They
+   * surface in the Activity panel as minimal entries that click through
+   * to a Legistar link, per D11 of the design review. Always empty when
+   * the jurisdiction-level bills-index.json wasn't shipped (legacy
+   * corpora or modules-only fixtures).
+   *
+   * Everything is empty when no module has bills; per
    * `feedback_no_placeholder_ui`, the renderer suppresses the activity
    * panel rows + status-bar indicator entirely in that case.
    */
-  pendingBills: {
+  sessionBills: {
     count: number;
     bills: ReadonlyArray<Bill>;
+    classBMeta: ReadonlyArray<BillMeta>;
   };
 }
 

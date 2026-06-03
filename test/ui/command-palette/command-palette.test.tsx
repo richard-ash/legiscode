@@ -77,7 +77,7 @@ const corpus: CorpusModuleSummary = {
     { term: "Director", moduleId: "sf-administrative", definers: ["1.1"] },
     { term: "Director", moduleId: "sf-port", definers: ["1.1"] },
   ],
-  pendingBills: { count: 0, bills: [] },
+  sessionBills: { count: 0, bills: [], classBMeta: [] },
 };
 
 interface MountOpts {

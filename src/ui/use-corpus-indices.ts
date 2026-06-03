@@ -9,13 +9,13 @@ import { useCallback, useMemo } from "react";
 import { type CorpusRef, hash as refHash } from "@/corpus/refs";
 import type { CorpusModuleSummary } from "@/corpus/wire";
 import { type ModuleId, ModuleIdSchema } from "@/types";
-import { buildPendingBillsById, buildTitleMap } from "@/ui/tabs/tab-strip";
+import { buildSessionBillsById, buildTitleMap } from "@/ui/tabs/tab-strip";
 
 export interface CorpusIndices {
   /** `Map<RefHash, CorpusTreeNode>` for O(1) per-tab title lookup. */
   titleMap: ReturnType<typeof buildTitleMap>;
   /** O(1) bill-title lookup for bill tabs. Bills are not tree nodes. */
-  pendingBillsById: ReturnType<typeof buildPendingBillsById>;
+  sessionBillsById: ReturnType<typeof buildSessionBillsById>;
   /** Installed module ids — the resolver uses this to gate cross-module cites. */
   installedModules: ReadonlySet<ModuleId>;
   /** Module id → display label (e.g. "Police Code"). Drives bill kicker chrome. */
@@ -34,8 +34,8 @@ export interface CorpusIndices {
 export function useCorpusIndices(corpus: CorpusModuleSummary | null): CorpusIndices {
   const titleMap = useMemo(() => buildTitleMap(corpus?.tree ?? []), [corpus]);
 
-  const pendingBillsById = useMemo(
-    () => buildPendingBillsById(corpus?.pendingBills.bills ?? []),
+  const sessionBillsById = useMemo(
+    () => buildSessionBillsById(corpus?.sessionBills.bills ?? []),
     [corpus],
   );
 
@@ -104,7 +104,7 @@ export function useCorpusIndices(corpus: CorpusModuleSummary | null): CorpusIndi
 
   return {
     titleMap,
-    pendingBillsById,
+    sessionBillsById,
     installedModules,
     lookupCodeLabel,
     lookupSectionTitle,

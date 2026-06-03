@@ -41,7 +41,7 @@ function summaryWith(bills: ReadonlyArray<Bill>): CorpusModuleSummary {
     defaultRef: { moduleId: "sf-port", sectionId: "1.1" },
     tree: [],
     definitions: [],
-    pendingBills: { count: unique, bills },
+    sessionBills: { count: unique, bills, classBMeta: [] },
   };
 }
 
@@ -56,7 +56,7 @@ describe("ActivityPanel — empty state", () => {
         onToggleCollapse={vi.fn()}
       />,
     );
-    expect(screen.getByText(/No pending bills/i)).toBeInTheDocument();
+    expect(screen.getByText(/No bills this session/i)).toBeInTheDocument();
   });
 
   it("renders the empty caption when no module has bills", () => {
@@ -69,7 +69,7 @@ describe("ActivityPanel — empty state", () => {
         onToggleCollapse={vi.fn()}
       />,
     );
-    expect(screen.getByText(/No pending bills/i)).toBeInTheDocument();
+    expect(screen.getByText(/No bills this session/i)).toBeInTheDocument();
   });
 });
 
@@ -246,7 +246,7 @@ describe("ActivityPanel — keyboard nav", () => {
         onToggleCollapse={vi.fn()}
       />,
     );
-    const list = screen.getByRole("list", { name: /Pending ordinances/ });
+    const list = screen.getByRole("list", { name: /Session ordinances/ });
     fireEvent.keyDown(list, { key: "ArrowDown" });
     const focused = document.activeElement as HTMLElement | null;
     expect(focused?.dataset.billId).toBe("260200");
@@ -265,7 +265,7 @@ describe("ActivityPanel — keyboard nav", () => {
         onToggleCollapse={vi.fn()}
       />,
     );
-    const list = screen.getByRole("list", { name: /Pending ordinances/ });
+    const list = screen.getByRole("list", { name: /Session ordinances/ });
     fireEvent.keyDown(list, { key: "ArrowUp" });
     const focused = document.activeElement as HTMLElement | null;
     expect(focused?.dataset.billId).toBe("260100");

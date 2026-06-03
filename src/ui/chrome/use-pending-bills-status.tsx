@@ -1,21 +1,23 @@
 import { useEffect } from "react";
 import type { CorpusModuleSummary } from "@/corpus/wire";
 import { Icons } from "@/ui/icons";
-import { usePendingBills } from "@/ui/left-panel/activity/use-pending-bills";
+import { useSessionBills } from "@/ui/left-panel/activity/use-session-bills";
 import { registerStatusBarItem } from "./status-bar";
 
 // Registers a status-bar slot showing the pending-bill count when the
 // corpus reports more than zero. Hides entirely at zero per
 // `feedback_no_placeholder_ui` — a status bar with "0 pending" would
 // imply the operator hasn't run sync yet, but jurisdictions that
-// never publish pending bills (no manifest.pending_bill_source) get
-// the same zero count and the same suppressed indicator.
+// never publish bills (no manifest.bill_source) get the same zero
+// count and the same suppressed indicator.
 //
-// Consumes the canonical `usePendingBills` hook so the count + the
-// activity panel + the section pending-rail share one source of truth
-// (DRY per Section 2 lock #2).
+// Deliberately reads the `pending` slice only — the status bar
+// answers "what's in flight" per design D7, NOT the session count.
+// The Activity panel header is where the "X pending · Y enacted"
+// breakdown lives.
 export function usePendingBillsStatus(corpus: CorpusModuleSummary | null): void {
-  const { count } = usePendingBills(corpus);
+  const { pending } = useSessionBills(corpus);
+  const count = pending.length;
   useEffect(() => {
     if (count <= 0) return;
     const dispose = registerStatusBarItem({

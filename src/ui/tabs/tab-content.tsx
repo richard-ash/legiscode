@@ -41,7 +41,7 @@ export interface TabContentProps {
   /** Every pending Bill row in the loaded corpus, sorted by
    *  (file_no, module_id). Used to render bill tabs by filtering to the
    *  active item's billId. Empty array when no module has pending bills. */
-  pendingBills?: ReadonlyArray<Bill>;
+  sessionBills?: ReadonlyArray<Bill>;
   /** Resolves a module_id to its display name (e.g. "Police Code") for
    *  the bill kicker. Falls back to the module_id when unresolved. */
   lookupCodeLabel?: (moduleId: string) => string | null;
@@ -68,7 +68,7 @@ export function TabContent({
   getCitationPreview,
   scrollContainerRef,
   onScrollY,
-  pendingBills,
+  sessionBills,
   lookupCodeLabel,
   lookupSectionTitle,
   onOpenLegistar,
@@ -117,7 +117,7 @@ export function TabContent({
     }
     case "bill": {
       const identity = itemIdentity(item);
-      const billsForFileNo = (pendingBills ?? []).filter((b) => b.file_no === item.billId);
+      const billsForFileNo = (sessionBills ?? []).filter((b) => b.file_no === item.billId);
       const codeLabel = billsForFileNo[0]
         ? (lookupCodeLabel?.(billsForFileNo[0].module_id) ?? undefined)
         : undefined;

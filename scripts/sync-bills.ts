@@ -17,7 +17,7 @@
 // sections, dropping anything that doesn't to the unresolved log
 // rather than emitting affected_sections that point at nothing.
 
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { parseBill } from "@/parser/bills";
 import type { AnchorOutcome } from "@/parser/bills/emit-diff";
@@ -241,7 +241,7 @@ export async function syncBills(args: {
     perMatterMs.push({ file_no: meta.file_no, ms: Date.now() - matterStart });
   }
 
-  // Stale-purge: any pending-bill file whose file_no doesn't appear in
+  // Stale-purge: any session-bill file whose file_no doesn't appear in
   // this run's keep set gets deleted. Mirrors the writer's invariant
   // that the on-disk set is a function of the bills-index, not
   // accretive across runs.
@@ -252,6 +252,16 @@ export async function syncBills(args: {
     const result = await purgeStaleSessionBills({ moduleDir, keepFileNos: keep });
     if (result.deleted.length > 0) purged[mod.id] = result.deleted.length;
   }
+
+  // Copy the bills-index to the corpus root so the loader can surface
+  // Class B (non-code) ordinances in the Activity panel. Class B never
+  // produces a per-module Bill file (no touched_modules), so without
+  // this jurisdiction-level index the panel would silently drop them
+  // (D11 — the codex review caught this).
+  await writeFile(
+    join(args.outputDir, "bills-index.json"),
+    `${JSON.stringify(args.billsIndex, null, 2)}\n`,
+  );
 
   return {
     written,

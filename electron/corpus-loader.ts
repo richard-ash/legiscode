@@ -23,7 +23,9 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import {
   type Bill,
+  type BillMeta,
   BillSchema,
+  BillsIndexSchema,
   type BodySegment,
   type Definition,
   type DefinitionId,
@@ -111,13 +113,8 @@ interface LoadedModule {
    * `feedback_no_placeholder_ui`, the renderer hides the bill surfaces
    * (tree branch, banner, Impact tab, bill-detail tab) entirely when
    * this is empty across all modules.
-   *
-   * Field name kept as `pendingBills` until the activity-panel reshape
-   * (T5) renames the IPC contract field to `sessionBills` to match the
-   * widened semantics. T2 only swung the on-disk directory + storage
-   * function names.
    */
-  pendingBills: readonly Bill[];
+  sessionBills: readonly Bill[];
 }
 
 interface LoadedCorpus {
@@ -206,7 +203,11 @@ export async function loadCorpus(rootDir: string): Promise<LoaderState> {
       (latest, m) => (m.moduleVersion > latest ? m.moduleVersion : latest),
       "0000.00.00",
     );
-    const summary = buildSummary(modules, jurisdiction, jurisdictionVersion);
+    // Read jurisdiction-level bills-index for Class B inclusion (D11).
+    // Optional — modules-only fixtures and pre-T5 corpora ship without
+    // it, so the Activity panel still works (Class B just stays hidden).
+    const billsIndex = await loadJurisdictionBillsIndex(rootDir);
+    const summary = buildSummary(modules, jurisdiction, jurisdictionVersion, billsIndex);
     const byRef = new Map<string, Map<string, LoadedSection>>();
     for (const m of modules) {
       const inner = new Map<string, LoadedSection>();
@@ -430,7 +431,7 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
   const definitions = await loadDefinitions(moduleDir, manifest.id);
   const definitionsById = indexDefinitionsById(definitions);
   const ancestorIndex = buildAncestorIndex(sections);
-  const pendingBills = await loadSessionBills(moduleDir, manifest.id);
+  const sessionBills = await loadSessionBills(moduleDir, manifest.id);
 
   return {
     id: manifest.id,
@@ -442,7 +443,7 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
     definitions,
     definitionsById,
     ancestorIndex,
-    pendingBills,
+    sessionBills,
   };
 }
 
@@ -488,19 +489,22 @@ async function loadSessionBills(moduleDir: string, moduleId: string): Promise<re
 }
 
 /**
- * Aggregate every pending Bill across all loaded modules. Returns an
- * empty array when no module has pending bills; the renderer uses the
- * length as the "show or hide the pending UI surfaces" gate per
+ * Aggregate every session Bill across all loaded modules. Returns an
+ * empty array when no module has bills; the renderer uses the length
+ * as the "show or hide the bill UI surfaces" gate per
  * `feedback_no_placeholder_ui`.
  */
-export function listPendingBills(): readonly Bill[] {
+export function listSessionBills(): readonly Bill[] {
   if (state === null || state.kind !== "ok") return [];
   const out: Bill[] = [];
   for (const mod of state.modules) {
-    for (const bill of mod.pendingBills) out.push(bill);
+    for (const bill of mod.sessionBills) out.push(bill);
   }
   return out;
 }
+
+/** @deprecated alias retained for transitional test compatibility. */
+export const listPendingBills = listSessionBills;
 
 /**
  * Walk the module's sections and build a per-section ordered ancestor
@@ -607,12 +611,13 @@ function buildSummary(
   modules: LoadedModule[],
   jurisdiction: string,
   jurisdictionVersion: string,
+  billsIndex: readonly BillMeta[],
 ): CorpusModuleSummary {
   const totalSections = modules.reduce((n, m) => n + m.sections.length, 0);
   const definitions = aggregateDefinitions(modules);
-  const pendingBillCount = modules.reduce((n, m) => n + m.pendingBills.length, 0);
   const firstModule = modules[0];
   const firstSection = firstModule?.sections[0];
+  const classBMeta = billsIndex.filter((m) => m.title_class === "B");
   if (!firstModule || !firstSection) {
     // Should be impossible — loadCorpus rejects empty directories — but
     // narrow the type instead of asserting !.
@@ -625,18 +630,22 @@ function buildSummary(
       defaultRef: { moduleId: "", sectionId: "" },
       tree: [],
       definitions: [],
-      pendingBills: { count: 0, bills: [] },
+      sessionBills: { count: 0, bills: [], classBMeta: [] },
     };
   }
   const allBills: Bill[] = [];
   for (const m of modules) {
-    for (const bill of m.pendingBills) allBills.push(bill);
+    for (const bill of m.sessionBills) allBills.push(bill);
   }
   allBills.sort((a, b) => {
     if (a.file_no !== b.file_no) return a.file_no.localeCompare(b.file_no);
     return a.module_id.localeCompare(b.module_id);
   });
-  const uniqueFileNoCount = new Set(allBills.map((b) => b.file_no)).size;
+  // Unique file_no count spans Class A bills + Class B meta rows so the
+  // panel header + status badge see one number for "how many bills this
+  // session touched."
+  const classBFileNos = new Set(classBMeta.map((m) => m.file_no));
+  const uniqueFileNoCount = new Set([...allBills.map((b) => b.file_no), ...classBFileNos]).size;
   return {
     jurisdiction,
     rootLabel: rootLabelFromJurisdiction(jurisdiction),
@@ -646,8 +655,37 @@ function buildSummary(
     defaultRef: { moduleId: firstModule.id, sectionId: firstSection.section.id },
     tree: buildJurisdictionTree(modules, jurisdiction),
     definitions,
-    pendingBills: { count: uniqueFileNoCount, bills: allBills },
+    sessionBills: { count: uniqueFileNoCount, bills: allBills, classBMeta },
   };
+}
+
+// Read the jurisdiction-level bills-index.json that sync-bills now
+// writes at the corpus root. Returns [] when the file is missing —
+// older corpora and modules-only fixtures don't ship it. Class B
+// (non-code) ordinances live here and nowhere else, so without this
+// file the Activity panel only shows Class A; the panel still renders
+// correctly (no Class B section).
+async function loadJurisdictionBillsIndex(rootDir: string): Promise<readonly BillMeta[]> {
+  const indexPath = join(rootDir, "bills-index.json");
+  let raw: string;
+  try {
+    raw = await readFile(indexPath, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (cause) {
+    throw new Error(`jurisdiction bills-index ${indexPath} is not valid JSON: ${describe(cause)}`);
+  }
+  const result = BillsIndexSchema.safeParse(parsed);
+  if (!result.success) {
+    const issues = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+    throw new Error(`jurisdiction bills-index ${indexPath} failed schema: ${issues}`);
+  }
+  return result.data.bills;
 }
 
 /**

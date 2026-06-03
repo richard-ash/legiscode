@@ -192,7 +192,7 @@ describe("corpus-loader: jurisdiction-rooted tree", () => {
   });
 
   it("reports zero session bills when no module has bills entries", async () => {
-    // r11: bills live on `summary.pendingBills`, not as tree nodes.
+    // r11: bills live on `summary.sessionBills`, not as tree nodes.
     // Field name kept until T5 reshape; semantics already widened.
     await buildFixtureModule(root, { id: "sf-admin" });
     await loadCorpus(root);
@@ -201,11 +201,11 @@ describe("corpus-loader: jurisdiction-rooted tree", () => {
     const root0 = summary.value.tree[0];
     // Tree kids are only `code` modules — no bill branch ever appears.
     expect(root0?.kids?.map((k) => k.kind)).toEqual(["code"]);
-    expect(summary.value.pendingBills.count).toBe(0);
-    expect(summary.value.pendingBills.bills).toEqual([]);
+    expect(summary.value.sessionBills.count).toBe(0);
+    expect(summary.value.sessionBills.bills).toEqual([]);
   });
 
-  it("exposes session bills via `pendingBills`, not as tree nodes", async () => {
+  it("exposes session bills via `sessionBills`, not as tree nodes", async () => {
     await buildFixtureModule(root, {
       id: "sf-admin",
       bills: [
@@ -224,8 +224,8 @@ describe("corpus-loader: jurisdiction-rooted tree", () => {
     const root0 = summary.value.tree[0];
     // Tree only carries `code` modules — bills are not tree nodes.
     expect(root0?.kids?.map((k) => k.kind)).toEqual(["code", "code"]);
-    expect(summary.value.pendingBills.count).toBe(2);
-    expect(summary.value.pendingBills.bills.map((b) => b.file_no).sort()).toEqual([
+    expect(summary.value.sessionBills.count).toBe(2);
+    expect(summary.value.sessionBills.bills.map((b) => b.file_no).sort()).toEqual([
       "260217",
       "260218",
     ]);
@@ -245,9 +245,9 @@ describe("corpus-loader: jurisdiction-rooted tree", () => {
     const summary = listCorpus();
     if (!summary.ok) throw new Error("unreachable");
     // count is the unique file_no count, not the row count.
-    expect(summary.value.pendingBills.count).toBe(1);
+    expect(summary.value.sessionBills.count).toBe(1);
     // bills carries every per-(module, file_no) row so the BillView can
     // aggregate across modules.
-    expect(summary.value.pendingBills.bills).toHaveLength(2);
+    expect(summary.value.sessionBills.bills).toHaveLength(2);
   });
 });
