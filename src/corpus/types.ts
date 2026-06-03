@@ -16,12 +16,19 @@ import type {
   CitationReport,
   DuplicateSectionId,
   TocCoverageReport,
+  UnresolvableDefinitionRef,
   UnresolvedCitation,
 } from "@/parser";
 import type { ExitCode } from "@/storage";
 import type { ModuleId, ParseWarning, SectionId } from "@/types";
 
-export type { CitationReport, DuplicateSectionId, TocCoverageReport, UnresolvedCitation };
+export type {
+  CitationReport,
+  DuplicateSectionId,
+  TocCoverageReport,
+  UnresolvableDefinitionRef,
+  UnresolvedCitation,
+};
 
 export interface BuildCorpusOptions {
   /**
@@ -89,6 +96,11 @@ export type BuildError =
       kind: "duplicate_section_ids";
       moduleId: ModuleId;
       duplicates: readonly DuplicateSectionId[];
+    }
+  | {
+      kind: "unresolvable_def_id";
+      moduleId: ModuleId;
+      refs: readonly UnresolvableDefinitionRef[];
     }
   | { kind: "atomic_write_failed"; moduleId: ModuleId; errno: string }
   | { kind: "atomic_write_lock_held"; moduleId: ModuleId; reason: string }

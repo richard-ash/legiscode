@@ -243,6 +243,14 @@ function formatBuildError(error: BuildError): string {
       const tail = error.duplicates.length > 5 ? ` and ${error.duplicates.length - 5} more` : "";
       return `module "${error.moduleId}": duplicate section.ids detected — ${sample}${tail}. Refusing to ship a corpus with last-write-wins overwrites.`;
     }
+    case "unresolvable_def_id": {
+      const sample = error.refs
+        .slice(0, 5)
+        .map((r) => `${r.sectionId} → ${r.defId}`)
+        .join(", ");
+      const tail = error.refs.length > 5 ? ` and ${error.refs.length - 5} more` : "";
+      return `module "${error.moduleId}": ${error.refs.length} defined_term occurrence${error.refs.length === 1 ? "" : "s"} reference def_ids missing from moduleDefinitions[] — ${sample}${tail}. The runtime loader can no longer silent-skip; fix the extractor or the definitions graph.`;
+    }
     case "atomic_write_failed":
       return `module "${error.moduleId}": ${error.errno}`;
     case "atomic_write_lock_held":

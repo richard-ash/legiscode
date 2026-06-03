@@ -927,11 +927,14 @@ describe("loadCorpus + listCorpus + readSection", () => {
     expect(r.value.definitions).toEqual({});
   });
 
-  it("readSection skips def_ids not present in the module's Definition index (extractor regression — graceful degrade)", async () => {
-    // If the L2a builder somehow ships a body[] def_id that wasn't
-    // persisted into definitions-v2.json (extractor / writer mismatch),
-    // the loader can't project a Definition for it. Renderer renders
-    // the highlight without a tooltip rather than crashing.
+  it("readSection throws when a body def_id is missing from definitionsById (loader trusts the build-time gate)", async () => {
+    // Inverse of the build-time `unresolvable_def_id` gate
+    // (@/parser/validate-corpus): the build refuses to ship a module
+    // whose body[] references a def_id with no matching Definition.
+    // The loader trusts that invariant and throws if it's ever
+    // violated — covers hand-edited / corrupted installs and surfaces
+    // any future regression in the build pipeline loudly instead of
+    // silent-skipping, which violated project_legal_corpus_zero_skip.
     const orphanDefId = fixtureDefId("sf-port", "1.1", "Phantom");
     await buildFixtureCorpus(dir, [
       {
@@ -955,13 +958,17 @@ describe("loadCorpus + listCorpus + readSection", () => {
       },
     ]);
     await loadCorpus(dir);
-    const r = readSection({ moduleId: "sf-port", sectionId: "1.1" });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.definitions).toEqual({});
+    expect(() => readSection({ moduleId: "sf-port", sectionId: "1.1" })).toThrow(
+      /unresolvable_def_id gate should have rejected/,
+    );
   });
 
-  it("readSection returns an empty definitions map when the module has no definitions-v2.json", async () => {
+  it("readSection throws when the module has no definitions-v2.json but sections reference def_ids", async () => {
+    // Same loader-trust invariant: a corpus on disk without
+    // definitions-v2.json AND with body[] defined_term refs is a
+    // build-pipeline regression. The loader throws so the regression
+    // surfaces immediately rather than rendering tooltipless
+    // highlights and masking the bug.
     await buildFixtureCorpus(dir, [
       {
         id: "sf-port",
@@ -989,10 +996,9 @@ describe("loadCorpus + listCorpus + readSection", () => {
       },
     ]);
     await loadCorpus(dir);
-    const r = readSection({ moduleId: "sf-port", sectionId: "1.1" });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.definitions).toEqual({});
+    expect(() => readSection({ moduleId: "sf-port", sectionId: "1.1" })).toThrow(
+      /unresolvable_def_id gate should have rejected/,
+    );
   });
 
   it("readSection returns not_found for unknown ids", async () => {

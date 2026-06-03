@@ -13,7 +13,15 @@
 // returns structural data and lets @/corpus classify it into typed errors
 // + exit codes.
 
-import type { ModuleId, ParsedModule, SectionFile, SectionId, SkippedEntry } from "@/types";
+import type {
+  BodySegment,
+  DefinitionId,
+  ModuleId,
+  ParsedModule,
+  SectionFile,
+  SectionId,
+  SkippedEntry,
+} from "@/types";
 
 export interface TocCoverageReport {
   /** Total entries the parser attempted to emit (parsed sections + skipped raw_ids). */
@@ -92,6 +100,23 @@ export interface DuplicateSectionId {
   count: number;
 }
 
+/**
+ * One defined_term occurrence whose def_id points at a Definition the
+ * module never emitted. Build-time gate output: shipping any of these
+ * would land a section whose tooltip cannot resolve at runtime, which
+ * the loader used to handle with a silent skip. Per
+ * project_legal_corpus_zero_skip, completeness gates are non-negotiable
+ * — the loader now trusts the gate and the build refuses to ship a
+ * module with unresolvable refs.
+ *
+ * Sorted (sectionId, defId) ascending so the BuildError message is
+ * deterministic across runs.
+ */
+export interface UnresolvableDefinitionRef {
+  sectionId: SectionId;
+  defId: DefinitionId;
+}
+
 export interface PerModuleValidation {
   moduleId: ModuleId;
   coverage: TocCoverageReport;
@@ -104,6 +129,14 @@ export interface PerModuleValidation {
    * non-empty entry so silently-collapsed bundles never land on disk.
    */
   duplicateSectionIds: readonly DuplicateSectionId[];
+  /**
+   * defined_term occurrences whose def_id is not present in this
+   * module's `moduleDefinitions[]`. Empty array on the happy path.
+   * Lifted into an `unresolvable_def_id` BuildError by the
+   * orchestrator so the build refuses to ship a module the runtime
+   * loader would have to silent-skip.
+   */
+  unresolvableDefIds: readonly UnresolvableDefinitionRef[];
 }
 
 export interface CorpusValidationResult {
@@ -234,7 +267,48 @@ function validateModule(
     coverage: computeCoverage(parsed),
     citations: computeCitationReport(parsed, allModules, universe, collisionFamilies),
     duplicateSectionIds: computeDuplicateSectionIds(parsed),
+    unresolvableDefIds: computeUnresolvableDefIds(parsed),
   };
+}
+
+// Walk every section body in the module and collect each defined_term
+// occurrence whose def_id has no matching Definition in
+// `moduleDefinitions[]`. The loader's runtime tooltip lookup
+// (joinDefinitionsForSection in electron/corpus-loader.ts) used to
+// silent-skip these; the gate moves the check to build time so the
+// loader can trust every def_id resolves.
+//
+// Recurses into format.children — defined_term spans nest inside
+// bold/italic/list wrappers. De-dupes by (sectionId, defId) so a
+// section that references the same missing def_id twice surfaces once.
+function computeUnresolvableDefIds(parsed: ParsedModule): readonly UnresolvableDefinitionRef[] {
+  const known = new Set<DefinitionId>(parsed.moduleDefinitions.map((d) => d.id));
+  const seen = new Set<string>();
+  const out: UnresolvableDefinitionRef[] = [];
+  for (const section of parsed.sections) {
+    walkDefIds(section.body, (defId) => {
+      if (known.has(defId)) return;
+      const key = `${section.id} ${defId}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ sectionId: section.id, defId });
+    });
+  }
+  out.sort((a, b) => {
+    if (a.sectionId !== b.sectionId) return a.sectionId < b.sectionId ? -1 : 1;
+    return a.defId < b.defId ? -1 : a.defId > b.defId ? 1 : 0;
+  });
+  return out;
+}
+
+function walkDefIds(segments: readonly BodySegment[], visit: (defId: DefinitionId) => void): void {
+  for (const seg of segments) {
+    if (seg.type === "defined_term") {
+      visit(seg.def_id);
+    } else if (seg.type === "format") {
+      walkDefIds(seg.children, visit);
+    }
+  }
 }
 
 // Tally each section.id across the module's emitted SectionFiles. Entries
