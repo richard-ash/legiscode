@@ -115,4 +115,32 @@ describe("parseBill round-trip against committed fixtures (real PDFs)", () => {
     const result = await parseBill(new Uint8Array(bytes), meta, manifest);
     expect(Array.isArray(result.body_quality_warnings)).toBe(true);
   }, 30_000);
+
+  it("threads classify-spans output into ParseBillResult with length parity vs runs", async () => {
+    // T6 wires Layer 3 into parseBill: every TextRun produces exactly
+    // one ClassifiedSpan, in source order, with at least some non-context
+    // classifications for the heavy redline fixture (260217).
+    const manifest = await loadManifest();
+    const bytes = await readFile(join(BILLS_FIXTURE, "260217.pdf"));
+    const meta = buildMeta({
+      file_no: "260217",
+      touched: ["sf-administrative"],
+      long_title: "Ordinance amending the Administrative Code.",
+    });
+    const result = await parseBill(new Uint8Array(bytes), meta, manifest);
+    expect(result.classified_spans.length).toBe(result.runs.length);
+    // source_index is the identity map over the TextRun array.
+    for (let i = 0; i < result.classified_spans.length; i++) {
+      expect(result.classified_spans[i]?.source_index).toBe(i);
+    }
+    const kinds = new Set(result.classified_spans.map((s) => s.kind));
+    expect(kinds.has("context")).toBe(true);
+    expect(kinds.has("insert")).toBe(true);
+    expect(kinds.has("delete")).toBe(true);
+    // Bill.text_diff still stays empty here — anchoring happens later
+    // in scripts/sync-bills.ts via emit-diff.
+    for (const bill of result.bills) {
+      expect(bill.text_diff).toEqual([]);
+    }
+  }, 120_000);
 });

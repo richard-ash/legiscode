@@ -19,6 +19,8 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { parseBill } from "@/parser/bills";
+import { anchorTextDiff } from "@/parser/bills/emit-diff";
+import type { AnchorOutcome } from "@/parser/bills/emit-diff";
 import { purgeStalePendingBills, writePendingBill } from "@/storage/writer";
 import {
   type Bill,
@@ -119,6 +121,14 @@ export type SyncResult = {
    * locked plan).
    */
   body_warnings: Array<{ file_no: string; message: string }>;
+  /**
+   * Per-section anchoring outcome from `anchorTextDiff` (Layer 3
+   * build-time alignment). Each affected section produces exactly one
+   * outcome. status="anchored" means `text_diff[]` is populated on
+   * disk; the other statuses are per-section fallbacks per the locked
+   * plan's codex C8 lock (section-level sparse failure).
+   */
+  anchor_outcomes: AnchorOutcome[];
 };
 
 /**
@@ -146,9 +156,18 @@ export async function syncBills(args: {
   // emit candidates and the parser will surface every miss in the
   // unresolved log.
   const sectionIndex = new Map<ModuleId, ReadonlySet<SectionId>>();
+  // Pre-load baseline section text for every module so the build-time
+  // anchorer can dereference (moduleId, sectionId) without per-bill
+  // disk reads. Keyed by `${moduleId}::${sectionId}`. Modules whose
+  // corpus tree isn't built yet contribute an empty slice; affected
+  // sections in those modules will return "no_baseline" outcomes.
+  const baselineTexts = new Map<string, string>();
   for (const mod of args.manifest.modules) {
-    const ids = await loadSectionIds(args.outputDir, mod.id);
+    const { ids, texts } = await loadSectionIndex(args.outputDir, mod.id);
     sectionIndex.set(mod.id, ids);
+    for (const [sid, text] of texts) {
+      baselineTexts.set(`${mod.id}::${sid}`, text);
+    }
   }
 
   const resolvePath = args.resolvePdfPath ?? defaultResolvePdfPath;
@@ -158,6 +177,7 @@ export async function syncBills(args: {
   const written: Record<string, number> = {};
   const unresolved: SyncResult["unresolved"] = [];
   const bodyWarnings: SyncResult["body_warnings"] = [];
+  const anchorOutcomes: AnchorOutcome[] = [];
   const keepByModule = new Map<ModuleId, Set<string>>();
 
   for (const meta of bills) {
@@ -174,6 +194,14 @@ export async function syncBills(args: {
       continue;
     }
     const result = await parseBill(bytes, meta, args.manifest, { sectionIndex });
+    // Build-time alignment: bind classified spans to the corpus baseline.
+    // Failures are per-section + non-gating (codex C8 — sparse text_diff
+    // across affected_sections), so we keep the bills array regardless.
+    const anchored = anchorTextDiff(result, (moduleId, sectionId) =>
+      baselineTexts.get(`${moduleId}::${sectionId}`),
+    );
+    for (const o of anchored.outcomes) anchorOutcomes.push(o);
+
     for (const u of result.unresolved_sections) {
       unresolved.push({
         file_no: meta.file_no,
@@ -184,7 +212,7 @@ export async function syncBills(args: {
     for (const message of result.body_quality_warnings) {
       bodyWarnings.push({ file_no: meta.file_no, message });
     }
-    for (const bill of result.bills) {
+    for (const bill of anchored.bills) {
       if (!installedIds.has(bill.module_id)) continue;
       const validated = BillSchema.parse(bill satisfies Bill);
       const moduleDir = join(args.outputDir, bill.module_id);
@@ -208,7 +236,13 @@ export async function syncBills(args: {
     if (result.deleted.length > 0) purged[mod.id] = result.deleted.length;
   }
 
-  return { written, purged, unresolved, body_warnings: bodyWarnings };
+  return {
+    written,
+    purged,
+    unresolved,
+    body_warnings: bodyWarnings,
+    anchor_outcomes: anchorOutcomes,
+  };
 }
 
 function defaultResolvePdfPath(meta: BillMeta): string {
@@ -218,22 +252,30 @@ function defaultResolvePdfPath(meta: BillMeta): string {
 }
 
 /**
- * Walk a module's sections/ tree and collect every section.id. Used by
- * sync to feed parseBill's section-validation gate. Missing module dir
- * returns an empty set — the parser logs all hits as unresolved, which
- * the operator sees in the sync summary.
+ * Walk a module's sections/ tree once and surface both:
+ *   • `ids` — every section.id, for parseBill's section-validation gate.
+ *   • `texts` — the canonical baseline text per section.id, for the
+ *               build-time anchorer's per-section dereference.
+ *
+ * Missing module dir returns empty maps — the parser logs hits as
+ * unresolved and the anchorer emits "no_baseline" outcomes.
  */
-async function loadSectionIds(
+async function loadSectionIndex(
   outputDir: string,
   moduleId: ModuleId,
-): Promise<ReadonlySet<SectionId>> {
+): Promise<{ ids: ReadonlySet<SectionId>; texts: ReadonlyMap<SectionId, string> }> {
   const sectionsRoot = join(outputDir, moduleId, "sections");
-  const out = new Set<SectionId>();
-  await collectIds(sectionsRoot, out);
-  return out;
+  const ids = new Set<SectionId>();
+  const texts = new Map<SectionId, string>();
+  await collectIdsAndTexts(sectionsRoot, ids, texts);
+  return { ids, texts };
 }
 
-async function collectIds(dir: string, out: Set<SectionId>): Promise<void> {
+async function collectIdsAndTexts(
+  dir: string,
+  ids: Set<SectionId>,
+  texts: Map<SectionId, string>,
+): Promise<void> {
   let entries: import("node:fs").Dirent[];
   try {
     entries = await readdir(dir, { withFileTypes: true });
@@ -244,7 +286,7 @@ async function collectIds(dir: string, out: Set<SectionId>): Promise<void> {
   for (const e of entries) {
     const p = join(dir, e.name);
     if (e.isDirectory()) {
-      await collectIds(p, out);
+      await collectIdsAndTexts(p, ids, texts);
       continue;
     }
     if (!e.name.endsWith(".json")) continue;
@@ -253,7 +295,11 @@ async function collectIds(dir: string, out: Set<SectionId>): Promise<void> {
       const parsed = JSON.parse(raw);
       const validated = SectionFileSchema.safeParse(parsed);
       if (validated.success) {
-        out.add(validated.data.id);
+        ids.add(validated.data.id);
+        // SectionFile.text is the roundtrip-invariant flat text
+        // (bodyToText(body) === text); use it directly so we don't pay
+        // the cost of re-flattening per section.
+        texts.set(validated.data.id, validated.data.text);
       }
     } catch {
       // ignore unreadable / malformed; the existing corpus build's
@@ -309,6 +355,29 @@ async function main(argv: string[]): Promise<number> {
     process.stdout.write(
       `sync-bills: wrote ${writtenTotal} files across ${Object.keys(result.written).length} modules; purged ${purgedTotal} stale; unresolved sections: ${result.unresolved.length}; body warnings: ${result.body_warnings.length}\n`,
     );
+    // Per-section anchoring outcomes — invisible from the file
+    // tree, so surface a count breakdown for the operator. Empty
+    // text_diff on a written bill is meaningful (a no_baseline gap
+    // is a corpus issue; an alignment_failed is a parser issue);
+    // operators shouldn't have to source-dive to discover which.
+    const outcomeCounts: Record<string, number> = {};
+    for (const o of result.anchor_outcomes) {
+      outcomeCounts[o.status] = (outcomeCounts[o.status] ?? 0) + 1;
+    }
+    if (result.anchor_outcomes.length > 0) {
+      const summary = Object.entries(outcomeCounts)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(", ");
+      process.stdout.write(`sync-bills: anchor outcomes — ${summary}\n`);
+      const failures = result.anchor_outcomes.filter(
+        (o) => o.status === "alignment_failed" || o.status === "classification_low_confidence",
+      );
+      for (const f of failures) {
+        process.stdout.write(
+          `  ${f.status}: ${f.file_no} §${f.section_id} (${f.module_id})${f.detail ? ` — ${f.detail}` : ""}\n`,
+        );
+      }
+    }
     return 0;
   } catch (err) {
     process.stderr.write(`sync failed: ${(err as Error).message}\n`);

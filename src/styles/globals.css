@@ -547,6 +547,11 @@ input {
 .lc-tab.is-active[data-kind="bill"]::after {
   background: var(--peach);
 }
+.lc-tab.is-active[data-kind="diff"]::after {
+  /* D-T1: rose-red underline distinguishes a diff tab from section /
+     bill / settings tabs. Mirrors the data-kind="bill" peach pattern. */
+  background: var(--red);
+}
 .lc-tab:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;

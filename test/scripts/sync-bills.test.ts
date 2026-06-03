@@ -79,7 +79,9 @@ describe("syncBills integration: fetch → parse → write → purge", () => {
     await rm(outputDir, { recursive: true, force: true });
   });
 
-  it("writes one validated Bill per touched module under pending-bills/", async () => {
+  it("writes one validated Bill per touched module under pending-bills/", {
+    timeout: 30_000,
+  }, async () => {
     const manifest = await readJurisdictionManifest(MANIFEST_PATH);
     const billsIndex = makeBillsIndex({ bills: [makeMeta({})] });
     const result = await syncBills({
@@ -105,7 +107,9 @@ describe("syncBills integration: fetch → parse → write → purge", () => {
     }
   });
 
-  it("purges stale pending-bill files no longer in the bills-index", async () => {
+  it("purges stale pending-bill files no longer in the bills-index", {
+    timeout: 30_000,
+  }, async () => {
     const manifest = await readJurisdictionManifest(MANIFEST_PATH);
 
     // First run: writes 260217 across three modules.
@@ -133,7 +137,37 @@ describe("syncBills integration: fetch → parse → write → purge", () => {
     }
   });
 
-  it("skips matters whose cached PDF is missing without aborting the run", async () => {
+  it("returns an anchor_outcomes array on the SyncResult (wiring check)", {
+    timeout: 30_000,
+  }, async () => {
+    // The skeleton corpus has no on-disk sections, so the parser's
+    // sectionIndex is empty → applyDisplayRules candidates don't
+    // resolve → affected_sections is []. anchorTextDiff therefore
+    // produces zero outcomes. This asserts the field exists and
+    // bills still validate + write.
+    const manifest = await readJurisdictionManifest(MANIFEST_PATH);
+    const result = await syncBills({
+      manifest,
+      billsIndex: makeBillsIndex({ bills: [makeMeta({})] }),
+      outputDir,
+      resolvePdfPath: () => join(FIXTURE_PDFS, "260217.pdf"),
+    });
+    expect(Array.isArray(result.anchor_outcomes)).toBe(true);
+    // Bills are still written even when anchoring didn't fire.
+    const adminFiles = await readdir(join(outputDir, "sf-administrative", "pending-bills"));
+    expect(adminFiles).toEqual(["260217.json"]);
+    const billJson = await readFile(
+      join(outputDir, "sf-administrative", "pending-bills", "260217.json"),
+      "utf8",
+    );
+    const billRecord = BillSchema.parse(JSON.parse(billJson));
+    expect(billRecord.text_diff).toEqual([]);
+    expect(billRecord.parse_status).toBe("manual_review");
+  });
+
+  it("skips matters whose cached PDF is missing without aborting the run", {
+    timeout: 30_000,
+  }, async () => {
     const manifest = await readJurisdictionManifest(MANIFEST_PATH);
     const result = await syncBills({
       manifest,

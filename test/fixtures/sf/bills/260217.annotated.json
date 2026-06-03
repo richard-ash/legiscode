@@ -1,0 +1,10 @@
+{
+  "description": "Regression baseline for classify-spans integration. Per the locked plan's A15+C10 locks, this records the expected page count + classification structure but defers human-validated per-span ground truth to a follow-up after the operator validates the rendered diffs.",
+  "fixture": "260217.pdf",
+  "file_no": "260217",
+  "page_count": 308,
+  "expected_classifications": {
+    "min_context_spans": 100,
+    "min_amendment_spans": 10
+  }
+}
