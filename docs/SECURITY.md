@@ -22,8 +22,8 @@ when a contributor runs `pnpm install` after a long absence.
    every minor version between current and target.
 2. Bump the pin in `package.json`. Update `pnpm-lock.yaml` via
    `pnpm install --frozen-lockfile=false`.
-3. Run the full `mise run typecheck && mise run lint && mise run test`
-   loop. Then `mise run dev` and exercise the boot path manually.
+3. Run the full `make typecheck && make lint && make test` loop. Then
+   `make dev` and exercise the boot path manually.
 4. Run the Playwright `_electron` smoke + posture suites
    (`test/e2e/electron/`).
 5. Land as a single PR titled "Bump Electron to vX.Y.Z" with the relevant
