@@ -89,7 +89,7 @@ describe("parse-html body-text roundtrip (every section's body[] reflattens to t
   it("every active section has a non-empty body[]", () => {
     // Sanity check that Commit 2's body builder actually produces
     // segments. [Reserved.]/[Repealed.]/[Redesignated.] sections are
-    // legitimately one-segment ([{type: "text", text: "[Reserved.]"}]),
+    // legitimately one-segment ([{kind: "text", text: "[Reserved.]"}]),
     // so we just check non-empty.
     for (const section of sections) {
       if (section.editorial_status === "active") {

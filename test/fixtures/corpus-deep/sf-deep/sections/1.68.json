@@ -13,7 +13,7 @@
   "editorial_status": "active",
   "body": [
     {
-      "type": "text",
+      "kind": "text",
       "text": "Hermetic fixture content for sticky-header E2E section 1.68."
     }
   ]

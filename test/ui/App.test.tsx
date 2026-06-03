@@ -660,8 +660,8 @@ describe("App — citation dispatch (T7)", () => {
       "1.1": {
         citations: [{ display_text: "§ 1.2", target: { kind: "internal", section_id: "1.2" } }],
         body: [
-          { type: "text", text: "see " },
-          { type: "citation", raw: "§ 1.2", citation_index: 0 },
+          { kind: "text", text: "see " },
+          { kind: "citation", raw: "§ 1.2", citation_index: 0 },
         ],
       },
     });
@@ -723,7 +723,7 @@ describe("App — citation dispatch (T7)", () => {
             target: { kind: "cross_module", module_id: "ca-vehicle", section_id: "21" },
           },
         ],
-        body: [{ type: "citation", raw: "Cal. Veh. Code § 21", citation_index: 0 }],
+        body: [{ kind: "citation", raw: "Cal. Veh. Code § 21", citation_index: 0 }],
       },
     });
     render(<App />);
@@ -754,7 +754,7 @@ describe("App — citation dispatch (T7)", () => {
             target: { kind: "vague", raw: "see related rules" },
           },
         ],
-        body: [{ type: "citation", raw: "see related rules", citation_index: 0 }],
+        body: [{ kind: "citation", raw: "see related rules", citation_index: 0 }],
       },
     });
     // Phase 3 — unresolvable was warn-level; promoted to error-level so
@@ -807,16 +807,16 @@ describe("App — citation dispatch (T7)", () => {
           },
         ],
         body: [
-          { type: "text", text: "see " },
-          { type: "citation", raw: "§ 1.2(b)", citation_index: 0 },
+          { kind: "text", text: "see " },
+          { kind: "citation", raw: "§ 1.2(b)", citation_index: 0 },
         ],
       },
       "1.2": {
         citations: [],
         body: [
-          { type: "text", text: "Lead text. " },
-          { type: "subsection_label", label: "(b)" },
-          { type: "text", text: " Subsection content." },
+          { kind: "text", text: "Lead text. " },
+          { kind: "subsection_label", label: "(b)" },
+          { kind: "text", text: " Subsection content." },
         ],
       },
     });

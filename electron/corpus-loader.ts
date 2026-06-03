@@ -34,6 +34,7 @@ import {
   type SectionFile,
   SectionFileSchema,
   type SectionId,
+  walkBody,
 } from "@/types";
 import type {
   CorpusError,
@@ -336,13 +337,9 @@ function joinDefinitionsForSection(
 }
 
 function collectDefIds(body: readonly BodySegment[], visit: (defId: DefinitionId) => void): void {
-  for (const seg of body) {
-    if (seg.type === "defined_term") {
-      if (seg.def_id) visit(seg.def_id);
-    } else if (seg.type === "format") {
-      collectDefIds(seg.children, visit);
-    }
-  }
+  walkBody(body, (seg) => {
+    if (seg.kind === "defined_term" && seg.def_id) visit(seg.def_id);
+  });
 }
 
 // ─── Internals ──────────────────────────────────────────────────────────────
@@ -823,33 +820,29 @@ function extractSubsectionPreviews(body: readonly BodySegment[]): Record<string,
     currentBuf = "";
   };
 
-  const walk = (segs: readonly BodySegment[]): void => {
-    for (const seg of segs) {
-      switch (seg.type) {
-        case "subsection_label":
-          flush();
-          currentLabel = seg.label;
-          break;
-        case "text":
-          if (currentLabel !== null) currentBuf += seg.text;
-          break;
-        case "citation":
-          if (currentLabel !== null) currentBuf += seg.raw;
-          break;
-        case "defined_term":
-          if (currentLabel !== null) currentBuf += seg.raw;
-          break;
-        case "paragraph_break":
-          if (currentLabel !== null) currentBuf += " ";
-          break;
-        case "format":
-          walk(seg.children);
-          break;
-      }
+  walkBody(body, (seg) => {
+    switch (seg.kind) {
+      case "subsection_label":
+        flush();
+        currentLabel = seg.label;
+        break;
+      case "text":
+        if (currentLabel !== null) currentBuf += seg.text;
+        break;
+      case "citation":
+        if (currentLabel !== null) currentBuf += seg.raw;
+        break;
+      case "defined_term":
+        if (currentLabel !== null) currentBuf += seg.raw;
+        break;
+      case "paragraph_break":
+        if (currentLabel !== null) currentBuf += " ";
+        break;
+      case "format":
+        // walkBody recurses into format.children automatically.
+        break;
     }
-  };
-
-  walk(body);
+  });
   flush();
   return out;
 }

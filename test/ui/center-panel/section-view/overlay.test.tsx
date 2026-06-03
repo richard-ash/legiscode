@@ -38,7 +38,7 @@ function wholesaleDeleteBill(
     ],
     parse_status: "ok",
     structural_change_scope: null,
-    body: { preamble: "", sections: [], closing: "" },
+    body: { preamble: "", amendments: [], closing: "" },
     ...over,
   } as Bill);
 }
@@ -78,7 +78,7 @@ function inlineEditBill(
     ],
     parse_status: "ok",
     structural_change_scope: null,
-    body: { preamble: "", sections: [], closing: "" },
+    body: { preamble: "", amendments: [], closing: "" },
   } as Bill);
 }
 
@@ -97,7 +97,7 @@ function manualReviewBill(fileNo: string, moduleId: string, sectionId: string): 
     text_diff: [],
     parse_status: "manual_review",
     structural_change_scope: null,
-    body: { preamble: "", sections: [], closing: "" },
+    body: { preamble: "", amendments: [], closing: "" },
   } as Bill);
 }
 

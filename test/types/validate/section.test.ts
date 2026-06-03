@@ -149,7 +149,7 @@ describe("BodySegment via SectionFileSchema.body", () => {
       SectionFileSchema.safeParse({
         ...validSection,
         text: "hello",
-        body: [{ type: "text", text: "hello" }],
+        body: [{ kind: "text", text: "hello" }],
       }).success,
     ).toBe(true);
   });
@@ -159,14 +159,14 @@ describe("BodySegment via SectionFileSchema.body", () => {
       ...validSection,
       text: "§ 1.01",
       citations: [{ display_text: "§ 1.01", target: { kind: "internal", section_id: "1.01" } }],
-      body: [{ type: "citation", raw: "§ 1.01", citation_index: 0 }],
+      body: [{ kind: "citation", raw: "§ 1.01", citation_index: 0 }],
     });
     expect(result.success).toBe(true);
   });
 
   it("rejects a citation segment with a negative citation_index", () => {
     const result = SectionFileSchema.safeParse(
-      withBody([{ type: "citation", raw: "x", citation_index: -1 }]),
+      withBody([{ kind: "citation", raw: "x", citation_index: -1 }]),
     );
     expect(result.success).toBe(false);
   });
@@ -181,7 +181,7 @@ describe("BodySegment via SectionFileSchema.body", () => {
         text: "Tenant",
         body: [
           {
-            type: "defined_term",
+            kind: "defined_term",
             raw: "Tenant",
             def_id: "sf-housing/h401#a1b2c3d4",
           },
@@ -197,7 +197,7 @@ describe("BodySegment via SectionFileSchema.body", () => {
         text: "City",
         body: [
           {
-            type: "defined_term",
+            kind: "defined_term",
             raw: "City",
             def_id: "sf-administrative/a-100#deadbeef",
             candidates_dropped: [
@@ -215,7 +215,7 @@ describe("BodySegment via SectionFileSchema.body", () => {
       SectionFileSchema.safeParse({
         ...validSection,
         text: "Person",
-        body: [{ type: "defined_term", raw: "Person" }],
+        body: [{ kind: "defined_term", raw: "Person" }],
       }).success,
     ).toBe(false);
   });
@@ -225,7 +225,7 @@ describe("BodySegment via SectionFileSchema.body", () => {
       SectionFileSchema.safeParse({
         ...validSection,
         text: "Person",
-        body: [{ type: "defined_term", def_id: "sf-housing/h401#a1b2c3d4" }],
+        body: [{ kind: "defined_term", def_id: "sf-housing/h401#a1b2c3d4" }],
       }).success,
     ).toBe(false);
   });
@@ -237,7 +237,7 @@ describe("BodySegment via SectionFileSchema.body", () => {
         text: "Person",
         body: [
           {
-            type: "defined_term",
+            kind: "defined_term",
             term: "Person",
             raw: "Person",
             def_id: "sf-housing/h401#a1b2c3d4",
@@ -252,7 +252,7 @@ describe("BodySegment via SectionFileSchema.body", () => {
       SectionFileSchema.safeParse({
         ...validSection,
         text: "Person",
-        body: [{ type: "defined_term", raw: "Person", def_id: "not-a-valid-id" }],
+        body: [{ kind: "defined_term", raw: "Person", def_id: "not-a-valid-id" }],
       }).success,
     ).toBe(false);
   });
@@ -264,7 +264,7 @@ describe("BodySegment via SectionFileSchema.body", () => {
         text: "City",
         body: [
           {
-            type: "defined_term",
+            kind: "defined_term",
             raw: "City",
             def_id: "sf-administrative/a-100#deadbeef",
             candidates_dropped: ["bad"],
@@ -279,7 +279,7 @@ describe("BodySegment via SectionFileSchema.body", () => {
       SectionFileSchema.safeParse({
         ...validSection,
         text: "(a)",
-        body: [{ type: "subsection_label", label: "(a)" }],
+        body: [{ kind: "subsection_label", label: "(a)" }],
       }).success,
     ).toBe(true);
   });
@@ -289,7 +289,7 @@ describe("BodySegment via SectionFileSchema.body", () => {
       SectionFileSchema.safeParse({
         ...validSection,
         text: "\n",
-        body: [{ type: "paragraph_break" }],
+        body: [{ kind: "paragraph_break" }],
       }).success,
     ).toBe(true);
   });
@@ -297,13 +297,13 @@ describe("BodySegment via SectionFileSchema.body", () => {
   it("accepts a format segment with recursive children", () => {
     const body = [
       {
-        type: "format",
+        kind: "format",
         style: "bold",
         children: [
           {
-            type: "format",
+            kind: "format",
             style: "italic",
-            children: [{ type: "text", text: "foo" }],
+            children: [{ kind: "text", text: "foo" }],
           },
         ],
       },
@@ -313,14 +313,14 @@ describe("BodySegment via SectionFileSchema.body", () => {
 
   it("rejects a format segment with empty children (walker / normalizer drop empty spans)", () => {
     expect(
-      SectionFileSchema.safeParse(withBody([{ type: "format", style: "bold", children: [] }]))
+      SectionFileSchema.safeParse(withBody([{ kind: "format", style: "bold", children: [] }]))
         .success,
     ).toBe(false);
   });
 
   it("rejects a format segment with an unknown style", () => {
     const result = SectionFileSchema.safeParse(
-      withBody([{ type: "format", style: "underline", children: [{ type: "text", text: "x" }] }]),
+      withBody([{ kind: "format", style: "underline", children: [{ kind: "text", text: "x" }] }]),
     );
     expect(result.success).toBe(false);
   });
@@ -348,7 +348,7 @@ describe("SectionFileSchema citation_index superRefine", () => {
       withCitation(
         "§ 1.01",
         [{ display_text: "§ 1.01", target: { kind: "internal", section_id: "1.01" } }],
-        [{ type: "citation", raw: "§ 1.01", citation_index: 5 }],
+        [{ kind: "citation", raw: "§ 1.01", citation_index: 5 }],
       ),
     );
     expect(result.success).toBe(false);
@@ -365,9 +365,9 @@ describe("SectionFileSchema citation_index superRefine", () => {
         [{ display_text: "§ 1.01", target: { kind: "internal", section_id: "1.01" } }],
         [
           {
-            type: "format",
+            kind: "format",
             style: "bold",
-            children: [{ type: "citation", raw: "§ 1.01", citation_index: 7 }],
+            children: [{ kind: "citation", raw: "§ 1.01", citation_index: 7 }],
           },
         ],
       ),
@@ -380,7 +380,7 @@ describe("SectionFileSchema citation_index superRefine", () => {
       withCitation(
         "§ 1.01",
         [{ display_text: "§ 1.01", target: { kind: "internal", section_id: "1.01" } }],
-        [{ type: "citation", raw: "§ 1.01", citation_index: 0 }],
+        [{ kind: "citation", raw: "§ 1.01", citation_index: 0 }],
       ),
     );
     expect(result.success).toBe(true);
@@ -410,7 +410,7 @@ describe("SectionFileSchema body[]/text roundtrip superRefine", () => {
     const result = SectionFileSchema.safeParse({
       ...validSection,
       text: "hello",
-      body: [{ type: "text", text: "world" }],
+      body: [{ kind: "text", text: "world" }],
     });
     expect(result.success).toBe(false);
   });
@@ -420,8 +420,8 @@ describe("SectionFileSchema body[]/text roundtrip superRefine", () => {
       ...validSection,
       text: "first\nsecond",
       body: [
-        { type: "text", text: "first" },
-        { type: "text", text: "second" },
+        { kind: "text", text: "first" },
+        { kind: "text", text: "second" },
       ],
     });
     expect(result.success).toBe(false);
@@ -432,13 +432,13 @@ describe("SectionFileSchema body[]/text roundtrip superRefine", () => {
       ...validSection,
       text: "see foo bar",
       body: [
-        { type: "text", text: "see " },
+        { kind: "text", text: "see " },
         {
-          type: "format",
+          kind: "format",
           style: "bold",
           children: [
-            { type: "text", text: "foo " },
-            { type: "format", style: "italic", children: [{ type: "text", text: "bar" }] },
+            { kind: "text", text: "foo " },
+            { kind: "format", style: "italic", children: [{ kind: "text", text: "bar" }] },
           ],
         },
       ],
@@ -461,7 +461,7 @@ describe("SectionFileSchema citation raw/display_text consistency superRefine", 
       ...validSection,
       text: "§ 1.01",
       citations: [{ display_text: "§ 2.02", target: { kind: "internal", section_id: "2.02" } }],
-      body: [{ type: "citation", raw: "§ 1.01", citation_index: 0 }],
+      body: [{ kind: "citation", raw: "§ 1.01", citation_index: 0 }],
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -479,9 +479,9 @@ describe("SectionFileSchema citation raw/display_text consistency superRefine", 
       citations: [{ display_text: "§ 2.02", target: { kind: "internal", section_id: "2.02" } }],
       body: [
         {
-          type: "format",
+          kind: "format",
           style: "bold",
-          children: [{ type: "citation", raw: "§ 1.01", citation_index: 0 }],
+          children: [{ kind: "citation", raw: "§ 1.01", citation_index: 0 }],
         },
       ],
     });
@@ -493,7 +493,7 @@ describe("SectionFileSchema citation raw/display_text consistency superRefine", 
       ...validSection,
       text: "§ 1.01",
       citations: [{ display_text: "§ 1.01", target: { kind: "internal", section_id: "1.01" } }],
-      body: [{ type: "citation", raw: "§ 1.01", citation_index: 0 }],
+      body: [{ kind: "citation", raw: "§ 1.01", citation_index: 0 }],
     });
     expect(result.success).toBe(true);
   });
@@ -506,14 +506,14 @@ describe("bodyToText helper", () => {
   it("re-flattens text/citation/defined_term/subsection_label/paragraph_break/format", () => {
     expect(
       bodyToText([
-        { type: "text", text: "see " },
-        { type: "citation", raw: "§ 1.01", citation_index: 0 },
-        { type: "text", text: " ('" },
-        { type: "defined_term", raw: "Person", def_id: "sf-housing/h401#a1b2c3d4" },
-        { type: "text", text: "')" },
-        { type: "paragraph_break" },
-        { type: "subsection_label", label: "(a)" },
-        { type: "format", style: "bold", children: [{ type: "text", text: " bold" }] },
+        { kind: "text", text: "see " },
+        { kind: "citation", raw: "§ 1.01", citation_index: 0 },
+        { kind: "text", text: " ('" },
+        { kind: "defined_term", raw: "Person", def_id: "sf-housing/h401#a1b2c3d4" },
+        { kind: "text", text: "')" },
+        { kind: "paragraph_break" },
+        { kind: "subsection_label", label: "(a)" },
+        { kind: "format", style: "bold", children: [{ kind: "text", text: " bold" }] },
       ]),
     ).toBe("see § 1.01 ('Person')\n(a) bold");
   });

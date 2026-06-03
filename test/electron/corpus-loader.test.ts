@@ -130,7 +130,7 @@ async function buildFixtureCorpus(
           // body[] must re-flatten to text per the SectionFileSchema
           // roundtrip invariant (loader runs safeParse, so a missing
           // body would surface as CorpusError("corrupt")).
-          body: s.body ?? [{ type: "text", text: sectionText }],
+          body: s.body ?? [{ kind: "text", text: sectionText }],
         }),
       );
     }
@@ -532,13 +532,13 @@ describe("loadCorpus + listCorpus + readSection", () => {
             hierarchy: ["Planning Code", "Article 1.2"],
             text: "Intro text.\n(a) Minimum side yards shall be provided as follows:\n(b) Where height does not exceed 25 feet…",
             body: [
-              { type: "text", text: "Intro text." },
-              { type: "paragraph_break" },
-              { type: "subsection_label", label: "(a)" },
-              { type: "text", text: " Minimum side yards shall be provided as follows:" },
-              { type: "paragraph_break" },
-              { type: "subsection_label", label: "(b)" },
-              { type: "text", text: " Where height does not exceed 25 feet…" },
+              { kind: "text", text: "Intro text." },
+              { kind: "paragraph_break" },
+              { kind: "subsection_label", label: "(a)" },
+              { kind: "text", text: " Minimum side yards shall be provided as follows:" },
+              { kind: "paragraph_break" },
+              { kind: "subsection_label", label: "(b)" },
+              { kind: "text", text: " Where height does not exceed 25 feet…" },
             ],
           },
         ],
@@ -570,7 +570,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
             title: "Flat",
             hierarchy: ["Flat", "Chapter 1"],
             text: "No subsections here.",
-            body: [{ type: "text", text: "No subsections here." }],
+            body: [{ kind: "text", text: "No subsections here." }],
           },
         ],
       },
@@ -599,8 +599,8 @@ describe("loadCorpus + listCorpus + readSection", () => {
             hierarchy: ["Long", "Chapter 1"],
             text: `(a) ${longText}`,
             body: [
-              { type: "subsection_label", label: "(a)" },
-              { type: "text", text: ` ${longText}` },
+              { kind: "subsection_label", label: "(a)" },
+              { kind: "text", text: ` ${longText}` },
             ],
           },
         ],
@@ -633,15 +633,15 @@ describe("loadCorpus + listCorpus + readSection", () => {
             text: "(a) Inside list",
             body: [
               {
-                type: "format",
+                kind: "format",
                 style: "list",
                 children: [
                   {
-                    type: "format",
+                    kind: "format",
                     style: "listItem",
                     children: [
-                      { type: "subsection_label", label: "(a)" },
-                      { type: "text", text: " Inside list" },
+                      { kind: "subsection_label", label: "(a)" },
+                      { kind: "text", text: " Inside list" },
                     ],
                   },
                 ],
@@ -836,7 +836,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
             text: "Person",
             body: [
               {
-                type: "defined_term",
+                kind: "defined_term",
                 raw: "Person",
                 def_id: fixtureDefId("sf-port", "1.1", "Person"),
               },
@@ -887,9 +887,9 @@ describe("loadCorpus + listCorpus + readSection", () => {
             hierarchy: ["Port Code"],
             text: "Vessel and Vessel",
             body: [
-              { type: "defined_term", raw: "Vessel", def_id: def11 },
-              { type: "text", text: " and " },
-              { type: "defined_term", raw: "Vessel", def_id: def12 },
+              { kind: "defined_term", raw: "Vessel", def_id: def11 },
+              { kind: "text", text: " and " },
+              { kind: "defined_term", raw: "Vessel", def_id: def12 },
             ],
             defined_terms: ["Vessel"],
           },
@@ -950,7 +950,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
             hierarchy: ["Port"],
             text: "Phantom",
             // def_id points to a Definition that isn't in the module index.
-            body: [{ type: "defined_term", raw: "Phantom", def_id: orphanDefId }],
+            body: [{ kind: "defined_term", raw: "Phantom", def_id: orphanDefId }],
             defined_terms: ["Phantom"],
           },
         ],
@@ -985,7 +985,7 @@ describe("loadCorpus + listCorpus + readSection", () => {
             text: "Person",
             body: [
               {
-                type: "defined_term",
+                kind: "defined_term",
                 raw: "Person",
                 def_id: fixtureDefId("sf-port", "1.1", "Person"),
               },

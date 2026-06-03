@@ -21,13 +21,16 @@ import type { PersistedOpenItems } from "@/persistence";
 
 /** Which pane of the Settings surface a settings tab shows. A union of
  *  one today; Theme / Font / Profile extend it additively in v1.1 without
- *  breaking persisted tabs. */
-export type SettingsSection = "shortcuts";
+ *  breaking persisted tabs. Named `SettingsPane` (not `SettingsSection`)
+ *  so `section` only ever means a corpus section. The field on
+ *  OpenItem.kind="settings" stays `section:` to preserve the persistence
+ *  wire format; only the type name changes. */
+export type SettingsPane = "shortcuts";
 
 export type OpenItem =
   | { kind: "section"; ref: CorpusRef }
   | { kind: "chat"; chatId: string }
-  | { kind: "settings"; section: SettingsSection }
+  | { kind: "settings"; section: SettingsPane }
   | { kind: "bill"; billId: string };
 
 /**

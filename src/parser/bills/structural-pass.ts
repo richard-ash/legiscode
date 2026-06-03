@@ -64,8 +64,10 @@ export type CodeGroup = {
   /**
    * Section headers nested inside this code group, in document order.
    * Empty for groups whose body is short-form / new-chapter (no nested SEC.s).
+   * Named `targetHeaders` (not `sections`) so `section` only ever means
+   * a corpus section.
    */
-  sections: Array<{
+  targetHeaders: Array<{
     raw_id: string;
     title: string;
     /** Char offset of the `SEC.` (or `SECTION`/`Section`) keyword. */
@@ -151,7 +153,7 @@ export function runStructuralPass(
     const last = groups[groups.length - 1];
     if (last && closingStart < last.text_offset_end) {
       last.text_offset_end = closingStart;
-      const lastSection = last.sections[last.sections.length - 1];
+      const lastSection = last.targetHeaders[last.targetHeaders.length - 1];
       if (lastSection && lastSection.text_offset_end > closingStart) {
         lastSection.text_offset_end = closingStart;
       }
@@ -223,22 +225,22 @@ function findCodeGroups(text: string, installed: readonly InstalledModule[]): Co
     const next = groupStarts[i + 1];
     const end = next ? next.start : text.length;
     const moduleId = matcher.resolve(cur.codeName);
-    const sections = findSectionHeaders(text, cur.start, end);
+    const targetHeaders = findSectionHeaders(text, cur.start, end);
     groups.push({
       ordinance_section_number: cur.ordNum,
       code_name: cur.codeName,
       module_id: moduleId,
       text_offset_start: cur.start,
       text_offset_end: end,
-      sections,
+      targetHeaders,
     });
   }
   return groups;
 }
 
-function findSectionHeaders(text: string, start: number, end: number): CodeGroup["sections"] {
+function findSectionHeaders(text: string, start: number, end: number): CodeGroup["targetHeaders"] {
   const slice = text.slice(start, end);
-  const out: CodeGroup["sections"] = [];
+  const out: CodeGroup["targetHeaders"] = [];
   SECTION_HEADER_RE.lastIndex = 0;
   let m: RegExpExecArray | null = SECTION_HEADER_RE.exec(slice);
   const starts: Array<{

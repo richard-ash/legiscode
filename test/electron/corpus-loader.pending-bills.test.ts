@@ -49,7 +49,7 @@ async function buildFixtureModule(
       defined_terms: [],
       hierarchy: [opts.id],
       editorial_status: "active",
-      body: [{ type: "text", text: "Stub." }],
+      body: [{ kind: "text", text: "Stub." }],
     }),
   );
   if (opts.pendingBills === undefined) return;
@@ -79,7 +79,7 @@ function makeBill(over: Partial<Bill> = {}): Bill {
     text_diff: [],
     parse_status: "manual_review",
     structural_change_scope: null,
-    body: { preamble: "", sections: [], closing: "" },
+    body: { preamble: "", amendments: [], closing: "" },
     ...over,
   } as Bill);
 }

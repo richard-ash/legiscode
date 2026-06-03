@@ -12,7 +12,7 @@
   "parse_status": "ok",
   "body": {
     "preamble": "Hermetic fixture preamble paragraph.",
-    "sections": [
+    "amendments": [
       {
         "action": "Section 1. Article 1 of the Test Alpha Code is hereby amended by revising Section 1.1, to read as follows:",
         "target": {
@@ -21,7 +21,7 @@
         },
         "body": [
           {
-            "kind": "section_header",
+            "kind": "code_section_header",
             "number": "1.1",
             "title": "HERMETIC TEST SECTION."
           },

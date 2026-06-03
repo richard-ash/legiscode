@@ -25,7 +25,7 @@ SEC. 10.04.030. APPLICABILITY.
     expect(r.groups).toHaveLength(1);
     expect(r.groups[0]?.module_id).toBe("sf-administrative");
     expect(r.groups[0]?.code_name.toLowerCase()).toContain("administrative code");
-    expect(r.groups[0]?.sections.map((s) => s.raw_id)).toEqual(["10.04.020", "10.04.030"]);
+    expect(r.groups[0]?.targetHeaders.map((s) => s.raw_id)).toEqual(["10.04.020", "10.04.030"]);
     expect(r.has_structural_action).toBe(false);
   });
 
@@ -46,8 +46,8 @@ SEC. 240. USE DISTRICTS.
     const r = runStructuralPass(text, SF_MODULES);
     expect(r.groups).toHaveLength(2);
     expect(r.groups.map((g) => g.module_id)).toEqual(["sf-health", "sf-planning"]);
-    expect(r.groups[0]?.sections.map((s) => s.raw_id)).toEqual(["41.2"]);
-    expect(r.groups[1]?.sections.map((s) => s.raw_id)).toEqual(["240"]);
+    expect(r.groups[0]?.targetHeaders.map((s) => s.raw_id)).toEqual(["41.2"]);
+    expect(r.groups[1]?.targetHeaders.map((s) => s.raw_id)).toEqual(["240"]);
   });
 
   it("marks structural_change when 'by adding Chapter X' is present", () => {

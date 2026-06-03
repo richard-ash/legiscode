@@ -28,25 +28,25 @@
   "editorial_status": "active",
   "body": [
     {
-      "type": "text",
+      "kind": "text",
       "text": "Hermetic fixture content for section 1.1. See "
     },
     {
-      "type": "citation",
+      "kind": "citation",
       "raw": "\u00a7 1.2",
       "citation_index": 0
     },
     {
-      "type": "text",
+      "kind": "text",
       "text": " and "
     },
     {
-      "type": "citation",
+      "kind": "citation",
       "raw": "Cal. Veh. Code \u00a7 21",
       "citation_index": 1
     },
     {
-      "type": "text",
+      "kind": "text",
       "text": "."
     }
   ]

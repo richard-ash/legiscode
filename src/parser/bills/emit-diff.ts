@@ -68,7 +68,7 @@
 // These shapes don't use PDF underline/strikethrough decoration at
 // all, so the typography decoder produces zero amendment spans. The
 // wholesale classifier runs BEFORE the inline path and short-circuits
-// it when any body.sections[i].action matches the delete/add verbs.
+// it when any body.amendments[i].action matches the delete/add verbs.
 // Bills that mix wholesale + inline actions fall back to the inline
 // path for the inline subset; the wholesale spans still ship.
 
@@ -141,7 +141,7 @@ export function anchorTextDiff(
     // the inline anchorer because delete/add bills have no PDF
     // underline/strikethrough decoration — the typography decoder
     // produces zero amendment spans, which would falsely look like
-    // alignment_failed below. Each body.sections[i].action is matched
+    // alignment_failed below. Each body.amendments[i].action is matched
     // against the SF Legistar verb patterns; matches synthesize a
     // single delete or insert span per section_id.
     const wholesale = synthesizeWholesaleSpans(bill, baselineLookup);
@@ -509,8 +509,8 @@ function synthesizeWholesaleSpans(
   const outcomes: AnchorOutcome[] = [];
   const affectedSet = new Set<string>(bill.affected_sections);
 
-  for (const bodySection of bill.body.sections) {
-    const cls = classifySectionAction(bodySection.action);
+  for (const amendment of bill.body.amendments) {
+    const cls = classifySectionAction(amendment.action);
     if (cls.kind !== "delete" && cls.kind !== "add") continue;
 
     for (const rawSid of cls.section_ids) {
@@ -547,7 +547,7 @@ function synthesizeWholesaleSpans(
         });
       } else {
         // add
-        const insertText = extractAddedSectionText(bodySection.body, rawSid);
+        const insertText = extractAddedSectionText(amendment.body, rawSid);
         if (insertText.length === 0) {
           outcomes.push({
             file_no: bill.file_no,
@@ -579,14 +579,15 @@ function synthesizeWholesaleSpans(
 }
 
 // Slice the OrdinanceBlock subtree belonging to a single section out
-// of the AMEND group's body. body.sections[i].body is a flat list that
-// may interleave multiple section_header blocks when one AMEND group
-// adds several sections — walk until the next section_header or end.
+// of the AMEND group's body. body.amendments[i].body is a flat list
+// that may interleave multiple code_section_header blocks when one
+// AMEND group adds several sections — walk until the next
+// code_section_header or end.
 function extractAddedSectionText(blocks: readonly OrdinanceBlock[], sectionNumber: string): string {
   const collected: OrdinanceBlock[] = [];
   let inside = false;
   for (const b of blocks) {
-    if (b.kind === "section_header") {
+    if (b.kind === "code_section_header") {
       if (b.number === sectionNumber) {
         inside = true;
         collected.push(b);
@@ -603,7 +604,7 @@ function ordinanceBlocksToText(blocks: readonly OrdinanceBlock[]): string {
   const parts: string[] = [];
   for (const b of blocks) {
     switch (b.kind) {
-      case "section_header":
+      case "code_section_header":
         parts.push(`§${b.number} ${b.title}`);
         break;
       case "paragraph":

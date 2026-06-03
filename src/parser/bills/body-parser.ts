@@ -13,11 +13,12 @@
 //   range — paragraphs and paren subsection markers `(a)`, `(b)`,
 //   `(1)`, `(2)`, …
 //
-// - **Parse-quality gate.** If structural-pass identified N (group,
-//   section) pairs, body-parser MUST emit a `section_header` block
-//   for each. A mismatch throws synchronously at ingest. No
-//   configurable threshold — legal corpus completeness is a hard
-//   gate (see `project_legal_corpus_zero_skip`).
+// - **Parse-quality gate.** If structural-pass identified N
+//   `(group, section)` pairs, body-parser MUST emit a
+//   `code_section_header` block for each. A mismatch throws
+//   synchronously at ingest. No configurable threshold — legal corpus
+//   completeness is a hard gate
+//   (see `project_legal_corpus_zero_skip`).
 //
 // - **Operator-only quality channel.** Soft body-quality concerns
 //   surface as `quality_warnings: string[]` for the operator log,
@@ -25,7 +26,7 @@
 //   parser internals.
 //
 // - **Always renderable.** When the structural pass found zero
-//   groups, the parser emits `{ preamble: <all text>, sections: [],
+//   groups, the parser emits `{ preamble: <all text>, amendments: [],
 //   closing: "" }`. The renderer always has something to show.
 
 import type { OrdinanceBlock, OrdinanceBody } from "@/types";
@@ -65,7 +66,7 @@ export function parseBody(chromeStripped: string, pass: StructuralPassResult): P
     return {
       body: {
         preamble: reflowParagraphs(chromeStripped).trim(),
-        sections: [],
+        amendments: [],
         closing: "",
       },
       quality_warnings: warnings,
@@ -79,13 +80,13 @@ export function parseBody(chromeStripped: string, pass: StructuralPassResult): P
 
   let expectedHeaders = 0;
   let emittedHeaders = 0;
-  const sections: OrdinanceBody["sections"] = [];
+  const amendments: OrdinanceBody["amendments"] = [];
 
   for (const group of pass.groups) {
-    expectedHeaders += group.sections.length;
+    expectedHeaders += group.targetHeaders.length;
     const result = parseGroup(chromeStripped, group, warnings);
     emittedHeaders += result.headersEmitted;
-    sections.push(result.section);
+    amendments.push(result.amendment);
   }
 
   // Parse-quality gate. The structural pass is the document
@@ -99,13 +100,13 @@ export function parseBody(chromeStripped: string, pass: StructuralPassResult): P
   }
 
   return {
-    body: { preamble, sections, closing },
+    body: { preamble, amendments, closing },
     quality_warnings: warnings,
   };
 }
 
 type GroupParseResult = {
-  section: OrdinanceBody["sections"][number];
+  amendment: OrdinanceBody["amendments"][number];
   headersEmitted: number;
 };
 
@@ -114,24 +115,24 @@ function parseGroup(text: string, group: CodeGroup, warnings: string[]): GroupPa
   // the group's end if no SEC. headers are nested inside, e.g. a
   // chapter-creation group). Reflow so wrapped action lines become
   // one prose sentence.
-  const actionEnd = group.sections[0]?.text_offset_start ?? group.text_offset_end;
+  const actionEnd = group.targetHeaders[0]?.text_offset_start ?? group.text_offset_end;
   const action = reflowParagraphs(text.slice(group.text_offset_start, actionEnd)).trim();
   if (action.length === 0) {
     warnings.push(`group at offset ${group.text_offset_start}: empty action line after reflow`);
   }
 
   const target =
-    group.module_id !== null && group.sections[0]
+    group.module_id !== null && group.targetHeaders[0]
       ? {
           module_id: group.module_id,
-          raw_section_id: group.sections[0].raw_id,
+          raw_section_id: group.targetHeaders[0].raw_id,
         }
       : null;
 
   const body: OrdinanceBlock[] = [];
   let headersEmitted = 0;
 
-  if (group.sections.length === 0) {
+  if (group.targetHeaders.length === 0) {
     // Whole-chapter / new-chapter action: no SEC. headers nested
     // inside. Emit the group's body content (after the action line)
     // as paragraph + subsection blocks so the renderer surfaces the
@@ -139,7 +140,7 @@ function parseGroup(text: string, group: CodeGroup, warnings: string[]): GroupPa
     const tail = text.slice(actionEnd, group.text_offset_end);
     body.push(...tokenizeBody(tail));
   } else {
-    for (const section of group.sections) {
+    for (const header of group.targetHeaders) {
       // Normalise the title: PDF column wrap can split a long SEC.
       // title across two lines (e.g. `REGULATING ISSUANCE OF BOOKS TO
       // MINORS BY CIRCULATING\nLIBRARIES.`). The structural pass
@@ -147,25 +148,25 @@ function parseGroup(text: string, group: CodeGroup, warnings: string[]): GroupPa
       // aligned with the source; the body parser collapses internal
       // whitespace runs into single spaces for the rendered block.
       body.push({
-        kind: "section_header",
-        number: section.raw_id,
-        title: section.title.replace(/\s+/g, " ").trim(),
+        kind: "code_section_header",
+        number: header.raw_id,
+        title: header.title.replace(/\s+/g, " ").trim(),
       });
       headersEmitted += 1;
       // Section body slice: from immediately AFTER the header (title
       // included) to the next section's start. The leading whitespace /
       // newline is consumed by the tokenizer as a paragraph separator.
-      const sectionBody = text.slice(section.text_offset_after_header, section.text_offset_end);
-      const blocks = tokenizeBody(sectionBody);
+      const headerBody = text.slice(header.text_offset_after_header, header.text_offset_end);
+      const blocks = tokenizeBody(headerBody);
       if (blocks.length === 0) {
-        warnings.push(`SEC. ${section.raw_id}: no body content after the header line`);
+        warnings.push(`SEC. ${header.raw_id}: no body content after the header line`);
       }
       body.push(...blocks);
     }
   }
 
   return {
-    section: {
+    amendment: {
       action: action.length > 0 ? action : "(action line unavailable)",
       target,
       body,

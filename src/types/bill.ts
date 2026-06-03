@@ -100,11 +100,13 @@ export type BillStatus = z.infer<typeof BillStatusSchema>;
 // inside an AMEND section's body. The body parser tokenises the slice
 // between two SEC. headers into a list of these.
 //
-//   section_header — `SEC. 407. CONVEYANCE OF BREAD...` style entry
-//                    that introduces a code section. Always present
-//                    for every SEC. header the structural pass
-//                    identified — the parse-quality gate throws if
-//                    the parser emits fewer.
+//   code_section_header — `SEC. 407. CONVEYANCE OF BREAD...` style entry
+//                         that introduces a code section. Always present
+//                         for every SEC. header the structural pass
+//                         identified — the parse-quality gate throws if
+//                         the parser emits fewer. Named
+//                         `code_section_header` (not `section_header`) so
+//                         `section` only ever means a corpus section.
 //   subsection     — paren-marker entry (`(a)`, `(b)`, `(1)`, ...). The
 //                    body is recursive so nested markers like `(a)(1)`
 //                    represent cleanly. NO lead_in field in Layer 2 —
@@ -118,7 +120,7 @@ export type BillStatus = z.infer<typeof BillStatusSchema>;
 // Zod schemas use z.lazy() so subsection.body can recurse into the same
 // shape.
 export type OrdinanceBlock =
-  | { kind: "section_header"; number: string; title: string }
+  | { kind: "code_section_header"; number: string; title: string }
   | { kind: "subsection"; marker: string; body: OrdinanceBlock[] }
   | { kind: "paragraph"; text: string };
 
@@ -126,7 +128,7 @@ export const OrdinanceBlockSchema: z.ZodType<OrdinanceBlock> = z.lazy(() =>
   z.discriminatedUnion("kind", [
     z
       .object({
-        kind: z.literal("section_header"),
+        kind: z.literal("code_section_header"),
         number: z.string().min(1),
         title: z.string().min(1),
       })
@@ -155,22 +157,23 @@ export const OrdinanceBlockSchema: z.ZodType<OrdinanceBlock> = z.lazy(() =>
 //                 long-title boilerplate, the "Be it ordained…"
 //                 enacting clause. Plain string in Layer 2; Layer 3
 //                 can decorate later.
-//   sections    — one entry per AMEND code-group (`Section N. <Code>
+//   amendments  — one entry per AMEND code-group (`Section N. <Code>
 //                 Code is hereby amended…`), in document order. Each
 //                 entry's `body` holds the structured content for that
-//                 group.
+//                 group. Named `amendments` (not `sections`) so
+//                 `section` only ever means a corpus section.
 //   closing     — text after the last AMEND group: boilerplate
 //                 (`Section N. Scope of Ordinance.`, `Section M.
 //                 Effective Date.`) + the signature block.
 //
 // Fallback shape (when the structural pass found zero groups, or the
 // PDF text-extractor returned nothing): `{ preamble: <all text>,
-// sections: [], closing: "" }`. The renderer always has something to
+// amendments: [], closing: "" }`. The renderer always has something to
 // show.
 export const OrdinanceBodySchema = z
   .object({
     preamble: z.string(),
-    sections: z.array(
+    amendments: z.array(
       z
         .object({
           action: z.string().min(1),
@@ -230,8 +233,8 @@ export const BillSchema = z
     structural_change_scope: z.string().min(1).nullable(),
     /** Structured document body produced by the body parser. Replaces
      *  the pre-Layer-2 `proposed_text` string with preamble + per-AMEND
-     *  sections + closing. Always present and always renderable — the
-     *  fallback shape `{ preamble: <all cleaned text>, sections: [],
+     *  amendments + closing. Always present and always renderable — the
+     *  fallback shape `{ preamble: <all cleaned text>, amendments: [],
      *  closing: "" }` is emitted when the structural pass found no
      *  groups (rare; non-AMEND ordinance), so the renderer never has
      *  to branch on null. Layer 3 typography colorization will sit

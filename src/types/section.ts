@@ -23,7 +23,9 @@ export const SectionEditorialStatusSchema = z
 // drift — the body-text-roundtrip invariant test in test/parser/ enforces
 // that re-flattening `body[]` reproduces `text` byte-for-byte.
 //
-// The shape is a discriminated union over `type`. Six variants:
+// The shape is a discriminated union over `kind`. Every discriminated
+// union in the codebase uses `kind:` (Span, OrdinanceBlock, OpenItem,
+// CorpusError, HoverPayload). Six variants:
 //
 //   text             — raw prose between annotations.
 //   citation         — a recognized statutory reference. Carries `raw`
@@ -79,7 +81,7 @@ export const SectionEditorialStatusSchema = z
 //                           emit
 //
 //                    citation classify failure on a span?
-//                      emit raw {type:"text"} segment
+//                      emit raw {kind:"text"} segment
 //                      (NOT a defined_term fallback)
 //
 //                              │
@@ -102,14 +104,14 @@ export const SectionEditorialStatusSchema = z
 
 const TextSegmentSchema = z
   .object({
-    type: z.literal("text"),
+    kind: z.literal("text"),
     text: z.string(),
   })
   .strict();
 
 const CitationSegmentSchema = z
   .object({
-    type: z.literal("citation"),
+    kind: z.literal("citation"),
     raw: z.string(),
     citation_index: z.number().int().nonnegative(),
   })
@@ -127,7 +129,7 @@ const CitationSegmentSchema = z
 // conflate unrelated resolution contexts.
 const DefinedTermSegmentSchema = z
   .object({
-    type: z.literal("defined_term"),
+    kind: z.literal("defined_term"),
     raw: z.string().min(1),
     def_id: DefinitionIdSchema,
     candidates_dropped: z.array(DefinitionIdSchema).optional(),
@@ -136,14 +138,14 @@ const DefinedTermSegmentSchema = z
 
 const SubsectionLabelSegmentSchema = z
   .object({
-    type: z.literal("subsection_label"),
+    kind: z.literal("subsection_label"),
     label: z.string(),
   })
   .strict();
 
 const ParagraphBreakSegmentSchema = z
   .object({
-    type: z.literal("paragraph_break"),
+    kind: z.literal("paragraph_break"),
   })
   .strict();
 
@@ -154,28 +156,28 @@ const ParagraphBreakSegmentSchema = z
 // raw positions all collapsed away, so a format wrapper with empty
 // children would indicate a parser regression.
 type FormatSegment = {
-  type: "format";
+  kind: "format";
   style: "bold" | "italic" | "list" | "listItem";
   children: BodySegment[];
 };
 
 type BodySegment =
-  | { type: "text"; text: string }
-  | { type: "citation"; raw: string; citation_index: number }
+  | { kind: "text"; text: string }
+  | { kind: "citation"; raw: string; citation_index: number }
   | {
-      type: "defined_term";
+      kind: "defined_term";
       raw: string;
       def_id: DefinitionId;
       candidates_dropped?: DefinitionId[];
     }
-  | { type: "subsection_label"; label: string }
-  | { type: "paragraph_break" }
+  | { kind: "subsection_label"; label: string }
+  | { kind: "paragraph_break" }
   | FormatSegment;
 
 const FormatSegmentSchema: z.ZodType<FormatSegment> = z.lazy(() =>
   z
     .object({
-      type: z.literal("format"),
+      kind: z.literal("format"),
       style: z.enum(["bold", "italic", "list", "listItem"]),
       children: z.array(BodySegmentSchema).min(1),
     })
@@ -193,15 +195,40 @@ const BodySegmentSchema: z.ZodType<BodySegment> = z.lazy(() =>
   ]),
 );
 
+/**
+ * Depth-first walk over a body[] tree. The visitor is called once per
+ * segment, before recursion descends into format.children. Use this
+ * everywhere a consumer needs to scan body[] for a particular variant
+ * (defined-term occurrences, subsection labels, etc.); the recursion
+ * into format children is uniform so consumers don't reimplement it.
+ *
+ * Not used by bodyToText (whose switch is tight enough to read on its
+ * own) or by forEachCitationSegment / splitParagraphs (which each have
+ * traversal semantics this generic walker doesn't capture — path
+ * tracking and top-level-only splitting respectively).
+ */
+export function walkBody(
+  segments: readonly BodySegment[],
+  visit: (segment: BodySegment) => void,
+): void {
+  for (const seg of segments) {
+    visit(seg);
+    if (seg.kind === "format") {
+      walkBody(seg.children, visit);
+    }
+  }
+}
+
 // Walk a body[] tree (recursing into format.children) and visit every
 // citation segment so the section-level superRefine can verify each
-// citation_index points at a real entry in `citations[]`. Pure traversal
-// helper — bound to BodySegmentSchema so segment shapes are already
-// validated before this runs.
+// citation_index points at a real entry in `citations[]`. Path
+// tracking is specific to the superRefine — zod uses it to point at
+// the exact body[i].children[j] coordinate that failed — so this
+// walker isn't expressible as a thin wrapper over walkBody.
 function forEachCitationSegment(
   segments: readonly BodySegment[],
   visit: (
-    segment: { type: "citation"; raw: string; citation_index: number },
+    segment: { kind: "citation"; raw: string; citation_index: number },
     path: (string | number)[],
   ) => void,
   path: (string | number)[] = [],
@@ -210,9 +237,9 @@ function forEachCitationSegment(
     const seg = segments[i];
     if (!seg) continue;
     const here = [...path, i];
-    if (seg.type === "citation") {
+    if (seg.kind === "citation") {
       visit(seg, here);
-    } else if (seg.type === "format") {
+    } else if (seg.kind === "format") {
       forEachCitationSegment(seg.children, visit, [...here, "children"]);
     }
   }
@@ -229,7 +256,7 @@ function forEachCitationSegment(
 export function bodyToText(segments: readonly BodySegment[]): string {
   let out = "";
   for (const seg of segments) {
-    switch (seg.type) {
+    switch (seg.kind) {
       case "text":
         out += seg.text;
         break;
@@ -337,3 +364,40 @@ export const SectionFileSchema = z
 export type SectionEditorialStatus = z.infer<typeof SectionEditorialStatusSchema>;
 export type SectionFile = z.infer<typeof SectionFileSchema>;
 export type { BodySegment };
+
+// RenderBodySegment is the render-time superset BodySegment that overlay
+// rendering uses. Three extra leaf variants (`diff_insert`, `diff_delete`,
+// `diff_elision`) carry inline diff content the overlay mode lays out
+// alongside untouched prose. They live OUTSIDE BodySegment so
+// SectionFileSchema can never silently accept overlay-flavored corpus JSON
+// from disk — the typography rules for "this body[] only contains parser
+// output" stay intact.
+export type RenderBodySegment =
+  | BodySegment
+  | { kind: "diff_insert"; text: string }
+  | { kind: "diff_delete"; text: string }
+  | { kind: "diff_elision"; text: string };
+
+/**
+ * Split a flat body[] at top-level `paragraph_break` segments. Returns
+ * one array per paragraph; empty paragraphs (consecutive breaks) are
+ * dropped. The schema's paragraph_break is a flat marker — not a
+ * wrapping Paragraph[] — so the splitter doesn't recurse into format
+ * children. Generic in T so both BodySegment[] (the corpus body) and
+ * RenderBodySegment[] (the overlay reconstruction) share the same
+ * paragraph splitting logic.
+ */
+export function splitParagraphs<T extends { readonly kind: string }>(body: readonly T[]): T[][] {
+  const out: T[][] = [];
+  let current: T[] = [];
+  for (const seg of body) {
+    if (seg.kind === "paragraph_break") {
+      if (current.length > 0) out.push(current);
+      current = [];
+    } else {
+      current.push(seg);
+    }
+  }
+  if (current.length > 0) out.push(current);
+  return out;
+}

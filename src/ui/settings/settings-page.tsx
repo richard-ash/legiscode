@@ -21,10 +21,10 @@ import {
   type ShortcutGroup,
   type ShortcutScope,
 } from "@/ui/shortcuts/registry";
-import type { SettingsSection } from "@/workbench/open-items";
+import type { SettingsPane } from "@/workbench/open-items";
 
 export interface SettingsPageProps {
-  section: SettingsSection;
+  section: SettingsPane;
   /** ARIA tabpanel wiring from the tab dispatcher, mirroring SectionView. */
   tabPanel?: { id: string; labelledBy: string };
 }

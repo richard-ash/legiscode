@@ -20,7 +20,7 @@ function bill(over: Partial<Bill> = {}): Bill {
     text_diff: [],
     parse_status: "manual_review",
     structural_change_scope: null,
-    body: { preamble: "", sections: [], closing: "" },
+    body: { preamble: "", amendments: [], closing: "" },
     ...over,
   };
 }
@@ -312,7 +312,7 @@ describe("anchorTextDiff — wholesale delete", () => {
       body: {
         preamble: "",
         closing: "",
-        sections: [
+        amendments: [
           {
             action:
               "Section 1. Article 8 of the Police Code is hereby amended by deleting Section 515, to read as follows:",
@@ -355,7 +355,7 @@ describe("anchorTextDiff — wholesale delete", () => {
       body: {
         preamble: "",
         closing: "",
-        sections: [
+        amendments: [
           {
             action:
               "Section 1. Article 8 of the Police Code is hereby amended by deleting Sections 515 and 516, to read as follows:",
@@ -395,7 +395,7 @@ describe("anchorTextDiff — wholesale delete", () => {
       body: {
         preamble: "",
         closing: "",
-        sections: [
+        amendments: [
           {
             action: "is hereby amended by deleting Section 515, to read as follows:",
             target: { module_id: "sf-police", raw_section_id: "515" },
@@ -429,13 +429,13 @@ describe("anchorTextDiff — wholesale add", () => {
       body: {
         preamble: "",
         closing: "",
-        sections: [
+        amendments: [
           {
             action:
               "Section 1. The Administrative Code is hereby amended by adding Section 12X.5, to read as follows:",
             target: { module_id: "sf-administrative", raw_section_id: "12X.5" },
             body: [
-              { kind: "section_header", number: "12X.5", title: "Privacy Reporting." },
+              { kind: "code_section_header", number: "12X.5", title: "Privacy Reporting." },
               { kind: "paragraph", text: "Each Department shall submit an annual report." },
             ],
           },

@@ -303,9 +303,9 @@ function computeUnresolvableDefIds(parsed: ParsedModule): readonly UnresolvableD
 
 function walkDefIds(segments: readonly BodySegment[], visit: (defId: DefinitionId) => void): void {
   for (const seg of segments) {
-    if (seg.type === "defined_term") {
+    if (seg.kind === "defined_term") {
       visit(seg.def_id);
-    } else if (seg.type === "format") {
+    } else if (seg.kind === "format") {
       walkDefIds(seg.children, visit);
     }
   }

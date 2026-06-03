@@ -28,7 +28,7 @@
 // from the outer format(bold) and the citation child renders as a link
 // inside the bolded run.
 
-import type { Citation, Definition, DefinitionId, SectionId } from "@/types";
+import type { BodySegment, Citation, Definition, DefinitionId, SectionId } from "@/types";
 import type { SpanRecord } from "./parse-html";
 import { arbitrate, type GlossaryRecognizer, type Span } from "./recognize";
 import { buildCandidatesByTerm, resolveDefinitionForOccurrence } from "./resolve-definition";
@@ -39,22 +39,7 @@ import { buildCandidatesByTerm, resolveDefinitionForOccurrence } from "./resolve
 // resolver pass attaches def_id + raw, or drops the span to a text gap when
 // unresolved or self-suppressed.
 
-// Internal representation matching the BodySegment schema. We avoid
-// importing the BodySegment type from @/types here to keep the
-// algorithm decoupled from zod runtime; the export at the bottom
-// produces values that conform to BodySegmentSchema.
-type Segment =
-  | { type: "text"; text: string }
-  | { type: "citation"; raw: string; citation_index: number }
-  | {
-      type: "defined_term";
-      raw: string;
-      def_id: DefinitionId;
-      candidates_dropped?: DefinitionId[];
-    }
-  | { type: "subsection_label"; label: string }
-  | { type: "paragraph_break" }
-  | { type: "format"; style: "bold" | "italic" | "list" | "listItem"; children: Segment[] };
+type Segment = BodySegment;
 
 export interface UnresolvedReferenceReport {
   /** The matched term text. */
@@ -162,7 +147,7 @@ function buildPrimaryLeaves(text: string, primaries: Span[]): PositionedLeaf[] {
       out.push({
         start: cursor,
         end: p.start,
-        segment: { type: "text", text: text.slice(cursor, p.start) },
+        segment: { kind: "text", text: text.slice(cursor, p.start) },
       });
     }
     switch (p.kind) {
@@ -170,7 +155,7 @@ function buildPrimaryLeaves(text: string, primaries: Span[]): PositionedLeaf[] {
         out.push({
           start: p.start,
           end: p.end,
-          segment: { type: "citation", raw: p.raw, citation_index: p.citation_index },
+          segment: { kind: "citation", raw: p.raw, citation_index: p.citation_index },
         });
         break;
       case "defined_term": {
@@ -178,7 +163,7 @@ function buildPrimaryLeaves(text: string, primaries: Span[]): PositionedLeaf[] {
         // that survived has def_id + raw populated; the unresolved/
         // self-suppressed ones were dropped to text gaps upstream.
         if (p.def_id === undefined || p.raw === undefined) continue;
-        const segment: Segment = { type: "defined_term", raw: p.raw, def_id: p.def_id };
+        const segment: Segment = { kind: "defined_term", raw: p.raw, def_id: p.def_id };
         if (p.candidates_dropped !== undefined && p.candidates_dropped.length > 0) {
           segment.candidates_dropped = p.candidates_dropped;
         }
@@ -189,14 +174,14 @@ function buildPrimaryLeaves(text: string, primaries: Span[]): PositionedLeaf[] {
         out.push({
           start: p.start,
           end: p.end,
-          segment: { type: "subsection_label", label: p.label },
+          segment: { kind: "subsection_label", label: p.label },
         });
         break;
       case "paragraph_break":
         out.push({
           start: p.start,
           end: p.end,
-          segment: { type: "paragraph_break" },
+          segment: { kind: "paragraph_break" },
         });
         break;
     }
@@ -206,7 +191,7 @@ function buildPrimaryLeaves(text: string, primaries: Span[]): PositionedLeaf[] {
     out.push({
       start: cursor,
       end: text.length,
-      segment: { type: "text", text: text.slice(cursor) },
+      segment: { kind: "text", text: text.slice(cursor) },
     });
   }
   return out;
@@ -272,7 +257,7 @@ function wrapWithFormatSpans(
           nextFormat.children,
         );
         out.push({
-          type: "format",
+          kind: "format",
           style: nextFormat.style,
           children: childSegs,
         });
@@ -309,10 +294,10 @@ function wrapWithFormatSpans(
 // non-text leaf is the leaf's full range.
 function sliceSegment(leaf: PositionedLeaf, fragStart: number, fragEnd: number): Segment {
   if (leaf.start === fragStart && leaf.end === fragEnd) return leaf.segment;
-  if (leaf.segment.type === "text") {
+  if (leaf.segment.kind === "text") {
     const offset = fragStart - leaf.start;
     const length = fragEnd - fragStart;
-    return { type: "text", text: leaf.segment.text.slice(offset, offset + length) };
+    return { kind: "text", text: leaf.segment.text.slice(offset, offset + length) };
   }
   // Unreachable given the upstream filter; the early-return above covers
   // the legitimate full-range case.

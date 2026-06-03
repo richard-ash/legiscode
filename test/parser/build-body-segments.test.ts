@@ -64,7 +64,7 @@ function expectedDefId(term: string): string {
 // expected def_id (and the default raw when no override is supplied).
 function definedTermSegment(term: string, raw?: string) {
   return {
-    type: "defined_term" as const,
+    kind: "defined_term" as const,
     raw: raw ?? term,
     def_id: expectedDefId(term),
   };
@@ -79,7 +79,7 @@ describe("buildBodySegments — primary annotation tiling", () => {
       moduleDefinitions: [],
       readerSection: testReader,
     });
-    expect(out).toEqual([{ type: "text", text: "plain prose with no markup" }]);
+    expect(out).toEqual([{ kind: "text", text: "plain prose with no markup" }]);
   });
 
   it("returns [] for empty text", () => {
@@ -110,9 +110,9 @@ describe("buildBodySegments — primary annotation tiling", () => {
       readerSection: testReader,
     });
     expect(out).toEqual([
-      { type: "text", text: "See " },
-      { type: "citation", raw: "§ 1.01", citation_index: 0 },
-      { type: "text", text: " for details." },
+      { kind: "text", text: "See " },
+      { kind: "citation", raw: "§ 1.01", citation_index: 0 },
+      { kind: "text", text: " for details." },
     ]);
   });
 
@@ -126,9 +126,9 @@ describe("buildBodySegments — primary annotation tiling", () => {
       readerSection: testReader,
     });
     expect(out).toEqual([
-      { type: "text", text: "The " },
+      { kind: "text", text: "The " },
       definedTermSegment("Person"),
-      { type: "text", text: " shall comply." },
+      { kind: "text", text: " shall comply." },
     ]);
   });
 
@@ -149,11 +149,11 @@ describe("buildBodySegments — primary annotation tiling", () => {
       readerSection: testReader,
     });
     expect(out).toEqual([
-      { type: "text", text: "see " },
-      { type: "citation", raw: "Section 1.01", citation_index: 0 },
-      { type: "text", text: " ('" },
+      { kind: "text", text: "see " },
+      { kind: "citation", raw: "Section 1.01", citation_index: 0 },
+      { kind: "text", text: " ('" },
       definedTermSegment("Person"),
-      { type: "text", text: "')" },
+      { kind: "text", text: "')" },
     ]);
   });
 
@@ -174,8 +174,8 @@ describe("buildBodySegments — primary annotation tiling", () => {
       readerSection: testReader,
     });
     expect(out).toEqual([
-      { type: "citation", raw: "Person 1.01", citation_index: 0 },
-      { type: "text", text: " applies" },
+      { kind: "citation", raw: "Person 1.01", citation_index: 0 },
+      { kind: "text", text: " applies" },
     ]);
   });
 
@@ -189,8 +189,8 @@ describe("buildBodySegments — primary annotation tiling", () => {
       readerSection: testReader,
     });
     expect(out).toEqual([
-      { type: "subsection_label", label: "(a)" },
-      { type: "text", text: " The mayor shall act." },
+      { kind: "subsection_label", label: "(a)" },
+      { kind: "text", text: " The mayor shall act." },
     ]);
   });
 
@@ -203,7 +203,7 @@ describe("buildBodySegments — primary annotation tiling", () => {
       moduleDefinitions: [],
       readerSection: testReader,
     });
-    expect(out).toEqual([{ type: "text", text: "See option (a) of the rule." }]);
+    expect(out).toEqual([{ kind: "text", text: "See option (a) of the rule." }]);
   });
 
   it("emits subsection_label after a paragraph_break (path 12, multi-paragraph)", () => {
@@ -216,10 +216,10 @@ describe("buildBodySegments — primary annotation tiling", () => {
       readerSection: testReader,
     });
     expect(out).toEqual([
-      { type: "text", text: "First paragraph." },
-      { type: "paragraph_break" },
-      { type: "subsection_label", label: "(b)" },
-      { type: "text", text: " The next subsection." },
+      { kind: "text", text: "First paragraph." },
+      { kind: "paragraph_break" },
+      { kind: "subsection_label", label: "(b)" },
+      { kind: "text", text: " The next subsection." },
     ]);
   });
 });
@@ -242,13 +242,13 @@ describe("buildBodySegments — format wrapping", () => {
       readerSection: testReader,
     });
     expect(out).toEqual([
-      { type: "text", text: "X " },
+      { kind: "text", text: "X " },
       {
-        type: "format",
+        kind: "format",
         style: "bold",
-        children: [{ type: "citation", raw: "bold-cite", citation_index: 0 }],
+        children: [{ kind: "citation", raw: "bold-cite", citation_index: 0 }],
       },
-      { type: "text", text: " Y" },
+      { kind: "text", text: " Y" },
     ]);
   });
 
@@ -264,9 +264,9 @@ describe("buildBodySegments — format wrapping", () => {
       moduleDefinitions: [],
       readerSection: testReader,
     });
-    expect(out[0]).toEqual({ type: "text", text: "x " });
-    expect(out[2]).toEqual({ type: "text", text: " y" });
-    expect(out[1]?.type).toBe("format");
+    expect(out[0]).toEqual({ kind: "text", text: "x " });
+    expect(out[2]).toEqual({ kind: "text", text: " y" });
+    expect(out[1]?.kind).toBe("format");
   });
 });
 
@@ -289,7 +289,7 @@ describe("buildBodySegments — CT8 hard cases", () => {
       moduleDefinitions: [],
       readerSection: testReader,
     });
-    expect(out).toEqual([{ type: "citation", raw: "§ 10.04.020", citation_index: 0 }]);
+    expect(out).toEqual([{ kind: "citation", raw: "§ 10.04.020", citation_index: 0 }]);
   });
 
   it("CT8 #27b: format span fully containing a citation wraps it atomically", () => {
@@ -310,9 +310,9 @@ describe("buildBodySegments — CT8 hard cases", () => {
     });
     expect(out).toEqual([
       {
-        type: "format",
+        kind: "format",
         style: "bold",
-        children: [{ type: "citation", raw: "§ 10.04.020", citation_index: 0 }],
+        children: [{ kind: "citation", raw: "§ 10.04.020", citation_index: 0 }],
       },
     ]);
   });
@@ -331,15 +331,15 @@ describe("buildBodySegments — CT8 hard cases", () => {
     });
     expect(out).toEqual([
       {
-        type: "format",
+        kind: "format",
         style: "italic",
-        children: [{ type: "text", text: "foo" }],
+        children: [{ kind: "text", text: "foo" }],
       },
-      { type: "text", text: " " },
+      { kind: "text", text: " " },
       {
-        type: "format",
+        kind: "format",
         style: "bold",
-        children: [{ type: "text", text: "bar" }],
+        children: [{ kind: "text", text: "bar" }],
       },
     ]);
   });
@@ -367,10 +367,10 @@ describe("buildBodySegments — CT8 hard cases", () => {
       readerSection: testReader,
     });
     expect(out).toEqual([
-      { type: "citation", raw: "Section 1.01", citation_index: 0 },
-      { type: "text", text: " amends " },
-      { type: "citation", raw: "Section 1.01", citation_index: 1 },
-      { type: "text", text: "." },
+      { kind: "citation", raw: "Section 1.01", citation_index: 0 },
+      { kind: "text", text: " amends " },
+      { kind: "citation", raw: "Section 1.01", citation_index: 1 },
+      { kind: "text", text: "." },
     ]);
   });
 
@@ -384,11 +384,11 @@ describe("buildBodySegments — CT8 hard cases", () => {
       readerSection: testReader,
     });
     expect(out).toEqual([
-      { type: "text", text: "A " },
+      { kind: "text", text: "A " },
       definedTermSegment("Person"),
-      { type: "text", text: " sees another " },
+      { kind: "text", text: " sees another " },
       definedTermSegment("Person"),
-      { type: "text", text: "." },
+      { kind: "text", text: "." },
     ]);
   });
 
@@ -403,7 +403,7 @@ describe("buildBodySegments — CT8 hard cases", () => {
     });
     expect(out).toEqual([
       {
-        type: "format",
+        kind: "format",
         style: "bold",
         children: [definedTermSegment("click")],
       },
@@ -426,9 +426,9 @@ describe("buildBodySegments — defined-term occurrence scanning", () => {
       readerSection: testReader,
     });
     expect(out).toEqual([
-      { type: "text", text: "The " },
+      { kind: "text", text: "The " },
       definedTermSegment("Director of Transportation"),
-      { type: "text", text: " acts." },
+      { kind: "text", text: " acts." },
     ]);
   });
 
@@ -441,7 +441,7 @@ describe("buildBodySegments — defined-term occurrence scanning", () => {
       moduleDefinitions: [mockDefinition("Person")],
       readerSection: testReader,
     });
-    expect(out).toEqual([{ type: "text", text: "A Personal note." }]);
+    expect(out).toEqual([{ kind: "text", text: "A Personal note." }]);
   });
 });
 
@@ -461,11 +461,11 @@ describe("buildBodySegments — bug ① name inside a bigger name", () => {
       moduleDefinitions: [mockDefinition("Department")],
       readerSection: testReader,
     });
-    const tagged = out.filter((s) => s.type === "defined_term");
+    const tagged = out.filter((s) => s.kind === "defined_term");
     expect(tagged).toEqual([definedTermSegment("Department")]);
     // The suppressed occurrence falls back to a text gap, so the body
     // still re-flattens to the source text.
-    expect(out.map((s) => (s.type === "text" ? s.text : "")).join("")).toContain(
+    expect(out.map((s) => (s.kind === "text" ? s.text : "")).join("")).toContain(
       "Department of Emergency Management",
     );
   });
@@ -479,7 +479,7 @@ describe("buildBodySegments — bug ① name inside a bigger name", () => {
       moduleDefinitions: [mockDefinition("City")],
       readerSection: testReader,
     });
-    expect(out.filter((s) => s.type === "defined_term")).toEqual([]);
+    expect(out.filter((s) => s.kind === "defined_term")).toEqual([]);
   });
 });
 
@@ -502,13 +502,13 @@ describe("buildBodySegments — bug ⑤ single arbiter tiling", () => {
       readerSection: testReader,
     });
     expect(out).toEqual([
-      { type: "subsection_label", label: "(a)" },
-      { type: "text", text: " See " },
-      { type: "citation", raw: "Section 1.01", citation_index: 0 },
-      { type: "text", text: " now." },
-      { type: "paragraph_break" },
-      { type: "subsection_label", label: "(b)" },
-      { type: "text", text: " Done." },
+      { kind: "subsection_label", label: "(a)" },
+      { kind: "text", text: " See " },
+      { kind: "citation", raw: "Section 1.01", citation_index: 0 },
+      { kind: "text", text: " now." },
+      { kind: "paragraph_break" },
+      { kind: "subsection_label", label: "(b)" },
+      { kind: "text", text: " Done." },
     ]);
   });
 });
@@ -527,11 +527,11 @@ describe("buildBodySegments — paragraph_break", () => {
       readerSection: testReader,
     });
     expect(out).toEqual([
-      { type: "text", text: "Line 1." },
-      { type: "paragraph_break" },
-      { type: "text", text: "Line 2." },
-      { type: "paragraph_break" },
-      { type: "text", text: "Line 3." },
+      { kind: "text", text: "Line 1." },
+      { kind: "paragraph_break" },
+      { kind: "text", text: "Line 2." },
+      { kind: "paragraph_break" },
+      { kind: "text", text: "Line 3." },
     ]);
   });
 });
@@ -548,7 +548,7 @@ describe("buildBodySegments — L2a per-occurrence resolution", () => {
       moduleDefinitions: [mockDefinition("Person")],
       readerSection: testReader,
     });
-    const segment = out.find((s) => s.type === "defined_term");
+    const segment = out.find((s) => s.kind === "defined_term");
     expect(segment).toEqual(definedTermSegment("Person"));
   });
 
@@ -568,7 +568,7 @@ describe("buildBodySegments — L2a per-occurrence resolution", () => {
     });
     // The defined_term primary is dropped; the gap-filler emits a
     // single text segment covering the whole string.
-    expect(out).toEqual([{ type: "text", text: "The Phantom moves." }]);
+    expect(out).toEqual([{ kind: "text", text: "The Phantom moves." }]);
     expect(reports).toEqual([{ term: "Phantom" }]);
   });
 
@@ -592,9 +592,9 @@ describe("buildBodySegments — L2a per-occurrence resolution", () => {
       readerSection: { id: "definer-id", hierarchy: [] },
     });
     expect(out).toEqual([
-      { type: "text", text: "The Person means a Person.\nThe " },
-      { type: "defined_term", raw: "Person", def_id: definer.id },
-      { type: "text", text: " elsewhere." },
+      { kind: "text", text: "The Person means a Person.\nThe " },
+      { kind: "defined_term", raw: "Person", def_id: definer.id },
+      { kind: "text", text: " elsewhere." },
     ]);
   });
 
@@ -635,12 +635,12 @@ describe("buildBodySegments — L2a per-occurrence resolution", () => {
       moduleDefinitions: [city, department, requestor],
       readerSection: { id: definer, hierarchy: [] },
     });
-    const tagged = out.filter((s) => s.type === "defined_term");
+    const tagged = out.filter((s) => s.kind === "defined_term");
     // Only the two cross-term links in the Requestor paragraph survive,
     // in document order. Every self-reference is suppressed.
     expect(tagged).toEqual([
-      { type: "defined_term", raw: "Department", def_id: department.id },
-      { type: "defined_term", raw: "City", def_id: city.id },
+      { kind: "defined_term", raw: "Department", def_id: department.id },
+      { kind: "defined_term", raw: "City", def_id: city.id },
     ]);
   });
 
@@ -663,14 +663,14 @@ describe("buildBodySegments — L2a per-occurrence resolution", () => {
       readerSection: testReader,
     });
     expect(out).toEqual([
-      { type: "text", text: "The " },
+      { kind: "text", text: "The " },
       {
-        type: "defined_term",
+        kind: "defined_term",
         raw: "City",
         def_id: winner.id,
         candidates_dropped: [loser.id],
       },
-      { type: "text", text: " acts." },
+      { kind: "text", text: " acts." },
     ]);
   });
 

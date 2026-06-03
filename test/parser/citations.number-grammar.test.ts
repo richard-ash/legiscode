@@ -122,7 +122,7 @@ describe("citation_index integrity through the body builder", () => {
     const result = SectionFileSchema.safeParse(section);
     expect(result.success).toBe(true);
     // The overlap resolved to the citation, not a defined_term.
-    expect(body.some((s) => s.type === "citation" && s.citation_index === 0)).toBe(true);
-    expect(body.some((s) => s.type === "defined_term")).toBe(false);
+    expect(body.some((s) => s.kind === "citation" && s.citation_index === 0)).toBe(true);
+    expect(body.some((s) => s.kind === "defined_term")).toBe(false);
   });
 });
