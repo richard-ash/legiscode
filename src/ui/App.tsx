@@ -7,14 +7,8 @@
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { api } from "@/app/api";
 import { applyPersistedLineHeightMult } from "@/app/section-line-height";
-import { type CorpusExistence, resolve } from "@/citations/resolver";
-import {
-  type CorpusRef,
-  corpusRefFromWire,
-  corpusRefToWire,
-  parse as parseRef,
-  hash as refHash,
-} from "@/corpus/refs";
+import { useCitationDispatch } from "@/citations/dispatch";
+import { type CorpusRef, corpusRefFromWire, corpusRefToWire, hash as refHash } from "@/corpus/refs";
 import type {
   CorpusError,
   CorpusModuleSummary,
@@ -23,8 +17,6 @@ import type {
 } from "@/corpus/wire";
 import { readOpenItems, writeOpenItems } from "@/persistence";
 import type { Bill } from "@/types";
-import { type ModuleId, ModuleIdSchema } from "@/types";
-import type { Citation } from "@/types/citation";
 import { ActivityBar } from "@/ui/chrome/activity-bar";
 import { BootOverlay } from "@/ui/chrome/boot-overlay";
 import { Breadcrumb } from "@/ui/chrome/breadcrumb";
@@ -42,20 +34,19 @@ import { useShortcut } from "@/ui/shortcuts/use-shortcut";
 import { TabEmptyState } from "@/ui/tabs/empty-state";
 import { useTabKeyboardShortcuts } from "@/ui/tabs/keyboard-shortcuts";
 import { TabContent } from "@/ui/tabs/tab-content";
-import { buildPendingBillsById, buildTitleMap, TabStrip } from "@/ui/tabs/tab-strip";
+import { TabStrip } from "@/ui/tabs/tab-strip";
 import { useTabs } from "@/ui/tabs/use-tabs";
+import { useCorpusIndices } from "@/ui/use-corpus-indices";
 import { useNavigation } from "@/ui/use-navigation";
 import {
   activeItem,
   emptyOpenItems,
   fromPersisted,
-  type OpenItem,
   type OpenItemsState,
   openItem,
   toPersisted,
   validateAgainstCorpus,
 } from "@/workbench";
-import type { NavigationIntent } from "@/workbench/navigate";
 
 export function App() {
   const [corpus, setCorpus] = useState<CorpusModuleSummary | null>(null);
@@ -207,46 +198,15 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [palette.toggle]);
 
-  // `Map<RefHash, CorpusTreeNode>` keyed by `module::section`, built
-  // once per corpus snapshot and threaded through TabStrip for O(1)
-  // per-tab title lookup.
-  const titleMap = useMemo(() => buildTitleMap(corpus?.tree ?? []), [corpus]);
-
-  // O(1) bill-title lookup for tab labels, mirroring titleMap. Bills
-  // are not tree nodes so the tab strip needs a separate index.
-  const pendingBillsById = useMemo(
-    () => buildPendingBillsById(corpus?.pendingBills.bills ?? []),
-    [corpus],
-  );
-
-  // Display-name lookup for a module id — feeds the bill kicker
-  // ("Police Code · 1st Reading"). Walks the top-level tree once and
-  // memoizes; module rows live at depth 1 in the jurisdiction-rooted
-  // tree.
-  const codeLabelByModuleId = useMemo(() => {
-    const out = new Map<string, string>();
-    const stack = [...(corpus?.tree ?? [])];
-    while (stack.length > 0) {
-      const node = stack.pop();
-      if (!node) continue;
-      if (node.kind === "code") out.set(node.id, node.code || node.name || node.id);
-      if (node.kids) for (const k of node.kids) stack.push(k);
-    }
-    return out;
-  }, [corpus]);
-
-  const lookupCodeLabel = useCallback(
-    (moduleId: string): string | null => codeLabelByModuleId.get(moduleId) ?? null,
-    [codeLabelByModuleId],
-  );
-
-  const lookupSectionTitle = useCallback(
-    (ref: CorpusRef): string | null => {
-      const node = titleMap.get(refHash(ref));
-      return node?.name ?? null;
-    },
-    [titleMap],
-  );
+  const {
+    titleMap,
+    pendingBillsById,
+    installedModules,
+    lookupCodeLabel,
+    lookupSectionTitle,
+    isRefInCorpus,
+    getCitationPreview,
+  } = useCorpusIndices(corpus);
 
   const onOpenLegistar = useCallback((url: string) => {
     // Fire-and-forget. The main-side handler validates http(s) before
@@ -261,24 +221,6 @@ export function App() {
   }, []);
 
   const pendingBillsView = usePendingBills(corpus);
-
-  // Use the title map as the corpus-validity predicate for
-  // recentlyClosed re-validation. Cheap, no second tree walk.
-  const isRefInCorpus = useCallback((ref: CorpusRef) => titleMap.has(refHash(ref)), [titleMap]);
-
-  // Set of installed module ids, derived from titleMap so the existence
-  // oracle re-uses the same per-corpus walk. Used by the resolver to
-  // distinguish cross-module citations into uninstalled modules
-  // (unresolvable) from those into installed ones.
-  const installedModules = useMemo<ReadonlySet<ModuleId>>(() => {
-    const out = new Set<ModuleId>();
-    for (const node of titleMap.values()) {
-      if (!node.ref) continue;
-      const parsed = ModuleIdSchema.safeParse(node.ref.moduleId);
-      if (parsed.success) out.add(parsed.data);
-    }
-    return out;
-  }, [titleMap]);
 
   // useNavigation owns the active-tab state mutators + the ⌘⌥←/→
   // keyboard listener. navigate(item, intent) is the only entry
@@ -303,114 +245,14 @@ export function App() {
   }, [navigate]);
   useShortcut("global.open-settings", openSettings);
 
-  const buildExistence = useCallback((): CorpusExistence | null => {
-    if (!corpus || !section) return null;
-    const parsed = ModuleIdSchema.safeParse(section.moduleId);
-    if (!parsed.success) return null;
-    const citingModule = parsed.data;
-    let activeSectionRef: CorpusRef | null = null;
-    try {
-      activeSectionRef = parseRef({ module: citingModule, section: section.section.id });
-    } catch {
-      activeSectionRef = null;
-    }
-    return {
-      citingModule,
-      installedModules,
-      activeSection: activeSectionRef,
-      hasSection: (module, sectionId) => {
-        try {
-          return titleMap.has(refHash(parseRef({ module, section: sectionId })));
-        } catch {
-          return false;
-        }
-      },
-      findStructural: (level, number) =>
-        findStructuralRef(corpus.tree, citingModule, level, number),
-    };
-  }, [corpus, section, installedModules, titleMap]);
-
-  const resolveCitation = useCallback(
-    (citation: Citation) => {
-      const existence = buildExistence();
-      if (!existence) return null;
-      return resolve(citation, existence);
-    },
-    [buildExistence],
-  );
-
-  // Synchronous (title, excerpt) lookup for the citation hover popover.
-  // Same titleMap that powers tab titles — node carries `code`, `name`,
-  // and the optional `preview` baked at corpus-load time. Returns null
-  // when the ref isn't in the loaded corpus (cross-module into an
-  // uninstalled module; the popover handles that case via the resolution
-  // discriminator, not via preview).
-  const getCitationPreview = useCallback(
-    (ref: CorpusRef, subsection?: string): { title: string; excerpt?: string } | null => {
-      const node = titleMap.get(refHash(ref));
-      if (!node) return null;
-      const title = node.name ? `${node.code} — ${node.name}` : node.code;
-      // Subsection-keyed excerpt wins when the cite targets a subsection
-      // and the parser-emitted label matches a pre-baked entry; else fall
-      // back to the section-level preview.
-      const subsectionExcerpt =
-        subsection && node.subsectionPreviews ? node.subsectionPreviews[subsection] : undefined;
-      const excerpt = subsectionExcerpt ?? node.preview;
-      return excerpt ? { title, excerpt } : { title };
-    },
-    [titleMap],
-  );
-
-  const onCitationActivate = useCallback(
-    (citation: Citation, intent: NavigationIntent) => {
-      const existence = buildExistence();
-      if (!existence) return;
-      const result = resolve(citation, existence);
-      switch (result.kind) {
-        case "navigate-section": {
-          const item: OpenItem = { kind: "section", ref: result.ref };
-          navigate(item, intent, result.subsection ? { subsection: result.subsection } : undefined);
-          return;
-        }
-        case "navigate-structural": {
-          const item: OpenItem = { kind: "section", ref: result.ref };
-          navigate(item, intent);
-          return;
-        }
-        case "navigate-appendix": {
-          // No appendix viewer in v1; resolver still returns the verb so
-          // the consumer can drop in support without re-discriminating.
-          console.warn(
-            `[citations] appendix navigation not yet implemented: ${result.module}::${result.appendixId}`,
-          );
-          return;
-        }
-        case "module-not-installed": {
-          // Decided 2026-05-20: ⌘-click on a not-installed module is a
-          // no-op; the popover is the user-facing affordance.
-          return;
-        }
-        case "scroll-only": {
-          if (!section) return;
-          requestScroll({
-            subsection: result.subsection,
-            targetSectionKey: `${section.moduleId}::${section.section.id}`,
-          });
-          return;
-        }
-        case "unresolvable": {
-          // Should never fire from committed corpus data — the
-          // build-time binder gate refuses to ship unbindable cites,
-          // and the dispatcher upstream filters vague targets. A fire
-          // here means a regression leaked one past. Loud-log only;
-          // no toast in v1 — the gate is the user-facing signal.
-          console.error(`[citations] unresolvable: ${result.reason}`);
-          return;
-        }
-      }
-    },
-    [buildExistence, section, navigate, requestScroll],
-  );
+  const { resolveCitation, onCitationActivate } = useCitationDispatch({
+    corpus,
+    section,
+    installedModules,
+    titleMap,
+    navigate,
+    requestScroll,
+  });
 
   const {
     close: closeTabAt,
@@ -668,116 +510,6 @@ function hasRefInTree(tree: readonly CorpusTreeNode[], ref: CorpusRef): boolean 
     if (node.kids) for (const k of node.kids) stack.push(k);
   }
   return false;
-}
-
-// Convert a positive integer (≤ 3999) to a Roman numeral. SF's
-// chapter/article naming uses both forms — Articles tend to be Roman
-// ("ARTICLE V"), chapters arabic ("CHAPTER 5") — so the structural
-// resolver tries both when matching tree node prefixes.
-const ROMAN_PIECES: ReadonlyArray<readonly [number, string]> = [
-  [1000, "M"],
-  [900, "CM"],
-  [500, "D"],
-  [400, "CD"],
-  [100, "C"],
-  [90, "XC"],
-  [50, "L"],
-  [40, "XL"],
-  [10, "X"],
-  [9, "IX"],
-  [5, "V"],
-  [4, "IV"],
-  [1, "I"],
-];
-export function toRoman(n: number): string {
-  if (!Number.isInteger(n) || n <= 0 || n > 3999) return "";
-  let remaining = n;
-  let out = "";
-  for (const [value, symbol] of ROMAN_PIECES) {
-    while (remaining >= value) {
-      out += symbol;
-      remaining -= value;
-    }
-  }
-  return out;
-}
-
-export function findStructuralRef(
-  tree: readonly CorpusTreeNode[],
-  module: ModuleId,
-  level: "article" | "chapter" | "division" | "title",
-  number: string,
-): CorpusRef | null {
-  const moduleRoot = findModuleRoot(tree, module);
-  if (!moduleRoot?.kids) return null;
-  const labelUpper = level.toUpperCase();
-  const candidates = new Set<string>([number]);
-  const asInt = Number.parseInt(number, 10);
-  if (!Number.isNaN(asInt)) {
-    const roman = toRoman(asInt);
-    if (roman) candidates.add(roman);
-  }
-  // Delimited prefixes (e.g. "CHAPTER 1:" / "CHAPTER 1 ") match by
-  // startsWith — the trailing delimiter prevents "CHAPTER 1" from
-  // claiming "CHAPTER 10". Bare matchers (no trailing delimiter) must
-  // be exact-equality matches so labels that are just the cited number
-  // with no trailing prose still resolve.
-  const prefixMatchers: string[] = [];
-  const exactMatchers: string[] = [];
-  for (const cand of candidates) {
-    prefixMatchers.push(`${labelUpper} ${cand}:`);
-    prefixMatchers.push(`${labelUpper} ${cand} `);
-    exactMatchers.push(`${labelUpper} ${cand}`);
-  }
-  function firstSection(node: CorpusTreeNode): CorpusTreeNode | null {
-    if (node.kind === "section" && node.ref) return node;
-    if (node.kids) {
-      for (const k of node.kids) {
-        const r = firstSection(k);
-        if (r) return r;
-      }
-    }
-    return null;
-  }
-  const stack: CorpusTreeNode[] = [...moduleRoot.kids];
-  while (stack.length > 0) {
-    const node = stack.pop();
-    if (!node) continue;
-    if (
-      node.kind === "chapter" &&
-      (prefixMatchers.some((p) => node.code.startsWith(p)) ||
-        exactMatchers.some((e) => node.code === e))
-    ) {
-      const leaf = firstSection(node);
-      if (leaf?.ref) {
-        try {
-          return parseRef({ module, section: leaf.ref.sectionId });
-        } catch {
-          // Fall through to next match if ref parse fails.
-        }
-      }
-    }
-    if (node.kids) for (const k of node.kids) stack.push(k);
-  }
-  return null;
-}
-
-/**
- * Locate a module's root tree node, walking through any jurisdiction
- * wrapper. Returns null when the module isn't loaded.
- */
-function findModuleRoot(
-  tree: readonly CorpusTreeNode[],
-  moduleId: ModuleId,
-): CorpusTreeNode | null {
-  const stack: CorpusTreeNode[] = [...tree];
-  while (stack.length > 0) {
-    const node = stack.pop();
-    if (!node) continue;
-    if (node.kind === "code" && node.id === moduleId) return node;
-    if (node.kids) for (const k of node.kids) stack.push(k);
-  }
-  return null;
 }
 
 /**

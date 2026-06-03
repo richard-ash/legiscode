@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { CorpusTreeNode } from "@/corpus/wire";
-import { findStructuralRef } from "@/ui/App";
+import { findStructuralRef } from "@/citations/structural-resolver";
 
 function chapter(code: string, sectionId: string, sectionTitle = "Title"): CorpusTreeNode {
   return {
