@@ -29,6 +29,7 @@ export type {
   NewlyVagueByReason,
   PerModuleValidation,
   TocCoverageReport,
+  UnresolvableDefinitionRef,
   UnresolvedCitation,
 } from "./validate-corpus";
 export { validateCorpus } from "./validate-corpus";

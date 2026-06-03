@@ -9,7 +9,14 @@
 
 import { describe, expect, it } from "vitest";
 import { validateCorpus } from "@/parser";
-import type { ModuleConfig, ParsedModule, SectionFile, SkippedEntry } from "@/types";
+import type {
+  BodySegment,
+  Definition,
+  ModuleConfig,
+  ParsedModule,
+  SectionFile,
+  SkippedEntry,
+} from "@/types";
 
 const moduleConfig: ModuleConfig = {
   id: "sf-charter",
@@ -296,5 +303,100 @@ describe("validateCorpus — section.id uniqueness gate", () => {
 
     expect(charterReport?.duplicateSectionIds).toEqual([{ id: "1.1", count: 2 }]);
     expect(transportationReport?.duplicateSectionIds).toEqual([]);
+  });
+});
+
+describe("validateCorpus — unresolvable_def_id gate", () => {
+  function makeDefinition(id: string, term: string): Definition {
+    return {
+      id,
+      term,
+      defined_in: "1.1",
+      body_anchor: { start: 0, end: term.length },
+      excerpt: `'${term}' means a thing.`,
+      scope: { kind: "module" },
+      extracted_by: "amlegal:pattern:shall-mean",
+    };
+  }
+
+  function definedTerm(defId: string, raw = "Tenant"): BodySegment {
+    return { type: "defined_term", raw, def_id: defId };
+  }
+
+  // The loader's joinDefinitionsForSection used to silent-skip
+  // defined_term occurrences whose def_id wasn't in the module index.
+  // Per project_legal_corpus_zero_skip the gate moves to build time:
+  // a missing definition becomes a typed BuildError so the runtime
+  // loader can throw on the invariant violation instead.
+  it("flags a defined_term whose def_id has no matching Definition", () => {
+    const sectionA = makeSection("1.1");
+    sectionA.body = [definedTerm("sf-charter/1.1#deadbeef")];
+    const parsed = makeParsedModule({ sections: [sectionA], moduleDefinitions: [] });
+
+    const result = validateCorpus([parsed]);
+
+    expect(result.perModule[0]?.unresolvableDefIds).toEqual([
+      { sectionId: "1.1", defId: "sf-charter/1.1#deadbeef" },
+    ]);
+  });
+
+  it("returns an empty array when every def_id resolves", () => {
+    const sectionA = makeSection("1.1");
+    sectionA.body = [definedTerm("sf-charter/1.1#deadbeef", "Tenant")];
+    const parsed = makeParsedModule({
+      sections: [sectionA],
+      moduleDefinitions: [makeDefinition("sf-charter/1.1#deadbeef", "Tenant")],
+    });
+
+    const result = validateCorpus([parsed]);
+
+    expect(result.perModule[0]?.unresolvableDefIds).toEqual([]);
+  });
+
+  it("walks format.children so nested defined_term refs are gated too", () => {
+    const sectionA = makeSection("1.1");
+    sectionA.body = [
+      {
+        type: "format",
+        style: "bold",
+        children: [definedTerm("sf-charter/1.1#deadbeef")],
+      },
+    ];
+    const parsed = makeParsedModule({ sections: [sectionA], moduleDefinitions: [] });
+
+    const result = validateCorpus([parsed]);
+
+    expect(result.perModule[0]?.unresolvableDefIds).toEqual([
+      { sectionId: "1.1", defId: "sf-charter/1.1#deadbeef" },
+    ]);
+  });
+
+  // The BuildError message must be deterministic so snapshot tests and
+  // operator-visible output don't churn on iteration order. Sort key is
+  // (sectionId, defId) ascending.
+  it("sorts unresolvable refs by (sectionId, defId) and de-dupes repeats within a section", () => {
+    const sectionA = makeSection("1.2");
+    sectionA.body = [
+      definedTerm("sf-charter/9.9#bbbbbbbb"),
+      definedTerm("sf-charter/9.9#aaaaaaaa"),
+      // Repeat occurrence collapses to one row — the operator only
+      // needs the (section, def_id) pair to chase the extractor bug.
+      definedTerm("sf-charter/9.9#bbbbbbbb"),
+    ];
+    const sectionB = makeSection("1.1");
+    sectionB.body = [definedTerm("sf-charter/9.9#cccccccc")];
+
+    const parsed = makeParsedModule({
+      sections: [sectionA, sectionB],
+      moduleDefinitions: [],
+    });
+
+    const result = validateCorpus([parsed]);
+
+    expect(result.perModule[0]?.unresolvableDefIds).toEqual([
+      { sectionId: "1.1", defId: "sf-charter/9.9#cccccccc" },
+      { sectionId: "1.2", defId: "sf-charter/9.9#aaaaaaaa" },
+      { sectionId: "1.2", defId: "sf-charter/9.9#bbbbbbbb" },
+    ]);
   });
 });

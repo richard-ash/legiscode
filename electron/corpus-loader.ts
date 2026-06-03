@@ -299,11 +299,14 @@ export function readSection(req: CorpusReadRequest): CorpusReadResult {
  * Walk `body[]` and project the module's Definition index down to only
  * the def_ids referenced by this section. Recurses into `format.children`
  * because a defined-term span may be nested inside bold/italic/list
- * formatting. Skips def_ids missing from the module index (graceful —
- * the renderer renders the highlight without a popover; happens when
- * the build pipeline emits a def_id that wasn't persisted, which is
- * an extractor bug worth seeing as a missing tooltip rather than a
- * crash).
+ * formatting.
+ *
+ * The build-time `unresolvable_def_id` gate in @/parser/validate-corpus
+ * guarantees every def_id has a matching Definition in this module;
+ * the loader trusts that and throws if the invariant is ever violated.
+ * A throw here is a build-pipeline regression — the previous silent skip
+ * masked these as missing tooltips, which violated the
+ * project_legal_corpus_zero_skip policy.
  */
 function joinDefinitionsForSection(
   module: LoadedModule,
@@ -317,7 +320,11 @@ function joinDefinitionsForSection(
   collectDefIds(body, (defId) => {
     if (defId in out) return;
     const def = module.definitionsById.get(defId);
-    if (!def) return;
+    if (!def) {
+      throw new Error(
+        `loader: def_id ${JSON.stringify(defId)} in module ${module.id} is not present in definitionsById — the build-time unresolvable_def_id gate should have rejected this module`,
+      );
+    }
     out[defId] = {
       term: def.term,
       excerpt: def.excerpt,

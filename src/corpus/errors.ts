@@ -26,6 +26,7 @@ function mapKindToExitCode(error: BuildError): ExitCode {
     case "toc_coverage_failed":
     case "citation_resolution_failed":
     case "duplicate_section_ids":
+    case "unresolvable_def_id":
       return ExitCodes.PARSE;
     case "atomic_write_failed":
     case "corpus_meta_write_failed":

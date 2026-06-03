@@ -125,6 +125,20 @@ export async function buildCorpus(opts: BuildCorpusOptions): Promise<BuildResult
       });
       modulesWithDuplicates.add(m.moduleId);
     }
+    if (m.unresolvableDefIds.length > 0) {
+      // Loader-trust gate: every defined_term def_id must point at a
+      // Definition the module emitted. The runtime tooltip lookup in
+      // electron/corpus-loader.ts used to silent-skip missing refs;
+      // project_legal_corpus_zero_skip forbids that — completeness
+      // gates are non-negotiable. Module bundles still write (the
+      // sections themselves are valid); the BuildError flips
+      // corpus-meta.valid=false so consumers can refuse to install.
+      errors.push({
+        kind: "unresolvable_def_id",
+        moduleId: m.moduleId,
+        refs: m.unresolvableDefIds,
+      });
+    }
   }
   if (validation.citations.unresolvedIntra.length > 0) {
     errors.push({
