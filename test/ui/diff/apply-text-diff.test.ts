@@ -133,15 +133,15 @@ describe("reconstructCorpusAligned", () => {
 describe("reconstructInline", () => {
   const baseline = "The Advisory Committee shall provide input.";
 
-  it("returns the baseline as one context chunk when spans is empty", () => {
-    expect(reconstructInline([], baseline)).toEqual([{ kind: "context", text: baseline }]);
+  it("returns the baseline as a single text segment when spans is empty", () => {
+    expect(reconstructInline([], baseline)).toEqual([{ kind: "text", text: baseline }]);
   });
 
   it("returns an empty stream when baseline AND spans are empty", () => {
     expect(reconstructInline([], "")).toEqual([]);
   });
 
-  it("interleaves context, delete, and insert in baseline order", () => {
+  it("interleaves text, diff_delete, and diff_insert in baseline order", () => {
     const spans: TextDiff = [
       span({
         op: "delete",
@@ -155,16 +155,15 @@ describe("reconstructInline", () => {
       }),
     ];
     const out = reconstructInline(spans, baseline);
-    expect(out.map((c) => c.kind)).toEqual(["context", "delete", "insert", "context"]);
-    expect(out.map((c) => c.text)).toEqual([
-      "The Advisory ",
-      "Committee",
-      "Council",
-      " shall provide input.",
+    expect(out).toEqual([
+      { kind: "text", text: "The Advisory " },
+      { kind: "diff_delete", text: "Committee" },
+      { kind: "diff_insert", text: "Council" },
+      { kind: "text", text: " shall provide input." },
     ]);
   });
 
-  it("renders a wholesale-delete span as a single delete chunk covering the baseline", () => {
+  it("renders a wholesale-delete span as a single diff_delete covering the baseline", () => {
     const spans: TextDiff = [
       span({
         op: "delete",
@@ -172,10 +171,10 @@ describe("reconstructInline", () => {
         anchor: { baseline_offset: 0, baseline_length: baseline.length },
       }),
     ];
-    expect(reconstructInline(spans, baseline)).toEqual([{ kind: "delete", text: baseline }]);
+    expect(reconstructInline(spans, baseline)).toEqual([{ kind: "diff_delete", text: baseline }]);
   });
 
-  it("renders a wholesale-add span as a single insert chunk when baseline is empty", () => {
+  it("renders a wholesale-add span as a single diff_insert when baseline is empty", () => {
     const added = "Newly added section text.";
     const spans: TextDiff = [
       span({
@@ -184,10 +183,10 @@ describe("reconstructInline", () => {
         anchor: { baseline_offset: 0, baseline_length: 0 },
       }),
     ];
-    expect(reconstructInline(spans, "")).toEqual([{ kind: "insert", text: added }]);
+    expect(reconstructInline(spans, "")).toEqual([{ kind: "diff_insert", text: added }]);
   });
 
-  it("orders insert AFTER delete at the same baseline offset", () => {
+  it("orders diff_insert AFTER diff_delete at the same baseline offset", () => {
     const spans: TextDiff = [
       span({
         op: "insert",
@@ -201,7 +200,7 @@ describe("reconstructInline", () => {
       }),
     ];
     const out = reconstructInline(spans, baseline);
-    expect(out.map((c) => c.kind)).toEqual(["context", "delete", "insert", "context"]);
+    expect(out.map((c) => c.kind)).toEqual(["text", "diff_delete", "diff_insert", "text"]);
   });
 
   it("passes elision spans through with no baseline consumption", () => {
@@ -213,8 +212,39 @@ describe("reconstructInline", () => {
       }),
     ];
     const out = reconstructInline(spans, baseline);
-    // gap before elision becomes context; elision in place; tail becomes context
-    expect(out.map((c) => c.kind)).toEqual(["context", "elision", "context"]);
+    // gap before elision becomes text; elision in place; tail becomes text
+    expect(out.map((c) => c.kind)).toEqual(["text", "diff_elision", "text"]);
+  });
+
+  it("splits embedded newlines into paragraph_break markers", () => {
+    // Baseline carries a real paragraph boundary; reconstructInline emits
+    // a paragraph_break so splitParagraphs lays the result out across two
+    // <p> elements at render time.
+    const para = "First paragraph.\nSecond paragraph.";
+    expect(reconstructInline([], para)).toEqual([
+      { kind: "text", text: "First paragraph." },
+      { kind: "paragraph_break" },
+      { kind: "text", text: "Second paragraph." },
+    ]);
+  });
+
+  it("splits a multi-paragraph delete span into one diff_delete per paragraph", () => {
+    // Whole-paragraph delete that crosses a paragraph_break boundary —
+    // we want one struck run per paragraph, not a single run carrying
+    // the newline character into the rendered span.
+    const para = "P1.\nP2.";
+    const spans: TextDiff = [
+      span({
+        op: "delete",
+        text: para,
+        anchor: { baseline_offset: 0, baseline_length: para.length },
+      }),
+    ];
+    expect(reconstructInline(spans, para)).toEqual([
+      { kind: "diff_delete", text: "P1." },
+      { kind: "paragraph_break" },
+      { kind: "diff_delete", text: "P2." },
+    ]);
   });
 
   it("returns the baseline unchanged when any anchor is out of bounds (defensive)", () => {
@@ -225,7 +255,7 @@ describe("reconstructInline", () => {
         anchor: { baseline_offset: 1000, baseline_length: 50 },
       }),
     ];
-    expect(reconstructInline(spans, baseline)).toEqual([{ kind: "context", text: baseline }]);
+    expect(reconstructInline(spans, baseline)).toEqual([{ kind: "text", text: baseline }]);
   });
 });
 

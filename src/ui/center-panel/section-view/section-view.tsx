@@ -45,8 +45,16 @@ import type { ResolutionResult } from "@/citations/resolver";
 import type { CorpusRef } from "@/corpus/refs";
 import { parse as parseCorpusRef } from "@/corpus/refs";
 import type { CorpusError, CorpusSectionView } from "@/corpus/wire";
-import { type Bill, type BodySegment, type Citation, type SectionId, walkBody } from "@/types";
-import { reconstructInline, type SegmentedText } from "@/ui/diff/apply-text-diff";
+import {
+  type Bill,
+  type BodySegment,
+  type Citation,
+  type RenderBodySegment,
+  type SectionId,
+  splitParagraphs,
+  walkBody,
+} from "@/types";
+import { reconstructInline } from "@/ui/diff/apply-text-diff";
 import type { OpenItem } from "@/workbench";
 import type { NavigationIntent } from "@/workbench/navigate";
 import { CitationLink } from "./citation-link";
@@ -342,9 +350,9 @@ export function SectionView({
   const overlayUnavailable =
     overlayBill !== null &&
     (overlayBill.parse_status !== "ok" || overlaySpansForSection.length === 0);
-  const overlayParagraphs: SegmentedText[] =
+  const overlayParagraphs: RenderBodySegment[][] =
     overlayBill !== null && !overlayUnavailable
-      ? paragraphizeOverlay(reconstructInline(overlaySpansForSection, section.text))
+      ? splitParagraphs(reconstructInline(overlaySpansForSection, section.text))
       : [];
 
   return (
@@ -414,7 +422,7 @@ export function SectionView({
                 overlayParagraphs.map((segs, pi) => (
                   // biome-ignore lint/suspicious/noArrayIndexKey: paragraphs are positional within a stable overlay render
                   <p key={pi} className="lc-para">
-                    {renderOverlaySegments(segs, `op${pi}`)}
+                    {renderInline(segs, ctx, `op${pi}`)}
                   </p>
                 ))
               ) : (
@@ -509,37 +517,15 @@ function collectDistinctLabels(body: readonly BodySegment[]): ReadonlySet<string
   return result;
 }
 
-/**
- * Split body[] at top-level paragraph_break segments. paragraph_break is
- * a flat marker (not a wrapping Paragraph[]) per the schema. Empty
- * paragraphs are dropped — they only happen when consecutive
- * paragraph_breaks slip through the parser, and rendering an empty <p>
- * just creates ghost vertical space.
- */
-function splitParagraphs(body: readonly BodySegment[]): BodySegment[][] {
-  const out: BodySegment[][] = [];
-  let current: BodySegment[] = [];
-  for (const seg of body) {
-    if (seg.kind === "paragraph_break") {
-      if (current.length > 0) out.push(current);
-      current = [];
-    } else {
-      current.push(seg);
-    }
-  }
-  if (current.length > 0) out.push(current);
-  return out;
-}
-
 function renderInline(
-  segs: readonly BodySegment[],
+  segs: readonly RenderBodySegment[],
   ctx: RenderCtx,
   keyPrefix: string,
 ): ReactNode[] {
   return segs.map((seg, i) => renderSegment(seg, ctx, `${keyPrefix}-${i}`));
 }
 
-function renderSegment(seg: BodySegment, ctx: RenderCtx, key: string): ReactNode {
+function renderSegment(seg: RenderBodySegment, ctx: RenderCtx, key: string): ReactNode {
   switch (seg.kind) {
     case "text":
       return <span key={key}>{seg.text}</span>;
@@ -588,72 +574,25 @@ function renderSegment(seg: BodySegment, ctx: RenderCtx, key: string): ReactNode
       // permits it but the parser doesn't emit it. Render as nothing
       // so a regression doesn't surface as a crash.
       return null;
+    case "diff_insert":
+      return (
+        <span key={key} className="lc-overlay-insert">
+          {seg.text}
+        </span>
+      );
+    case "diff_delete":
+      return (
+        <span key={key} className="lc-overlay-delete">
+          {seg.text}
+        </span>
+      );
+    case "diff_elision":
+      return (
+        <span key={key} className="lc-overlay-elision" aria-hidden>
+          [ unchanged text omitted ]
+        </span>
+      );
   }
-}
-
-/**
- * Split an inline-diff stream into paragraphs at `\n` boundaries
- * (matches bodyToText's paragraph_break emission). Per-segment kind is
- * preserved across the split so a delete chunk spanning two paragraphs
- * renders as one struck-through chunk per paragraph. Empty paragraphs
- * (consecutive `\n`s, leading/trailing whitespace) are dropped.
- */
-function paragraphizeOverlay(segments: SegmentedText): SegmentedText[] {
-  const paragraphs: SegmentedText[] = [];
-  let current: SegmentedText = [];
-  for (const seg of segments) {
-    if (seg.kind === "elision") {
-      current.push(seg);
-      continue;
-    }
-    const parts = seg.text.split("\n");
-    for (let i = 0; i < parts.length; i++) {
-      if (i > 0) {
-        if (current.length > 0) paragraphs.push(current);
-        current = [];
-      }
-      const text = parts[i];
-      if (text && text.length > 0) {
-        current.push({ kind: seg.kind, text });
-      }
-    }
-  }
-  if (current.length > 0) paragraphs.push(current);
-  return paragraphs;
-}
-
-/**
- * Per-chunk renderer for the overlay body. Citations and defined-term
- * markers are dropped intentionally — the overlay strips back to a
- * pure prose diff so the reader's eye tracks struck vs inserted
- * without competing legal-link affordances.
- */
-function renderOverlaySegments(segments: SegmentedText, keyPrefix: string): ReactNode[] {
-  return segments.map((seg, i) => {
-    const key = `${keyPrefix}-${i}`;
-    switch (seg.kind) {
-      case "delete":
-        return (
-          <span key={key} className="lc-overlay-delete">
-            {seg.text}
-          </span>
-        );
-      case "insert":
-        return (
-          <span key={key} className="lc-overlay-insert">
-            {seg.text}
-          </span>
-        );
-      case "elision":
-        return (
-          <span key={key} className="lc-overlay-elision" aria-hidden>
-            [ unchanged text omitted ]
-          </span>
-        );
-      default:
-        return <span key={key}>{seg.text}</span>;
-    }
-  });
 }
 
 function renderFormat(

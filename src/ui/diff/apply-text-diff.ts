@@ -35,7 +35,7 @@
 // baseline unchanged rather than throwing — the renderer can fall
 // back to the manual_review path without crashing.
 
-import type { TextDiff, TextDiffSpan } from "@/types";
+import type { RenderBodySegment, TextDiff, TextDiffSpan } from "@/types";
 
 export type SideBySide = {
   before: SegmentedText;
@@ -46,6 +46,11 @@ export type SideBySide = {
  * A segmented text stream — a list of {kind, text} chunks the renderer
  * iterates over to apply per-kind styling (insert highlight, delete
  * strikethrough, context plain, elision separator).
+ *
+ * Used by the side-by-side stated-source and corpus-aligned renderers.
+ * The inline overlay renderer uses RenderBodySegment[] instead so it
+ * can share splitParagraphs and renderSegment with the normal body
+ * path.
  */
 export type SegmentedText = SegmentedChunk[];
 
@@ -172,25 +177,27 @@ export function reconstructCorpusAligned(spans: TextDiff, baseline: string): Sid
 }
 
 /**
- * Walk spans against the baseline and emit a single segmented stream
+ * Walk spans against the baseline and emit a RenderBodySegment[] stream
  * where deletes appear in-place (struck-through at render time) and
  * inserts appear at their anchor positions (highlighted at render
  * time). Used by the section-view overlay (variant B): the reader sees
  * the section's current body with the bill's proposed changes overlaid
  * inline, GitHub-style.
  *
- * Empty spans → baseline as one context chunk (clean body, no
- * overlay-induced visual diff). Out-of-bounds anchors → same — return
- * the baseline unchanged so a stale alignment doesn't render garbage.
+ * Output is BodySegment-shaped — context chunks become text segments,
+ * newlines split into paragraph_break markers, and insert / delete /
+ * elision chunks become their RenderBodySegment variants. The overlay
+ * renderer can therefore reuse splitParagraphs + renderSegment with the
+ * normal body path; no parallel paragraph splitter or renderer needed.
+ *
+ * Empty spans → baseline as one paragraph-split text run (clean body,
+ * no overlay-induced visual diff). Out-of-bounds anchors → same.
  */
-export function reconstructInline(spans: TextDiff, baseline: string): SegmentedText {
-  if (spans.length === 0) {
-    return baseline.length > 0 ? [{ kind: "context", text: baseline }] : [];
+export function reconstructInline(spans: TextDiff, baseline: string): RenderBodySegment[] {
+  if (spans.length === 0 || !anchorsAreInBounds(spans, baseline)) {
+    return paragraphizeText(baseline);
   }
-  if (!anchorsAreInBounds(spans, baseline)) {
-    return baseline.length > 0 ? [{ kind: "context", text: baseline }] : [];
-  }
-  const out: SegmentedText = [];
+  const out: RenderBodySegment[] = [];
   // Same sort as reconstructCorpusAligned: ascending by baseline_offset,
   // ties broken so an insert at the same offset as a delete renders
   // AFTER the strikethrough (the visual "replacement" pattern readers
@@ -207,34 +214,77 @@ export function reconstructInline(spans: TextDiff, baseline: string): SegmentedT
     const length = span.anchor.baseline_length;
     if (offset > cursor) {
       const gap = baseline.slice(cursor, offset);
-      if (gap.length > 0) out.push({ kind: "context", text: gap });
+      if (gap.length > 0) pushText(out, gap);
       cursor = offset;
     }
     switch (span.op) {
       case "context":
         if (length > 0) {
-          out.push({ kind: "context", text: baseline.slice(offset, offset + length) });
+          pushText(out, baseline.slice(offset, offset + length));
           cursor = offset + length;
         }
         break;
       case "delete":
         if (length > 0) {
-          out.push({ kind: "delete", text: baseline.slice(offset, offset + length) });
+          pushDiffRuns(out, baseline.slice(offset, offset + length), "diff_delete");
           cursor = offset + length;
         }
         break;
       case "insert":
-        out.push({ kind: "insert", text: span.text });
+        pushDiffRuns(out, span.text, "diff_insert");
         break;
       case "elision":
-        out.push({ kind: "elision", text: span.text });
+        out.push({ kind: "diff_elision", text: span.text });
         cursor = offset + length;
         break;
     }
   }
   if (cursor < baseline.length) {
-    out.push({ kind: "context", text: baseline.slice(cursor) });
+    pushText(out, baseline.slice(cursor));
   }
+  return out;
+}
+
+/**
+ * Append `text` to a RenderBodySegment stream, splitting at `\n` into
+ * `{kind:"text"}` runs separated by `{kind:"paragraph_break"}` markers.
+ * Empty runs are dropped so two adjacent paragraph_breaks (which
+ * splitParagraphs would render as an empty paragraph anyway) don't
+ * surface. The first run is fused onto the trailing text segment when
+ * possible to keep the stream compact.
+ */
+function pushText(out: RenderBodySegment[], text: string): void {
+  const parts = text.split("\n");
+  for (let i = 0; i < parts.length; i++) {
+    if (i > 0) out.push({ kind: "paragraph_break" });
+    const piece = parts[i];
+    if (piece && piece.length > 0) out.push({ kind: "text", text: piece });
+  }
+}
+
+/**
+ * Append `text` to a RenderBodySegment stream as one or more diff runs
+ * (diff_insert / diff_delete). Splits at `\n` so a delete chunk that
+ * spans two paragraphs renders as one struck run per paragraph rather
+ * than carrying the newline into the rendered span.
+ */
+function pushDiffRuns(
+  out: RenderBodySegment[],
+  text: string,
+  kind: "diff_insert" | "diff_delete",
+): void {
+  const parts = text.split("\n");
+  for (let i = 0; i < parts.length; i++) {
+    if (i > 0) out.push({ kind: "paragraph_break" });
+    const piece = parts[i];
+    if (piece && piece.length > 0) out.push({ kind, text: piece });
+  }
+}
+
+function paragraphizeText(text: string): RenderBodySegment[] {
+  if (text.length === 0) return [];
+  const out: RenderBodySegment[] = [];
+  pushText(out, text);
   return out;
 }
 

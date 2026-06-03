@@ -364,3 +364,40 @@ export const SectionFileSchema = z
 export type SectionEditorialStatus = z.infer<typeof SectionEditorialStatusSchema>;
 export type SectionFile = z.infer<typeof SectionFileSchema>;
 export type { BodySegment };
+
+// RenderBodySegment is the render-time superset BodySegment that overlay
+// rendering uses. Three extra leaf variants (`diff_insert`, `diff_delete`,
+// `diff_elision`) carry inline diff content the overlay mode lays out
+// alongside untouched prose. They live OUTSIDE BodySegment so
+// SectionFileSchema can never silently accept overlay-flavored corpus JSON
+// from disk — the typography rules for "this body[] only contains parser
+// output" stay intact.
+export type RenderBodySegment =
+  | BodySegment
+  | { kind: "diff_insert"; text: string }
+  | { kind: "diff_delete"; text: string }
+  | { kind: "diff_elision"; text: string };
+
+/**
+ * Split a flat body[] at top-level `paragraph_break` segments. Returns
+ * one array per paragraph; empty paragraphs (consecutive breaks) are
+ * dropped. The schema's paragraph_break is a flat marker — not a
+ * wrapping Paragraph[] — so the splitter doesn't recurse into format
+ * children. Generic in T so both BodySegment[] (the corpus body) and
+ * RenderBodySegment[] (the overlay reconstruction) share the same
+ * paragraph splitting logic.
+ */
+export function splitParagraphs<T extends { readonly kind: string }>(body: readonly T[]): T[][] {
+  const out: T[][] = [];
+  let current: T[] = [];
+  for (const seg of body) {
+    if (seg.kind === "paragraph_break") {
+      if (current.length > 0) out.push(current);
+      current = [];
+    } else {
+      current.push(seg);
+    }
+  }
+  if (current.length > 0) out.push(current);
+  return out;
+}
