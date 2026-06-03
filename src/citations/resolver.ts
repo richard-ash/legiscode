@@ -2,17 +2,9 @@
 // existence oracle, return a discriminated `ResolutionResult` that the
 // navigate seam (src/workbench/navigate.ts) consumes.
 //
-// Phase 3 — the runtime collapses to a single titleMap dereference once
-// the citation target is a section-ref. Legacy internal / cross_module
-// branches stay because Phase 2's transitional disk shape can still
-// carry them for cites the binder couldn't bind; Phase 4 makes those
-// branches unreachable from committed corpus data by failing the build
-// on any unbindable cite. After Phase 4 the resolver could drop the
-// legacy branches entirely; until then they remain as defense in depth.
-//
-// Verb-shaped result kinds per design D2 — consumers switch on
-// `result.kind`, NOT on `citation.target.kind`. The branch between
-// citation kinds lives once, here.
+// Verb-shaped result kinds: consumers switch on `result.kind`, NOT on
+// `citation.target.kind`. The branch between citation kinds lives once,
+// here.
 //
 // Result kinds cover every UX outcome the dispatcher needs:
 //   navigate-section     — open or activate a section tab
@@ -21,13 +13,17 @@
 //                          section under Article / Chapter / Division /
 //                          Title)
 //   module-not-installed — popover shows "{displayName} not downloaded";
-//                          ⌘-click is a no-op (decided 2026-05-20)
+//                          ⌘-click is a no-op
 //   scroll-only          — same-section subsection ref; scroll within
 //                          the active tab instead of duplicating it
-//   unresolvable         — bug fallback. With the Phase 4 gate in place
-//                          section-not-found should never fire from
-//                          committed corpus data; the renderer logs as
-//                          console.error so dev catches drift.
+//   unresolvable         — bug fallback. With the build-time binder gate
+//                          in place, section-not-found should never fire
+//                          from committed corpus data; the renderer logs
+//                          as console.error so dev catches drift.
+//
+// Legacy internal / cross_module target branches stay as defense in
+// depth — the binder rewrites bindable cites to section-ref at build
+// time, but the schema admits the older shapes for transitional fixtures.
 
 import { type CorpusRef, parse as parseRef } from "@/corpus/refs";
 import type { AppendixId, ModuleId } from "@/types";
@@ -151,12 +147,9 @@ function resolveCrossModule(
   return makeNavigateSection(target.module_id, target.section_id, target.subsection, target.range);
 }
 
-// Phase 1 stub: section-ref targets only appear after the build-time
-// binder lands in Phase 2 and the parser starts emitting them in Phase 3.
-// The runtime contract — single titleMap lookup, no prefix-guessing — is
-// what Phase 3 fleshes out. Until then, this branch is unreachable from
-// committed corpus data; the schema admits the variant so downstream
-// commits can populate it without a schema-level reshape.
+// section-ref runtime contract: single titleMap lookup, no prefix
+// guessing. The build-time binder is responsible for converting cites
+// into this shape; the resolver is a pure dereference.
 function resolveSectionRef(
   citation: Citation,
   target: Extract<Citation["target"], { kind: "section-ref" }>,
@@ -200,9 +193,9 @@ function makeNavigateSection(
   } catch {
     return { kind: "unresolvable", reason: "invalid-ref" };
   }
-  // Range citations land at range.from with no subsection scroll
-  // (design D7) — subsection on a ranged citation is structurally
-  // invalid via the schema's refine, but defend in depth.
+  // Range citations land at range.from with no subsection scroll —
+  // subsection on a ranged citation is structurally invalid via the
+  // schema's refine, but defend in depth.
   if (range) return { kind: "navigate-section", ref };
   return subsection
     ? { kind: "navigate-section", ref, subsection }

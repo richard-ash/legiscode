@@ -1,9 +1,8 @@
 // Root component — orchestrates corpus loading and the workbench
 // openItems state. Owns: corpus IPC, BootOverlay branching for crash /
 // corpus errors, persistence cold-start (legacy migration runs through
-// `@/persistence` Layer 1), and the palette toggle. Tab dispatch goes
-// through useNavigation's `navigate(item, intent)` primitive — the legacy
-// `onActivate`/`onOpenWithoutSwitching` pair retired in T7.
+// `@/persistence`), and the palette toggle. Tab dispatch goes through
+// useNavigation's `navigate(item, intent)` primitive.
 
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { api } from "@/app/api";
@@ -63,10 +62,11 @@ export function App() {
   const [corpusError, setCorpusError] = useState<CorpusError | null>(null);
   const [openItems, setOpenItems] = useState<OpenItemsState>(emptyOpenItems);
   const [section, setSection] = useState<CorpusSectionView | null>(null);
-  // Per-read error: distinct from corpusError (which is fatal — drops to
-  // BootOverlay). Set when a single corpus.read returns ok:false; cleared
-  // on the next successful read. Pairs with `setSection(null)` so stale
-  // breadcrumb/title chrome doesn't leak past the failed section (C7).
+  // Per-read error: distinct from corpusError (which is fatal — drops
+  // to BootOverlay). Set when a single corpus.read returns ok:false;
+  // cleared on the next successful read. Pairs with `setSection(null)`
+  // so stale breadcrumb/title chrome doesn't leak past the failed
+  // section.
   const [sectionError, setSectionError] = useState<CorpusError | null>(null);
   const [crashed, setCrashed] = useState(false);
   const palette = useCommandPalette(corpus);
@@ -171,7 +171,7 @@ export function App() {
           setSection(r.value);
           setSectionError(null);
         } else {
-          // C7: clear stale section so breadcrumb + parents kicker don't
+          // Clear stale section so breadcrumb + parents kicker don't
           // render the previous section's chrome behind the in-section
           // error banner. Both pieces of state flip together.
           setSection(null);
@@ -207,13 +207,13 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [palette.toggle]);
 
-  // CQ4 — `Map<RefHash, CorpusTreeNode>` keyed by `module::section`,
-  // built once per corpus snapshot and threaded through TabStrip for
-  // O(1) per-tab title lookup (P1).
+  // `Map<RefHash, CorpusTreeNode>` keyed by `module::section`, built
+  // once per corpus snapshot and threaded through TabStrip for O(1)
+  // per-tab title lookup.
   const titleMap = useMemo(() => buildTitleMap(corpus?.tree ?? []), [corpus]);
 
-  // O(1) bill-title lookup for tab labels, mirroring titleMap. Bills are
-  // not tree nodes (r11) so the tab strip needs a separate index.
+  // O(1) bill-title lookup for tab labels, mirroring titleMap. Bills
+  // are not tree nodes so the tab strip needs a separate index.
   const pendingBillsById = useMemo(
     () => buildPendingBillsById(corpus?.pendingBills.bills ?? []),
     [corpus],
@@ -222,7 +222,7 @@ export function App() {
   // Display-name lookup for a module id — feeds the bill kicker
   // ("Police Code · 1st Reading"). Walks the top-level tree once and
   // memoizes; module rows live at depth 1 in the jurisdiction-rooted
-  // tree (r11 removed the bill-branch sibling).
+  // tree.
   const codeLabelByModuleId = useMemo(() => {
     const out = new Map<string, string>();
     const stack = [...(corpus?.tree ?? [])];
@@ -262,7 +262,7 @@ export function App() {
 
   const pendingBillsView = usePendingBills(corpus);
 
-  // CQ4-adjacent: use the title map as the corpus-validity predicate for
+  // Use the title map as the corpus-validity predicate for
   // recentlyClosed re-validation. Cheap, no second tree walk.
   const isRefInCorpus = useCallback((ref: CorpusRef) => titleMap.has(refHash(ref)), [titleMap]);
 
@@ -281,8 +281,7 @@ export function App() {
   }, [titleMap]);
 
   // useNavigation owns the active-tab state mutators + the ⌘⌥←/→
-  // keyboard listener. Per-tab history was removed in
-  // feat/citation-resolution; navigate(item, intent) is the only entry
+  // keyboard listener. navigate(item, intent) is the only entry
   // point the citation dispatcher needs.
   const { navigate, pendingScroll, requestScroll, consumePendingScroll } = useNavigation({
     openItems,
@@ -400,13 +399,11 @@ export function App() {
           return;
         }
         case "unresolvable": {
-          // Phase 3 — should never fire from committed corpus data once
-          // the Phase 4 gate is in place. Loud-log so dev catches drift:
-          // a fired unresolvable means the build leaked an unbindable
-          // cite past the gate (or a vague target reached navigate,
-          // which the dispatcher upstream is supposed to filter).
-          // Stays at console-level only; no toast in v1 — the gate is
-          // the user-facing signal.
+          // Should never fire from committed corpus data — the
+          // build-time binder gate refuses to ship unbindable cites,
+          // and the dispatcher upstream filters vague targets. A fire
+          // here means a regression leaked one past. Loud-log only;
+          // no toast in v1 — the gate is the user-facing signal.
           console.error(`[citations] unresolvable: ${result.reason}`);
           return;
         }

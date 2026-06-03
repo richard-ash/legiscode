@@ -1,12 +1,12 @@
 import { z } from "zod";
 import { SectionIdSchema } from "./identifiers";
 
-// AnchorSchema binds a span to a char range in the corpus section's baseline
-// text. Populated at build time by emit-diff.ts (paragraph-anchored token
-// scan in scripts/sync-bills.ts), dereferenced at render time. Mirrors the
-// build-time / runtime split used by feat/citation-resolution: the alignment
-// risk is paid once during the parser run, not on every render. A span only
-// appears in text_diff[] when its whole section anchored successfully, so a
+// AnchorSchema binds a span to a char range in the corpus section's
+// baseline text. Populated at build time by emit-diff.ts
+// (paragraph-anchored token scan in scripts/sync-bills.ts),
+// dereferenced at render time. The alignment risk is paid once
+// during the parser run, not on every render. A span only appears in
+// text_diff[] when its whole section anchored successfully, so a
 // loaded Bill is guaranteed dereferenceable.
 //
 // baseline_length === 0 marks two distinct shapes:

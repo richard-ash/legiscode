@@ -38,8 +38,8 @@ import { useStickyHeaders } from "./use-sticky-headers";
 import { TREE_ROW_HEIGHT_PX, useTreeVirtualizer } from "./use-tree-virtualizer";
 import { useTypeahead } from "./use-typeahead";
 
-// D16 (uniform-height assumption) lets us derive sticky stack height
-// as `ancestors.length × TREE_ROW_HEIGHT_PX` without measureElement /
+// Uniform row-height assumption lets us derive sticky stack height as
+// `ancestors.length × TREE_ROW_HEIGHT_PX` without measureElement /
 // IntersectionObserver feedback machinery. Constant lives in
 // use-tree-virtualizer.ts as the single source of truth.
 
@@ -68,8 +68,7 @@ export function FileTree({ tree, openItems, navigate }: FileTreeProps) {
   //     threshold the virtualizer is using
   // Initial value 0 (no sticky stack yet known on the first render).
   // The post-ancestors useEffect below settles the value in one frame;
-  // D16 trusts React batching to absorb the height + scrollMargin
-  // update together.
+  // React batching absorbs the height + scrollMargin update together.
   const [stickyStackHeight, setStickyStackHeight] = useState(0);
   const { virtualizer, useVirtualization } = useTreeVirtualizer(rows, containerRef, {
     scrollMargin: stickyStackHeight,
@@ -138,11 +137,10 @@ export function FileTree({ tree, openItems, navigate }: FileTreeProps) {
       if (e.key.length === 1 && e.key !== " " && !e.metaKey && !e.ctrlKey && !e.altKey) {
         const buffer = typeaheadAppendChar(e.key);
         const predicate = prefixMatch(buffer);
-        // F-perf D17 scope honesty: the focused-row lookup is O(1) via
-        // rowIndexById, but the forward-scan for the next prefix match
-        // remains O(n) by design — a Map keyed by id can't accelerate a
-        // predicate sweep over node fields. Deferred to a separate perf
-        // pass if real corpus usage shows headroom loss.
+        // The focused-row lookup is O(1) via rowIndexById, but the
+        // forward-scan for the next prefix match remains O(n) by
+        // design — a Map keyed by id can't accelerate a predicate
+        // sweep over node fields.
         const focusedIdx = focusedRowId === null ? -1 : (rowIndexById.get(focusedRowId) ?? -1);
         const startAt = focusedIdx + 1;
         // For an extending buffer (length > 1), include the currently focused
@@ -225,7 +223,7 @@ export function FileTree({ tree, openItems, navigate }: FileTreeProps) {
   // would re-fire the effect and immediately re-expand the ancestor. Gate
   // the body on "activeRef differs from what we last revealed" via a ref;
   // manual collapses are then sticky until the active section actually
-  // changes. (D15 split-click contract.)
+  // changes.
   const lastRevealedRef = useRef<CorpusRef | null>(null);
   useEffect(() => {
     if (!activeRef) return;
@@ -311,7 +309,7 @@ export function FileTree({ tree, openItems, navigate }: FileTreeProps) {
   if (useVirtualization) {
     const virtualItems = virtualizer.getVirtualItems();
     const totalSize = virtualizer.getTotalSize();
-    // Render-math coordinate system (D14):
+    // Render-math coordinate system:
     //
     //   container scroll position ──┐
     //                               ▼

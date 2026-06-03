@@ -155,9 +155,9 @@ export function writeTheme(value: Theme): void {
 // accessibility option that multiplies to ~3.0 effective. The renderer's
 // CSS reads this as a CSS variable on <html>; persistence here is the
 // localStorage source of truth that the Settings dropdown writes through.
-// Naming caveat (codex C11): the toggle is a *multiplier*, not the
-// line-height value itself — comment in section-view.css mirrors this so
-// future readers don't conflate "1.0" with the absolute 1.75.
+// Naming caveat: the toggle is a *multiplier*, not the line-height
+// value itself — comment in section-view.css mirrors this so future
+// readers don't conflate "1.0" with the absolute 1.75.
 
 export const LineHeightMultSchema = z.union([z.literal("1"), z.literal("1.7")]);
 export type LineHeightMult = z.infer<typeof LineHeightMultSchema>;

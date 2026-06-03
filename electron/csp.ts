@@ -22,8 +22,8 @@ export function buildDevCsp(): string[] {
 }
 
 /**
- * Prod CSP — strict. The Anthropic API connect-src extension is owned by
- * `feat/ai-agent` (TODOS.md "CSP connect-src extension for Anthropic API").
+ * Prod CSP — strict. See TODOS.md "CSP connect-src extension for
+ * Anthropic API" for the deferred Anthropic-host allowance.
  */
 export function buildProdCsp(): string[] {
   return [

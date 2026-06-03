@@ -3,9 +3,10 @@
 // jurisdiction-wide structure tree once, and serves IPC requests from the
 // in-memory cache.
 //
-// Phase 1 deliberately loads everything eagerly: trades a few hundred ms at
-// boot for zero-latency corpus:read calls. Per-section lazy loading lands
-// when the corpus grows past comfortable RAM (deferred to feat/sqlite-state).
+// Loads everything eagerly: trades a few hundred ms at boot for
+// zero-latency corpus:read calls. Per-section lazy loading would
+// matter once the corpus grows past comfortable RAM (see TODOS.md
+// "Per-section lazy loading").
 //
 // The loader runs schema validation at the trust boundary. Bundles are
 // validated at build time (0%-skip-rate gate per the legal-corpus
@@ -86,11 +87,10 @@ interface LoadedModule {
   sections: LoadedSection[];
   /**
    * Canonical Definition[] for this module, loaded from
-   * definitions-v2.json. The L2b cutover means per-section serving
-   * works through def_id-keyed lookups (definitionsById) instead of
-   * the legacy term-keyed dict. The Definition[] is kept alongside
-   * the index because the command-palette aggregation step needs the
-   * full record set, not just the lookup map.
+   * definitions-v2.json. Per-section serving works through
+   * def_id-keyed lookups (definitionsById). The Definition[] is kept
+   * alongside the index because the command-palette aggregation step
+   * needs the full record set, not just the lookup map.
    */
   definitions: readonly Definition[];
   /** Id-keyed lookup index for O(1) per-section projection. */
@@ -536,20 +536,15 @@ function buildAncestorIndex(
 
 /**
  * Read and validate the canonical Definition[] for a module from
- * `definitions-v2.json`. The L2b cutover replaced the legacy
- * term-keyed `definitions.json` with the addressable Definition[]
- * graph; the loader reads only the v2 file.
+ * `definitions-v2.json`.
  *
  * Missing file is legitimate (modules without defined terms produce
- * an empty array). Schema failure is hard-fail at the file level: by
- * L2b the build pipeline owns uniqueness + per-Definition shape
+ * an empty array). Schema failure is hard-fail at the file level:
+ * the build pipeline owns uniqueness + per-Definition shape
  * invariants (ModuleDefinitionsSchema), so a malformed file means
- * the bundle is corrupt. The whole-file hard-fail surfaces the
- * corruption clearly instead of silently dropping individual entries.
- * The per-key soft-fail policy of the legacy path was a workaround
- * for an upstream parser bug that the L2a builder fixes by
- * construction (terms are canonicalized + schema-validated at
- * extraction time).
+ * the bundle is corrupt. Whole-file hard-fail surfaces the
+ * corruption clearly instead of silently dropping individual
+ * entries.
  */
 async function loadDefinitions(
   moduleDir: string,
@@ -653,7 +648,7 @@ function buildSummary(
  * lists every `defined_in` section. Cross-module collisions stay as
  * separate rows so the command palette's `:def` filter shows each
  * definer authority distinctly — collapsing across modules would be
- * materially wrong for legal reading (D5).
+ * materially wrong for legal reading.
  *
  * Sorted by `(term, moduleId)` so display order is stable across
  * boots — both for human eyes scrolling the palette and for the
@@ -692,11 +687,12 @@ function jurisdictionDisplayName(jurisdiction: string): string {
 }
 
 /**
- * Assemble the single jurisdiction-rooted tree. Modules become children
- * of the jurisdiction node. Pending bills live OUTSIDE the tree (in the
- * left-panel activity panel, sourced from `CorpusModuleSummary.pendingBills`)
- * per the r11 design — bills aren't sections, so collapsing them into
- * the section-tree shape was a category error.
+ * Assemble the single jurisdiction-rooted tree. Modules become
+ * children of the jurisdiction node. Pending bills live OUTSIDE the
+ * tree (in the left-panel activity panel, sourced from
+ * `CorpusModuleSummary.pendingBills`) — bills aren't sections, so
+ * collapsing them into the section-tree shape would be a category
+ * error.
  */
 function buildJurisdictionTree(
   modules: readonly LoadedModule[],
@@ -723,9 +719,10 @@ function buildModuleTree(m: LoadedModule): CorpusTreeNode {
     kind: "code",
     kids: [],
   };
-  // Group sections by their hierarchy tail — each unique prefix becomes a
-  // chapter node. Phase 1 keeps the discriminator flat ("chapter" for any
-  // intra-module group); feat/file-tree refines the kind taxonomy.
+  // Group sections by their hierarchy tail — each unique prefix
+  // becomes a chapter node. The discriminator stays flat ("chapter"
+  // for any intra-module group); a finer kind taxonomy can layer on
+  // later.
   for (const s of m.sections) {
     let cursor = root;
     for (const segment of s.hierarchyTail) {

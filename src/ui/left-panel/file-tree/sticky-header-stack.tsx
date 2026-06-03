@@ -1,10 +1,10 @@
 // VSCode-style sticky ancestor headers. Rendered inside the scrolling
 // container above the virtualizer's height-spacer, with `position:
-// sticky; top: 0` (D1). The browser handles all pinning math against
-// the nearest scrolling ancestor — no getBoundingClientRect probes, no
+// sticky; top: 0`. The browser handles all pinning math against the
+// nearest scrolling ancestor — no getBoundingClientRect probes, no
 // panel-resize subscriptions, no manual scroll listeners.
 //
-// AT semantics (D3 belt-and-suspenders):
+// AT semantics (belt-and-suspenders):
 //   - Wrapper carries aria-hidden="true" so the entire stack is
 //     skipped by screen readers.
 //   - Each sticky row carries role="presentation" so even if a future
@@ -15,27 +15,26 @@
 // Click semantics — matches VSCode's sticky scroll model:
 //   - Click on the CHEVRON region of a sticky row → collapse that
 //     ancestor (onCollapse). The row itself stays visible: collapsing
-//     shrinks the rows list, browser clamps scrollTop, and the topmost-
-//     row pick re-computes. The ancestor either remains pinned (if
-//     still above the new viewport top) or becomes a regular row at
-//     the top of the visible band.
+//     shrinks the rows list, browser clamps scrollTop, and the
+//     topmost-row pick re-computes. The ancestor either remains
+//     pinned (if still above the new viewport top) or becomes a
+//     regular row at the top of the visible band.
 //   - Click anywhere ELSE on a sticky row → scrolls the real row into
 //     view and focuses it (onStickyClick). Reading-context preserving:
 //     the ancestor's expansion state is untouched.
 //
-// The earlier design (D2) routed every sticky click to the scroll path
-// because the existing onClickRow handler would have collapsed the
-// ancestor unconditionally — wrong for label clicks. Splitting by
-// click target gives the user both behaviors and matches the mental
-// model from VSCode / Finder column headers.
+// Splitting click handling by target gives the user both behaviors
+// and matches the mental model from VSCode / Finder column headers
+// (routing every sticky click to the same handler would either
+// collapse on label clicks or never collapse at all).
 //
-// After scrollToIndex(align:"start") in the scroll path, the row's top
-// edge aligns to the scroll container's top — which is occluded by the
-// new (smaller) sticky stack. We follow with scrollBy(-destHeight) so
-// the clicked row lands flush against the bottom of the new stack
-// (D15). Destination height = clickedRow.depth × 24px, because the
-// clicked row becomes the new topmost row and its ancestors fill
-// depths 0..D-1.
+// After scrollToIndex(align:"start") in the scroll path, the row's
+// top edge aligns to the scroll container's top — which is occluded
+// by the new (smaller) sticky stack. We follow with
+// scrollBy(-destHeight) so the clicked row lands flush against the
+// bottom of the new stack. Destination height = clickedRow.depth ×
+// 24px, because the clicked row becomes the new topmost row and its
+// ancestors fill depths 0..D-1.
 
 import type { Virtualizer } from "@tanstack/react-virtual";
 import { type MouseEvent, type RefObject, useCallback } from "react";

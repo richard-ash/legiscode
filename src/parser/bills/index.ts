@@ -3,12 +3,11 @@
 // renderer can show "this bill affects sf-admin §10.04.020 and sf-building
 // §b102a" by loading two per-module files independently.
 //
-// v1 ships **structural pass only**: text_diff[] is always empty and
-// parse_status is "manual_review" or "structural_change". The inline-diff
-// rendering follows in the deferred follow-up PR (per the locked plan's
-// "Renderer-scope expansion" section). affected_sections is populated from
-// the structural pass so the v1 renderer can still surface which sections
-// a bill touches without inline content.
+// The structural pass populates affected_sections so the renderer can
+// surface which sections a bill touches. text_diff[] gets populated by
+// the build-time anchoring step in scripts/sync-bills.ts; parse_status
+// is "manual_review" or "structural_change" when anchoring can't bind
+// a section's spans to corpus baseline.
 
 import { loadPdfBuffer } from "@/parser/pdf/load";
 import type { TextRun } from "@/parser/pdf/page-extractor";
@@ -51,19 +50,18 @@ export type ParseBillResult = {
     candidates: SectionId[];
   }>;
   /**
-   * Body-parser soft warnings (operator-only — see A5 in the locked
-   * plan). Empty when every Bill's body was tokenized cleanly. Flows
-   * into the operator log alongside `unresolved_sections`.
+   * Body-parser soft warnings (operator-only). Empty when every Bill's
+   * body was tokenized cleanly. Flows into the operator log alongside
+   * `unresolved_sections`.
    */
   body_quality_warnings: string[];
   /**
-   * Layer-3 classified text runs, in source order across the whole PDF.
-   * Sidecar data for the build-time anchorer (`anchorTextDiff` in
-   * `emit-diff.ts`, called from `scripts/sync-bills.ts`): the parser
-   * itself stays pure-PDF (codex C1 lock), so we surface the typography
-   * classification here rather than mutating `Bill.text_diff` directly.
-   * The Bill record continues to ship with `text_diff: []` until the
-   * downstream alignment step succeeds per-section.
+   * Classified text runs, in source order across the whole PDF.
+   * Sidecar data for the build-time anchorer: the parser itself stays
+   * pure-PDF, so we surface the typography classification here rather
+   * than mutating `Bill.text_diff` directly. The Bill record ships
+   * with `text_diff: []` until the downstream alignment step succeeds
+   * per-section.
    *
    * Length parity with the runs returned by `extractTextRuns` — each
    * span's `source_index` indexes into that array.

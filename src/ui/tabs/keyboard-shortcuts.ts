@@ -60,10 +60,10 @@ export function useTabKeyboardShortcuts({
   reopenLast,
 }: TabKeyboardShortcutsParams): void {
   // Pending chord state. When the user has pressed ⌘K (the prefix),
-  // `pendingChord` holds the timeout id for the auto-cancel window. The
-  // next keypress either resolves the chord (⌘W → closeAll) or cancels
-  // it. State lives in a ref so the keydown closure doesn't need to be
-  // re-bound every render. Per T2 lock.
+  // `pendingChord` holds the timeout id for the auto-cancel window.
+  // The next keypress either resolves the chord (⌘W → closeAll) or
+  // cancels it. State lives in a ref so the keydown closure doesn't
+  // need to be re-bound every render.
   const pendingChordRef = useRef<{ timeoutId: number } | null>(null);
 
   useEffect(() => {

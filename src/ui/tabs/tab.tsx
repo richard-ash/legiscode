@@ -1,5 +1,5 @@
-// Per-tab chrome. Memoized so a single-tab activation doesn't redraw the
-// whole strip (P3). Bound to @dnd-kit's `useSortable` for accessible
+// Per-tab chrome. Memoized so a single-tab activation doesn't redraw
+// the whole strip. Bound to @dnd-kit's `useSortable` for accessible
 // reorder — KeyboardSensor handles Space-grab / arrow-move / Space-drop /
 // Escape-cancel with aria-live announcements out of the box.
 //

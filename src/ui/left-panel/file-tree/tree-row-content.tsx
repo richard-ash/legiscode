@@ -1,5 +1,5 @@
 // Shared visual primitive for a single tree row's inner content. Two
-// consumers compose it (D5):
+// consumers compose it:
 //   TreeNode             — wraps with role=treeitem + ref + onClick +
 //                          focus state for AT navigation.
 //   StickyHeaderStack    — wraps with role=presentation +

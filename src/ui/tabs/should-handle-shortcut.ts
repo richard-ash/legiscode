@@ -1,12 +1,10 @@
-// Shared guard for window-level keydown handlers. Returns false when the
-// active element is somewhere the shortcut should NOT fire — inside a
-// dialog (the command palette), inside a typing surface (input / textarea
-// / contenteditable). Every `cmd/ctrl + key` handler in the renderer
-// passes the event through this guard so palette typing, tree filter
-// boxes, etc. don't get hijacked by ⌘1 / ⌘W / ⌘B / ⌘P.
-//
-// Plan A2. Closes F-palette in TODOS.md without doing #10's full
-// command-registry rewrite.
+// Shared guard for window-level keydown handlers. Returns false when
+// the active element is somewhere the shortcut should NOT fire —
+// inside a dialog (the command palette), inside a typing surface
+// (input / textarea / contenteditable). Every `cmd/ctrl + key`
+// handler in the renderer passes the event through this guard so
+// palette typing, tree filter boxes, etc. don't get hijacked by ⌘1 /
+// ⌘W / ⌘B / ⌘P.
 
 /**
  * `true` if the global shortcut should be allowed to fire for this event.

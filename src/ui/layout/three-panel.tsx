@@ -1,9 +1,9 @@
-// Three-panel IDE layout backed by `react-resizable-panels` v4 (Group +
-// Panel + Separator). Layouts persist via `useDefaultLayout` against the
-// raw `Storage` backend exposed by `@/persistence` (Layer 1 —
-// feat/file-tree). The library owns its own opaque key namespace; routing
-// it through `getStorageBackend()` keeps the centralization invariant
-// while letting the library manage its keys without a custom adapter.
+// Three-panel IDE layout backed by `react-resizable-panels` v4
+// (Group + Panel + Separator). Layouts persist via `useDefaultLayout`
+// against the raw `Storage` backend exposed by `@/persistence`. The
+// library owns its own opaque key namespace; routing it through
+// `getStorageBackend()` keeps the centralization invariant while
+// letting the library manage its keys without a custom adapter.
 // Defaults match DESIGN.md: 240px left, 320px right, fluid center.
 // Keyboard toggles ⌘B (left) and ⌘⌥B (right) collapse panels via the
 // imperative API.

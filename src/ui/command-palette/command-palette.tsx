@@ -11,13 +11,13 @@
 //     keyboard / mouse / scrim, @tanstack/react-virtual over ranked
 //     results, a11y wiring, mode-aware empty-state copy.
 //
-// What's new vs the placeholder, beyond the rank-quality fix (U1):
+// Beyond the rank-quality fix in `score.ts`:
 //   - virt over ranked results
-//   - ⌘+Enter background-tab open with selection advance (U4 / F8)
+//   - ⌘+Enter background-tab open with selection advance
 //   - aria-activedescendant + stable row ids + scrollToIndex on selection
-//   - Home / End / PageUp / PageDown keyboard nav (Codex F10)
-//   - focus restore on close (Codex F10)
-//   - `:def` subtype filter with mode-aware empty-state copy (D5, C5)
+//   - Home / End / PageUp / PageDown keyboard nav
+//   - focus restore on close
+//   - `:def` subtype filter with mode-aware empty-state copy
 //   - input maxLength=200 against the very-long-query lag failure mode
 
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -73,8 +73,8 @@ export function CommandPalette({ palette, navigate }: CommandPaletteProps) {
   const selectedIndex = results.length === 0 ? 0 : Math.min(selectedIndexRaw, results.length - 1);
 
   // Capture the previously-focused element when the palette opens so
-  // Esc / scrim close can restore focus (Codex F10). Also moves input
-  // focus on open via rAF so the autofocus survives the scrim mount.
+  // Esc / scrim close can restore focus. Also moves input focus on
+  // open via rAF so the autofocus survives the scrim mount.
   useEffect(() => {
     if (!open) return;
     previousActiveElementRef.current = document.activeElement;
@@ -94,7 +94,7 @@ export function CommandPalette({ palette, navigate }: CommandPaletteProps) {
 
   // Reset selection to top on q change. Biome's exhaustive-deps would
   // ask us to depend on `q` and reference it in the effect body; deps
-  // are a deliberate change-trigger here (C6 — pattern preserved).
+  // are a deliberate change-trigger here.
   // biome-ignore lint/correctness/useExhaustiveDependencies: deps-as-change-trigger, intentional
   useEffect(() => setSelectedIndex(0), [q]);
 
@@ -111,8 +111,8 @@ export function CommandPalette({ palette, navigate }: CommandPaletteProps) {
   });
 
   // Keep the selected row in view as the user arrows / pages through
-  // a long result list (Codex F10). useLayoutEffect so the scroll
-  // adjustment lands before paint. `virtualizer` is intentionally
+  // a long result list. useLayoutEffect so the scroll adjustment
+  // lands before paint. `virtualizer` is intentionally
   // excluded from deps — the hook returns a fresh instance every
   // render, so including it would re-fire scrollToIndex on every
   // render rather than on actual selection changes. We read the live
@@ -183,8 +183,8 @@ export function CommandPalette({ palette, navigate }: CommandPaletteProps) {
         const picked = results[selectedIndex];
         if (!picked) return;
         if (e.metaKey || e.ctrlKey) {
-          // ⌘+Enter — background open, selection advances by 1, palette
-          // STAYS open (Codex F8). Selection advance happens regardless
+          // ⌘+Enter — background open, selection advances by 1,
+          // palette STAYS open. Selection advance happens regardless
           // of whether the item was already open (the "already open"
           // case still wants the visual feedback).
           handlePick(picked, "background");
@@ -416,9 +416,9 @@ function toOpenItem(item: SearchableItem): OpenItem | null {
         ref: corpusRefFromWire({ moduleId: item.moduleId, sectionId: item.sectionId }),
       };
     }
-    // defined-term picks navigate to the first definer in the module.
-    // Multi-definer disambiguation within a module is a deferred TODO
-    // (feat/section-view-polish #19); v1 takes the first.
+    // defined-term picks navigate to the first definer in the
+    // module. Multi-definer disambiguation within a module is tracked
+    // in TODOS.md "Command palette follow-ups"; v1 takes the first.
     const firstDefiner = item.definers[0];
     if (!firstDefiner) return null;
     return {

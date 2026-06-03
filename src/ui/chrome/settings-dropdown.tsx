@@ -1,10 +1,10 @@
-// Phase-1 settings dropdown (D4). 200px wide, anchored to the titlebar
-// gear icon. Theme toggle ("Dark / Light", C7 ignores prefers-color-scheme)
-// + section line-height multiplier toggle (1× natural / 1.7× accessibility,
-// per /feat/section-view C11; the toggle lives here rather than in the
-// breadcrumb area because breadcrumb is a path component, not display
-// preferences). Outside-click closes; both preferences persist via
-// `src/persistence` Layer 1.
+// Settings dropdown. 200px wide, anchored to the titlebar gear icon.
+// Theme toggle ("Dark / Light", ignores prefers-color-scheme) +
+// section line-height multiplier toggle (1× natural / 1.7×
+// accessibility). The line-height toggle lives here rather than in
+// the breadcrumb area because the breadcrumb is a path component,
+// not display preferences. Outside-click closes; both preferences
+// persist via `src/persistence`.
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -42,11 +42,11 @@ export function SettingsDropdown({ open, onClose, onOpenShortcuts }: SettingsDro
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      // Per codex F11: when the palette (role=dialog) sits atop the
-      // dropdown, the palette owns Escape — defer to it. Otherwise
-      // close, even if focus is on a dropdown radio (which is an
-      // HTMLInputElement — the shared global-shortcut guard would
-      // suppress the close here, so we apply only the dialog check).
+      // When the palette (role=dialog) sits atop the dropdown, the
+      // palette owns Escape — defer to it. Otherwise close, even if
+      // focus is on a dropdown radio (which is an HTMLInputElement —
+      // the shared global-shortcut guard would suppress the close
+      // here, so we apply only the dialog check).
       const active = typeof document === "undefined" ? null : document.activeElement;
       if (active?.closest("[role=dialog]")) return;
       onClose();

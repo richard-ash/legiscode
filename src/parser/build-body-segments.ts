@@ -1,4 +1,4 @@
-// Body-segment merge algorithm (CT1, CT2, CT4).
+// Body-segment merge algorithm.
 //
 // Input: a section's normalized `text`, the format span table from
 // parse-html (htmlSpans), the position-bearing citation list, the
@@ -6,21 +6,21 @@
 // matches. Output: a BodySegment[] tree where format runs wrap nested
 // citation/defined_term/text leaves per the schema.
 //
-// Why this lives in pipeline territory (CT1): citations and defined
-// terms are extracted in pipeline.ts via the same extractor calls that
-// produce SectionFile.citations and .defined_terms. Building body[] in
-// parse-html.ts would require a SECOND extraction pass over the text,
-// risking index drift (codex CT2). The single source of truth is
+// Why this lives in pipeline territory: citations and defined terms
+// are extracted in pipeline.ts via the same extractor calls that
+// produce SectionFile.citations and .defined_terms. Building body[]
+// in parse-html.ts would require a SECOND extraction pass over the
+// text, risking index drift. The single source of truth is
 // pipeline.ts → buildBodySegments.
 //
 // Overlap precedence: citation > defined_term, strict. When a defined
-// term overlaps a citation at any character, the defined_term loses. This
-// precedence is no longer an ad-hoc local referee — it lives in the
-// shared overlap arbiter (recognize.ts:arbitrate), which tiles term and
-// citation spans together for the whole section. If a citation
-// classification FAILS (the regex matched but classifyMatch couldn't
-// categorize), the caller upstream emits a `text` segment instead of a
-// citation, and we never see it here.
+// term overlaps a citation at any character, the defined_term loses.
+// The precedence lives in the shared overlap arbiter
+// (recognize.ts:arbitrate), which tiles term and citation spans
+// together for the whole section. If a citation classification FAILS
+// (the regex matched but classifyMatch couldn't categorize), the
+// caller upstream emits a `text` segment instead of a citation, and we
+// never see it here.
 //
 // Format wrapping: format spans nest INSIDE primary annotations, not the
 // other way around. `<b>§ 1.01</b>` becomes
@@ -61,8 +61,8 @@ export interface UnresolvedReferenceReport {
   term: string;
   /** Reader section the occurrence is in. */
   reader_section: SectionId;
-  /** Surface text at the occurrence (== term for L1-L3; differs when
-   * morphology lands post-L3). */
+  /** Surface text at the occurrence (currently == term; will differ
+   * once morphology-aware matching ships). */
   raw_text: string;
   /** Paragraph-bounded text around the occurrence — enough context for
    * an operator to judge whether the occurrence really should resolve. */
@@ -91,9 +91,9 @@ export interface BuildBodySegmentsInput {
   }[];
   /**
    * Canonical Definition[] for the entire module. Per-occurrence
-   * resolution (L2a) consults this index to find the in-scope
-   * Definition for each defined_term occurrence, attaches def_id to
-   * the emitted segment, and records dropped runner-up candidates.
+   * resolution consults this index to find the in-scope Definition
+   * for each defined_term occurrence, attaches def_id to the emitted
+   * segment, and records dropped runner-up candidates.
    */
   moduleDefinitions: readonly Definition[];
   /**
@@ -380,7 +380,7 @@ function definingClauseRange(text: string, anchorStart: number): { start: number
 //   - winner exists, self-suppression NOT triggered → attach
 //     def_id/raw/candidates_dropped to the primary, keep it
 //   - winner exists, self-suppression triggered → drop the primary
-//     (the term's own defining clause renders as plain text, per §9 L9)
+//     (the term's own defining clause renders as plain text)
 //   - no winner → drop the primary, fire onUnresolvedReference
 //
 // Dropped primaries leave a gap that buildPrimaryLeaves fills with a
@@ -417,9 +417,9 @@ function resolveDefinedTermOccurrences(
       });
       continue;
     }
-    // Self-reference self-suppression (revised D6): an occurrence of term
-    // T renders as plain text only when it falls inside T's OWN defining
-    // clause — the paragraph containing the winning Definition's
+    // Self-reference self-suppression: an occurrence of term T renders
+    // as plain text only when it falls inside T's OWN defining clause
+    // — the paragraph containing the winning Definition's
     // body_anchor. This kills the no-op self-links in a Definitions
     // section (e.g. the second "City" in `"City" means the City and
     // County`) without dropping links to OTHER terms in that same
@@ -487,15 +487,15 @@ export function buildBodySegments(input: BuildBodySegmentsInput): Segment[] {
     }
   }
 
-  // Step 2: resolve overlaps per CQ2.
+  // Step 2: resolve overlaps via the shared arbiter.
   const resolved = arbitrate(primaries);
 
-  // Step 2.5 (L2a): per-occurrence definition resolution. Drops
-  // unresolved and self-suppressed defined_term primaries; attaches
+  // Step 2.5: per-occurrence definition resolution. Drops unresolved
+  // and self-suppressed defined_term primaries; attaches
   // def_id/raw/candidates_dropped to those that resolve cleanly.
   // Dropped primaries leave gaps that buildPrimaryLeaves fills with
   // text segments — the canonical clause in a definer section
-  // therefore renders as plain text per §9 L9.
+  // therefore renders as plain text.
   const withResolution = resolveDefinedTermOccurrences(
     resolved,
     text,

@@ -115,18 +115,18 @@ export type SyncResult = {
   /** Section IDs the parser couldn't resolve against the loaded module tree. */
   unresolved: Array<{ file_no: string; module_id: ModuleId; raw_section_id: string }>;
   /**
-   * Soft body-parser warnings tagged with the matter that emitted them.
-   * Surfaced in the sync summary so the operator can investigate, but
-   * not gating (the renderer always has a body to show — see A5 in the
-   * locked plan).
+   * Soft body-parser warnings tagged with the matter that emitted
+   * them. Surfaced in the sync summary so the operator can
+   * investigate, but not gating (the renderer always has a body to
+   * show).
    */
   body_warnings: Array<{ file_no: string; message: string }>;
   /**
-   * Per-section anchoring outcome from `anchorTextDiff` (Layer 3
-   * build-time alignment). Each affected section produces exactly one
-   * outcome. status="anchored" means `text_diff[]` is populated on
-   * disk; the other statuses are per-section fallbacks per the locked
-   * plan's codex C8 lock (section-level sparse failure).
+   * Per-section anchoring outcome from `anchorTextDiff`. Each
+   * affected section produces exactly one outcome.
+   * status="anchored" means `text_diff[]` is populated on disk; the
+   * other statuses are per-section fallbacks (section-level sparse
+   * failure).
    */
   anchor_outcomes: AnchorOutcome[];
 };
@@ -194,9 +194,10 @@ export async function syncBills(args: {
       continue;
     }
     const result = await parseBill(bytes, meta, args.manifest, { sectionIndex });
-    // Build-time alignment: bind classified spans to the corpus baseline.
-    // Failures are per-section + non-gating (codex C8 — sparse text_diff
-    // across affected_sections), so we keep the bills array regardless.
+    // Build-time alignment: bind classified spans to the corpus
+    // baseline. Failures are per-section + non-gating (sparse
+    // text_diff across affected_sections), so we keep the bills
+    // array regardless.
     const anchored = anchorTextDiff(result, (moduleId, sectionId) =>
       baselineTexts.get(`${moduleId}::${sectionId}`),
     );

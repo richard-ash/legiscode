@@ -8,11 +8,10 @@
 //      capitalised-extent guard that suppresses a name highlighted
 //      inside a longer proper name.
 //   3. The overlap arbiter — one tiler that resolves citation/term
-//      overlaps (citation wins) and passes structural tokens through,
-//      retiring the old ad-hoc CQ2 precedence hack.
+//      overlaps (citation wins) and passes structural tokens through.
 //
-// THE CENTRAL INVERSION (design D10): the glossary recognises,
-// capitalisation guards. The dictionary trie — not a capitalisation
+// THE CENTRAL INVERSION: the glossary recognises, capitalisation
+// guards. The dictionary trie — not a capitalisation
 // grammar — is the recognizer, so the 8.7% of defined terms that are
 // lower-case ("fiscal year", "affordable housing") survive as ordinary
 // dictionary entries matched verbatim. Matching is case-sensitive (each
@@ -77,10 +76,10 @@ function isWordBoundary(text: string, p: number): boolean {
 //
 // For a glossary hit M, compute the maximal capitalised proper-noun
 // extent E containing M and grow it in BOTH directions:
-//   - the next Capitalized word extends E (adjacency, D2);
+//   - the next Capitalized word extends E (adjacency);
 //   - `of` / `of the` followed by a Capital is a bridge;
 //   - `and` is a wall (stops extension);
-//   - a possessive `'s` does not merge two capitals (D5) — it stops
+//   - a possessive `'s` does not merge two capitals — it stops
 //     extension because there is no whitespace before it.
 //
 // The leftward walk also refuses common English determiners ("The",
@@ -349,20 +348,20 @@ export function buildGlossaryRecognizer(terms: Iterable<string>): GlossaryRecogn
 
 // ─── Overlap arbiter ────────────────────────────────────────────────────────
 //
-// One tiler for the whole section. Term spans (from the recognizer) and
-// citation spans (from the citation extractor) are each internally
+// One tiler for the whole section. Term spans (from the recognizer)
+// and citation spans (from the citation extractor) are each internally
 // non-overlapping; the only real contest is citation vs defined_term,
-// resolved strictly in citation's favor (the old CQ2 precedence, now
-// expressed once here instead of as an ad-hoc hack). subsection_label and
-// paragraph_break are positional and don't overlap primaries in practice;
-// a contained overlap drops the inner span, mirroring the prior tiler.
+// resolved strictly in citation's favor. subsection_label and
+// paragraph_break are positional and don't overlap primaries in
+// practice; a contained overlap drops the inner span.
 //
-// citation_index integrity: a citation always outranks a defined_term, so a
-// defined_term never displaces a citation — the citation's body span stays in
-// sync with its Pass-1 citations[] index. (Two citations that overlap each
-// other resolve by start order, dropping the later one; that only arises when
-// a module declares multiple citation_patterns whose matches collide. SF
-// declares a single pattern, so its matches never overlap.)
+// citation_index integrity: a citation always outranks a defined_term,
+// so a defined_term never displaces a citation — the citation's body
+// span stays in sync with its citations[] index. (Two citations that
+// overlap each other resolve by start order, dropping the later one;
+// that only arises when a module declares multiple citation_patterns
+// whose matches collide. SF declares a single pattern, so its matches
+// never overlap.)
 export function arbitrate(spans: readonly Span[]): Span[] {
   // Sort by start ascending; on tie, the longer span first (a citation is
   // usually longer than a defined_term covering the same head).

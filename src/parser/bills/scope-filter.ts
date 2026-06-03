@@ -6,13 +6,13 @@ import { SF_BILL_CODE_ALIASES } from "./aliases";
 // matter and resolve every code-name stub the title mentions to a
 // (module_id | not_installed | unresolved) bucket.
 //
-// Codex amendment A3 reversal lock: this filter is **advisory**, not a
-// download gate. The fetcher records the verdict in BillMeta and downloads
-// every Ordinance-type matter regardless. The parse_status field on the
-// per-module Bill output is the real bucket; the title classifier is the
-// renderer's priority signal (Class A bills sort above Class B in the
-// pending tree) and the operator's audit signal (Class B matters with
-// zero parsed sections are expected, not a parse failure).
+// This filter is **advisory**, not a download gate. The fetcher
+// records the verdict in BillMeta and downloads every Ordinance-type
+// matter regardless. The parse_status field on the per-module Bill
+// output is the real bucket; the title classifier is the renderer's
+// priority signal (Class A bills sort above Class B in the pending
+// tree) and the operator's audit signal (Class B matters with zero
+// parsed sections are expected, not a parse failure).
 
 export type ScopeFilterResult = {
   /**

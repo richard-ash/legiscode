@@ -1,11 +1,10 @@
-// r11 Amends chips — the primary navigation surface inside a bill tab.
-// Each chip points at one (module, section) target this bill affects;
-// activate to open the section as a new tab in the centre panel.
+// Amends chips — the primary navigation surface inside a bill tab.
+// Each chip points at one (module, section) target this bill
+// affects; activate to open the section as a new tab in the centre
+// panel.
 //
-// CR-1: no kind labels ("amend"/"add"/"repeal") because the v1 Bill
-// schema doesn't carry a `kind` field on each change. The mockup's
-// `<span class="ckind">` is omitted entirely until the inline-diff PR
-// repopulates `text_diff[]` with kind information.
+// No kind labels ("amend"/"add"/"repeal") because the Bill schema
+// doesn't carry a `kind` field on each change.
 //
 // Click semantics mirror BillSectionList: plain → primary, Cmd/Ctrl →
 // background. Each chip is a real <button> so the activity-pane

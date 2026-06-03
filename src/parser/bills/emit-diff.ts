@@ -1,19 +1,19 @@
-// Build-time TextDiffSpan anchorer. Runs in `scripts/sync-bills.ts` after
-// `parseBill` finishes; takes the classified spans the parser surfaced
-// and binds each one to a (`baseline_offset`, `baseline_length`) pair
-// inside the corpus section's baseline text. Per the locked plan's codex
-// C1 + C5 + C7 + C8 refinements:
+// Build-time TextDiffSpan anchorer. Runs in `scripts/sync-bills.ts`
+// after `parseBill` finishes; takes the classified spans the parser
+// surfaced and binds each one to a (`baseline_offset`,
+// `baseline_length`) pair inside the corpus section's baseline text.
+// Invariants:
 //
-//   • C1 — runs in sync-bills, not parseBill. parseBill stays pure-PDF.
-//   • C5 — the `anchor` field on TextDiffSpan is required; an anchor of
-//          `(0, 0)` IS a real anchor (insertion at offset 0, length 0),
-//          not a null sentinel.
-//   • C7 — paragraph-anchored token scan. O(N) over normalized tokens,
-//          paragraph boundaries the natural anchors. Elision spans are
-//          treated as wildcard gaps (any length of baseline matches).
-//   • C8 — per-section failure: a bill amending §A + §B can ship §A
-//          fully anchored AND §B absent from `text_diff[]`. Renderer
-//          falls back to manual_review for the absent section.
+//   • Lives in sync-bills, not parseBill. parseBill stays pure-PDF.
+//   • The `anchor` field on TextDiffSpan is required; an anchor of
+//     `(0, 0)` IS a real anchor (insertion at offset 0, length 0),
+//     not a null sentinel.
+//   • Paragraph-anchored token scan. O(N) over normalized tokens,
+//     paragraph boundaries the natural anchors. Elision spans are
+//     treated as wildcard gaps (any length of baseline matches).
+//   • Per-section failure: a bill amending §A + §B can ship §A fully
+//     anchored AND §B absent from `text_diff[]`. Renderer falls back
+//     to manual_review for the absent section.
 //
 // ## Pipeline (ASCII)
 //
@@ -47,8 +47,8 @@
 // manual_review. Multi-section bills are common but the renderer's
 // manual_review fallback gracefully handles them.
 //
-// Follow-up (post-PR #12): per-section attribution. Tracked in
-// TODOS.md alongside the existing L504 lead_in deferral.
+// Per-section attribution is tracked in TODOS.md "Inline diff
+// follow-ups" alongside the existing L504 lead_in deferral.
 //
 // ## Whole-section repeal / add
 //
@@ -191,9 +191,9 @@ export function anchorTextDiff(
     // provide anchor checkpoints during alignment.
     const sectionSpans = filterToAmendmentSpans(parseResult.classified_spans);
 
-    // Reject early if any amendment span came through as "ambiguous"
-    // — per the locked plan classify-spans treats ambiguous decoration
-    // as a section-level failure cause.
+    // Reject early if any amendment span came through as "ambiguous".
+    // classify-spans treats ambiguous decoration as a section-level
+    // failure cause.
     const ambiguousCount = sectionSpans.filter((s) => s.kind === "ambiguous").length;
     if (ambiguousCount > 0) {
       outcomes.push({

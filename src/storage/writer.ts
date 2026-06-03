@@ -97,10 +97,10 @@ export async function writeModule(parsed: ParsedModule, opts: WriteModuleOptions
       join(newDir, "manifest.json"),
       toDistributedManifest(opts.jurisdiction, parsed.module),
     );
-    // L2b cutover: definitions-v2.json (canonical Definition[]) is the
-    // only definitions artifact; the legacy term-keyed definitions.json
-    // is gone. unresolved_references.json always ships (even empty) so
-    // the operator coverage report has a stable file path to read.
+    // definitions-v2.json (canonical Definition[]) is the only
+    // definitions artifact. unresolved_references.json always ships
+    // (even empty) so the operator coverage report has a stable file
+    // path to read.
     await writeJson(join(newDir, "definitions-v2.json"), parsed.moduleDefinitions);
     await writeJson(join(newDir, "unresolved_references.json"), parsed.unresolvedReferences);
 
@@ -154,14 +154,13 @@ async function writeSection(
   await mkdir(sectionDir, { recursive: true });
   await fsyncDir(sectionDir);
   const filePath = join(sectionDir, `${section.id}.json`);
-  // T5 defense-in-depth: refuse to overwrite an existing path. Pre-T1
-  // the writer silently last-write-wins'd colliding sections; the
-  // validateCorpus duplicate_section_ids gate (D2) now catches this at
-  // pipeline time and the orchestrator short-circuits writeModule (D7).
-  // If a future regression bypasses validation (e.g. --skip-validation
-  // debug flag) or two ParsedModules ever feed the same writeModule
-  // invocation, the writer must still refuse to drop bytes. Same
-  // invariant, second gate (per feedback_test_each_path_once).
+  // Defense-in-depth: refuse to overwrite an existing path. The
+  // validateCorpus duplicate_section_ids gate catches collisions at
+  // pipeline time and the orchestrator short-circuits writeModule
+  // before we get here. If a future regression bypasses validation
+  // (e.g. --skip-validation debug flag) or two ParsedModules ever
+  // feed the same writeModule invocation, the writer must still
+  // refuse to drop bytes.
   try {
     await access(filePath);
     throw new AtomicWriteError(

@@ -319,12 +319,12 @@ function buildModuleMatcher(installed: readonly InstalledModule[]): ModuleMatche
 }
 
 /**
- * Apply ModuleConfig.display_rules to a raw section number extracted from
- * a bill PDF, producing the SectionId the corpus tree uses. Codex C3
- * replacement: the structural pass observes raw numbers like "102A" or
- * "109.0", but the existing module tree stores them as the prefixed/
- * stripped form ("b102a", "p109"). The renderer needs the corpus-tree
- * form to highlight the right node.
+ * Apply ModuleConfig.display_rules to a raw section number extracted
+ * from a bill PDF, producing the SectionId the corpus tree uses.
+ * The structural pass observes raw numbers like "102A" or "109.0",
+ * but the existing module tree stores them as the prefixed/stripped
+ * form ("b102a", "p109"). The renderer needs the corpus-tree form
+ * to highlight the right node.
  *
  * Rules applied in order:
  *   strip_trailing_zero — ".0" suffix collapses ("109.0" → "109")

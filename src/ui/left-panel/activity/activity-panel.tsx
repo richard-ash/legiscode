@@ -1,5 +1,5 @@
 // Pending-bills activity panel. Sits in the left panel below the
-// corpus tree, separated by the layout splitter (r11).
+// corpus tree, separated by the layout splitter.
 //
 // State:
 //   - Empty (zero pending bills) → empty state with check icon.

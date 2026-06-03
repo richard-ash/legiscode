@@ -16,7 +16,7 @@
 //   graphics-op ─┼──► classifySpans ──► ClassifiedSpan[] (in source order)
 //   font-metadata┘                        │
 //                                          ▼
-//                                       emit-diff.ts (T7) consumes this
+//                                       emit-diff.ts consumes this
 //                                       per affected_section and aligns
 //                                       against corpus baseline text.
 //

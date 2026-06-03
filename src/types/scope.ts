@@ -9,19 +9,15 @@ import { ModuleIdSchema } from "./identifiers";
 //                  hierarchy_prefix semantics: definitions in
 //                  §401 [Housing Code, Preface, Chapter 4 Definitions]
 //                  scope to every section under that prefix. The array
-//                  shape matches the loader's existing per-section
-//                  hierarchy walk; L2a's resolver consumes it directly.
-//   module       — applies to the entire module. Manifest-declared only,
-//                  never inferred from prose — see L5 in the plan
-//                  (richardash-feat-definitions-foundation-plan-20260522).
-//                  Definitions with module scope carry
-//                  extracted_by: "manifest:declared-global".
-//   cross_module — typed slot only. No extractor emits this in the L1–L3
-//                  scope; reserved so the post-L3 follow-up plan doesn't
-//                  need a schema-version round-trip when it ships the
-//                  cross-module extractor. Mirrors how
-//                  CrossModuleTargetSchema (citation) shipped before any
-//                  extractor emitted cross-module citations.
+//                  shape matches the loader's per-section hierarchy
+//                  walk; the resolver consumes it directly.
+//   module       — applies to the entire module. Manifest-declared
+//                  only, never inferred from prose. Definitions with
+//                  module scope carry extracted_by:
+//                  "manifest:declared-global".
+//   cross_module — typed slot only. No extractor emits this today;
+//                  reserved so a future cross-module extractor doesn't
+//                  need a schema-version round-trip to land.
 const ScopeHierarchySchema = z
   .object({
     kind: z.literal("hierarchy"),

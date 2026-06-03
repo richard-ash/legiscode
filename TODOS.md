@@ -425,3 +425,9 @@ End-to-end refoundation of the defined-term graph from a term-keyed dictionary t
 - **Render-time perf instrumentation.** P5 deferred — extend the Playwright perf gate (owned by `feat/release-pipeline`) to cover the diff tab with a 100ms per-render budget once that pipeline lands.
 
 ---
+
+## Per-section lazy loading
+
+The corpus loader (`electron/corpus-loader.ts`) reads every section into memory at boot — a few hundred ms cost in exchange for zero-latency `corpus:read` calls. When SF Municipal alone is the installed corpus this is fine. Once `feat/module-manager` ships and a user can install multiple jurisdictions, the load may grow past comfortable RAM and per-section disk reads on demand become the right shape. Trigger: a profiling pass on a multi-jurisdiction corpus shows boot RSS or boot time crossing the comfort line.
+
+---

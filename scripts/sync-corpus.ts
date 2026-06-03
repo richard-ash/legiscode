@@ -10,8 +10,9 @@
 // propagation. All orchestration lives in `@/corpus.buildCorpus`.
 // See docs/ARCHITECTURE.md.
 //
-// HTTP fetch is deliberately NOT in this CLI — it's feat/build-pipeline's
-// problem. CI is hermetic and reads a committed HTML fixture.
+// HTTP fetch is deliberately NOT in this CLI — the scheduled fetcher
+// (operator-driven) writes inputs to disk and this CLI reads them.
+// CI is hermetic and reads a committed HTML fixture.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";

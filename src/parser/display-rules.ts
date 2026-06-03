@@ -5,8 +5,7 @@
 // candidate that hits wins.
 //
 // The DSL ships three first-class knobs (prefix, alpha_suffix,
-// strip_trailing_zero) plus an override_regex escape hatch — see the
-// refoundation plan's "Locked decisions" for the principle. New knobs
+// strip_trailing_zero) plus an override_regex escape hatch. New knobs
 // earn first-class status by appearing across >1 jurisdiction module;
 // until then, the long tail lives under override_regex.
 //
@@ -60,9 +59,9 @@ export function candidatesFor(sectionRef: string, rules?: DisplayRules): string[
 
   // override_regex: a per-module escape hatch. Regex's first capture
   // group, lowercased, becomes a candidate. Invalid regex is silently
-  // skipped — the Phase 4 build gate surfaces the resulting unbindable
-  // cite with a clearer diagnostic than a regex-compile error here
-  // would produce.
+  // skipped — the build gate surfaces the resulting unbindable cite
+  // with a clearer diagnostic than a regex-compile error here would
+  // produce.
   if (rules?.override_regex) {
     try {
       const re = new RegExp(rules.override_regex, "i");

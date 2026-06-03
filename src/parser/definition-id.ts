@@ -1,16 +1,15 @@
 // DefinitionId construction. Single source of truth for canonical term
-// hashing so the L2a extractor, downstream callers, and any id-shape
-// test agree on the algorithm.
+// hashing so the extractor, downstream callers, and any id-shape test
+// agree on the algorithm.
 //
-// Per the definitions-foundation plan §3.1 / §9 L1:
 //   DefinitionId = "<module_id>/<section_id>#<sha8(canonical_term)>"
 //
 // The sha8-over-canonical-term choice is stability-locked: adding new
-// extraction patterns in L3 must not invalidate L1 ids. sha8 over the
+// extraction patterns must not invalidate existing ids. sha8 over the
 // term text (not over extraction order, not over file position) means
-// the id of "Apartment" stays the same whether it was extracted by the
-// shall-mean pattern in L1 or by the curly-quoted-means pattern added
-// in L3.
+// the id of "Apartment" stays the same whether it was extracted by
+// the shall-mean pattern or by a curly-quoted-means pattern added
+// later.
 
 import { createHash } from "node:crypto";
 import { type DefinitionId, formatDefinitionId } from "@/types";

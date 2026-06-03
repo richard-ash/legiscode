@@ -79,7 +79,7 @@ export interface ParsedModule {
 }
 
 /**
- * Per-occurrence unresolved-reference audit row. The L2a build emits
+ * Per-occurrence unresolved-reference audit row. The build emits
  * one of these per defined_term occurrence that had no in-scope
  * Definition. Persisted to `<module>/unresolved_references.json` so
  * the operator-driven coverage report can group OOS attrition by

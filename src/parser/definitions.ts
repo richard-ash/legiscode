@@ -1,11 +1,11 @@
-// ─── Canonical Definition[] extraction (L2a) ───────────────────────────────
+// ─── Canonical Definition[] extraction ─────────────────────────────────────
 
 import type { Definition, ModuleConfig, ModuleId, SectionFile, SectionId } from "@/types";
 import type { DefinedTermMatch } from "./defined-terms";
 import { buildDefinitionId, canonicalizeTerm } from "./definition-id";
 
 //
-// Per the definitions-foundation plan §4 build-time pipeline:
+// Build-time pipeline:
 //   PARSE        → DefinedTermMatch[] per section (defined-terms.ts)
 //   SCOPE-ASSIGN → per-section conversion to Definition[] with default
 //                  hierarchy_prefix scope, overridden to module scope when
@@ -57,11 +57,11 @@ export interface SectionDefinitionContext {
   section: SectionFile;
   matches: readonly DefinedTermMatch[];
   /**
-   * Section ids the manifest declared as module-wide definers. Definitions
-   * extracted from a section in this set get scope:{kind:"module"} and
-   * extracted_by:"manifest:declared-global" regardless of the originating
-   * pattern. See §9 L5 of the plan: manifest-declared globals are the
-   * only source of module scope.
+   * Section ids the manifest declared as module-wide definers.
+   * Definitions extracted from a section in this set get
+   * scope:{kind:"module"} and extracted_by:"manifest:declared-global"
+   * regardless of the originating pattern. Manifest-declared globals
+   * are the only source of module scope.
    */
   globalDefinerSections: ReadonlySet<SectionId>;
 }
