@@ -1,9 +1,8 @@
-// Shared status taxonomy for pending bills. The kicker, activity-panel
-// bill row, and section pending-rail all dispatch on `bill_status` to
-// pick a tone (Catppuccin token name carried on `data-s`) and a short
-// label. Centralizing here keeps the 5-key taxonomy DRY across the three
-// surfaces and matches the lock from r11 (drop the mockup's 4-state
-// taxonomy; keep the real 5-state mapping).
+// Shared status taxonomy for pending bills. The kicker, activity-
+// panel bill row, and section pending-rail all dispatch on
+// `bill_status` to pick a tone (Catppuccin token name carried on
+// `data-s`) and a short label. Centralizing here keeps the 5-key
+// taxonomy DRY across the three surfaces.
 
 import type { BillStatus } from "@/types";
 

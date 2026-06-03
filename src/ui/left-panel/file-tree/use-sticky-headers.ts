@@ -3,7 +3,7 @@
 // topmost row, then climbs that row's ancestor chain through the flat
 // `rows` list. The ancestor list drives `<StickyHeaderStack/>`'s render.
 //
-// Why this isn't `virtualItems[0]` (codex D13): @tanstack/react-virtual's
+// Why this isn't `virtualItems[0]`: @tanstack/react-virtual's
 // `overscan: 8` config keeps ~8 rows above the viewport mounted so scroll
 // reconciliation can paint them ahead of the user reaching them. The first
 // rendered item therefore lags the visible viewport by up to overscan
@@ -62,7 +62,7 @@ export function useStickyHeaders({
     }
   }
 
-  // Memoized on [topmostRowId, rows] (D4). Sub-row scrolling within the
+  // Memoized on [topmostRowId, rows]. Sub-row scrolling within the
   // same topmost row hits the cache; the ancestor array reference stays
   // stable across the entire 24px scroll window for a given top row.
   // StickyHeaderStack is not React.memo'd today — the stable ancestors

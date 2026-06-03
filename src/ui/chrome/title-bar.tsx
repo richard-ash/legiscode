@@ -1,9 +1,9 @@
-// Custom titlebar (C9). Brand mark on the left, workspace chip in the
-// centre (⌘P entry per chrome.jsx), settings dropdown on the right.
-// Phase 1 hides the sync indicator (A15), Bell (A16), Share (A16) — those
-// land with their owning branches. macOS draws OS traffic lights through
-// `titleBarStyle: 'hiddenInset'`; CSS leaves padding for them. Windows 11+
-// uses `titleBarOverlay` for window controls.
+// Custom titlebar. Brand mark on the left, workspace chip in the
+// centre (⌘P entry), settings dropdown on the right. The sync
+// indicator, Bell, and Share affordances are intentionally hidden
+// until their backing systems ship. macOS draws OS traffic lights
+// through `titleBarStyle: 'hiddenInset'`; CSS leaves padding for
+// them. Windows 11+ uses `titleBarOverlay` for window controls.
 
 import { useState } from "react";
 import { SettingsDropdown } from "@/ui/chrome/settings-dropdown";

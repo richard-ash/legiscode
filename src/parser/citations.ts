@@ -7,8 +7,8 @@
 // we track code-phrase occurrences (both external — California Vehicle
 // Code, U.S.C. — and jurisdiction-internal — sibling sf-* code titles
 // like "Building Code", "Police Code"). Each cite scopes to the
-// *nearest* phrase in the same paragraph, preceding or following: this
-// is the Phase 2 suffix-form fix for the canonical p109 failure
+// *nearest* phrase in the same paragraph, preceding or following.
+// This covers the suffix-form case
 //   "Section 110A, Table 1A-K ... of the Building Code"
 // where the code phrase sits ten words past the cite. Multi-code
 // paragraphs also resolve correctly because each cite picks its own
@@ -240,8 +240,8 @@ function classifyMatch(
   }
 }
 
-// Phase 2 — phrase-to-cite global assignment within a paragraph. Each
-// code phrase claims its single nearest unowned cite (before OR after),
+// Phrase-to-cite global assignment within a paragraph. Each code
+// phrase claims its single nearest unowned cite (before OR after),
 // not the other way round. Without this assignment direction the
 // canonical "See Section 109.0 herein and the procedures in Section 102
 // of the Building Code." paragraph wrongly attaches "Building Code" to
@@ -328,7 +328,7 @@ function assignPhrasesToCites(
   return assignments;
 }
 
-// Phase 2 — jurisdiction-internal code-phrase tracker. Sister modules
+// Jurisdiction-internal code-phrase tracker. Sister modules
 // inside the same AmLegal export ("Building Code", "Police Code") are
 // not in the external module registry (which covers CA + Federal); for
 // the binder to bind cross-module cites to sf-building/sf-police we
@@ -370,10 +370,10 @@ export class CitationPatternError extends Error {
   }
 }
 
-// Position-bearing extraction result. Per A1 in the feat-parse-html-ast
-// design, the canonical extractor returns the position triples needed by
-// the pipeline's body-segment builder; callers that only need the bare
-// Citation[] shape (e.g. SectionFile.citations) map via `.citation`.
+// Position-bearing extraction result. The canonical extractor
+// returns the position triples needed by the pipeline's body-segment
+// builder; callers that only need the bare Citation[] shape (e.g.
+// SectionFile.citations) map via `.citation`.
 export interface CitationMatch {
   citation: Citation;
   /** Inclusive start index in the input text. */

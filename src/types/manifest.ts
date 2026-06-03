@@ -21,12 +21,13 @@ const SourcePathSchema = z
     message: "source.path must not contain '..' segments",
   });
 
-// SourceConfig describes where the build pipeline reads its bytes from and
-// which format-parser handles them. snapshot_at is an optional ISO 8601
-// hint the scheduled fetcher (feat/build-pipeline) writes after each
-// download; sync-corpus uses it as the default --snapshot-at when the
-// CLI flag is absent. The traversal-escape guard on path runs both at
-// schema-parse time (here) and at filesystem-resolve time in sync-corpus.ts.
+// SourceConfig describes where the build pipeline reads its bytes
+// from and which format-parser handles them. snapshot_at is an
+// optional ISO 8601 hint the scheduled fetcher writes after each
+// download; sync-corpus uses it as the default --snapshot-at when
+// the CLI flag is absent. The traversal-escape guard on path runs
+// both at schema-parse time (here) and at filesystem-resolve time in
+// sync-corpus.ts.
 export const SourceConfigSchema = z
   .object({
     format: SourceFormatSchema,
@@ -63,26 +64,21 @@ const ParserStrategySchema = z
   .string()
   .regex(/^[a-z][a-z0-9-]*$/, "parser_strategy must be lowercase tokens with hyphens");
 
-// DisplayRules — minimum-shape DSL that lets the build-time binder turn
-// cite text ("Section 102A of the Building Code") into a candidate
-// anchor_id ("b102a") for the target module's anchor index. Four
-// first-class knobs plus an escape hatch per the locked principle in the
-// refoundation plan (~/.gstack/projects/legiscode/richardash-feat-
-// citation-resolution-pr25-refactor-plan-20260520.html § "Locked
-// decisions"):
+// DisplayRules — minimum-shape DSL that lets the build-time binder
+// turn cite text ("Section 102A of the Building Code") into a
+// candidate anchor_id ("b102a") for the target module's anchor index.
+// Four first-class knobs plus an escape hatch:
 //
 //   prefix              — single-letter or short tag prepended to the
 //                         numeric section ref ("102A" with prefix "b"
 //                         becomes "b102a"). null means no prefix —
 //                         sf-charter's bare-numeric primary form.
 //   extra_prefixes      — additional prefixes the binder also tries
-//                         when `prefix` misses. Earns first-class
-//                         status because the pattern recurs across
-//                         sf-charter (appendix-A as "a", appendix-D
-//                         as "d"), sf-building (Green Building
-//                         Division 4-x as "g"), sf-park (chapter-11A
-//                         appendix as "11a"). Promote-by-evidence per
-//                         feedback_minimum_shapes.
+//                         when `prefix` misses. The pattern recurs
+//                         across sf-charter (appendix-A as "a",
+//                         appendix-D as "d"), sf-building (Green
+//                         Building Division 4-x as "g"), sf-park
+//                         (chapter-11A appendix as "11a").
 //   alpha_suffix        — when true, the regex captures a trailing
 //                         single letter on the section ref ("102A" not
 //                         "102"). Required for sf-building's chapter
@@ -92,9 +88,9 @@ const ParserStrategySchema = z
 //                         AmLegal anchors drop the trailing zero
 //                         (JD_P109, not JD_P109.0).
 //   override_regex      — last-resort escape hatch. The DSL grows by
-//                         observed repetition (feedback_minimum_shapes):
-//                         a pattern living here that recurs across >1
-//                         module gets promoted to a first-class knob.
+//                         observed repetition: a pattern living here
+//                         that recurs across >1 module gets promoted
+//                         to a first-class knob.
 //
 // The full set is optional so manifests that don't ship cross-module
 // citation traffic don't have to declare it. Without display_rules the
@@ -130,11 +126,10 @@ export type DisplayRules = z.infer<typeof DisplayRulesSchema>;
 // ({kind:"module"} ScopeExpr, extracted_by "manifest:declared-global"),
 // instead of defaulting to the definer section's hierarchy chain. This
 // is the only source of module-wide scope: prose-parsed scope-hint
-// inference ("as used in this Chapter") is intentionally NOT supported,
-// because a false declared-global is worse than no popover (see §9 L5
-// of the definitions-foundation plan). The L3 extractor wires the
-// behavior — L1 declares the slot so operator-maintained manifests can
-// add entries without a schema-version bump round-trip.
+// inference ("as used in this Chapter") is intentionally NOT
+// supported, because a false declared-global is worse than no
+// popover. Operator-maintained manifests can add entries here without
+// a schema-version bump round-trip.
 export const ModuleConfigSchema = z
   .object({
     id: ModuleIdSchema,

@@ -1,7 +1,7 @@
-// Status bar. Phase 1 ships hardcoded slots (corpus version, code count,
-// ⌘K hint) plus a `register({ id, slot, priority, render })` API that
-// downstream branches use to add ordinance/diff/flag indicators without
-// touching this file (A10).
+// Status bar. Ships hardcoded slots (corpus version, code count, ⌘K
+// hint) plus a `register({ id, slot, priority, render })` API that
+// downstream branches use to add ordinance/diff/flag indicators
+// without touching this file.
 //
 // Ordering rules:
 //   • Slots are 'left' | 'center' | 'right'; built-in slots render first.
@@ -45,7 +45,7 @@ function listItems(slot: StatusBarItem["slot"]): RegisteredItem[] {
 }
 
 export interface StatusBarProps {
-  /** "SF Municipal Code v2026.04" — the C13 / status canary slot. */
+  /** "SF Municipal Code v2026.04" — status canary slot. */
   rootLabel: string;
   jurisdictionVersion: string;
   /** Number of code modules indexed (e.g. 18). */

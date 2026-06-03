@@ -45,9 +45,9 @@ export interface TabStripProps {
   openItems: OpenItemsState;
   setOpenItems: (update: OpenItemsState | ((prev: OpenItemsState) => OpenItemsState)) => void;
   titleMap: ReadonlyMap<string, CorpusTreeNode>;
-  /** Pending Bill rows keyed by file_no, used to title bill tabs. Bills
-   *  live outside the corpus tree (r11), so the tab strip can't lean on
-   *  titleMap for them. Empty when no module has pending bills. */
+  /** Pending Bill rows keyed by file_no, used to title bill tabs.
+   *  Bills live outside the corpus tree, so the tab strip can't lean
+   *  on titleMap for them. Empty when no module has pending bills. */
   pendingBillsById: ReadonlyMap<string, Bill>;
   closeAt: (index: number) => void;
   /** Close every tab except the one at `keepIndex`. Bulk-close menu rows
@@ -61,11 +61,10 @@ export interface TabStripProps {
 }
 
 /**
- * Open popover slot — single source of truth for "which popover is on
- * screen right now" (A1 lock). Mutex between the right-click menu
- * (commit 3) and the future overflow chevron menu (commit 5) falls out
- * for free; a new openMenu setter atomically replaces the old one and
- * unmounts the previous popover.
+ * Open popover slot — single source of truth for "which popover is
+ * on screen right now". Mutex between the right-click menu and the
+ * overflow chevron menu falls out for free: a new openMenu setter
+ * atomically replaces the old one and unmounts the previous popover.
  */
 type OpenMenuState =
   | { kind: "context"; anchorEl: HTMLElement; identity: string }
@@ -335,7 +334,7 @@ export function TabStrip({
     [items.length, activeIndex, setOpenItems],
   );
 
-  // CQ9 — scroll the active tab into view whenever activeIndex changes.
+  // Scroll the active tab into view whenever activeIndex changes.
   // Covers keyboard activation (⌘1-9, ⌘pgup/pgdn, arrow nav) AND
   // cold-start hydration when the persisted active tab is off-screen
   // after overflow.
@@ -405,8 +404,8 @@ export function TabStrip({
             ref={chevronRef}
             type="button"
             className="lc-tabs-chevron"
-            // D1 lock — interpolated count replaces the omitted "Open
-            // tabs · N" header row; screen readers still hear the count.
+            // Interpolated count gives screen readers the same signal
+            // a visible "Open tabs · N" header row would carry.
             aria-label={`Show all ${items.length} open tabs`}
             aria-haspopup="menu"
             aria-expanded={overflowMenuOpen}
@@ -458,8 +457,8 @@ function buildTitle(
 
 /** Build a lookup map from section refHash → CorpusTreeNode. Threaded
  *  into TabStrip so title lookup is O(1) per tab on render. Bills are
- *  resolved separately via `pendingBillsById` because they aren't tree
- *  nodes (r11). */
+ *  resolved separately via `pendingBillsById` because they aren't
+ *  tree nodes. */
 export function buildTitleMap(tree: readonly CorpusTreeNode[]): Map<string, CorpusTreeNode> {
   const out = new Map<string, CorpusTreeNode>();
   const stack: CorpusTreeNode[] = [...tree];

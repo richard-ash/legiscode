@@ -54,19 +54,19 @@ export interface CitationReport {
    */
   unresolvedCross: readonly UnresolvedCitation[];
   /**
-   * D9 — vague reclass observability. Buckets vague targets by why the
+   * Vague reclass observability. Buckets vague targets by why the
    * binder couldn't bind them:
    *   - vague_external: target had no source_target field — author
    *     wrote a fundamentally underspecified cite ("the previous
    *     section", "as set forth above"). Acceptable; outside the gate.
    *   - vague_collision_unresolvable: target had a source_target whose
    *     section_id lives in a collision family every one of whose
-   *     members shares the citing section's hierarchy. The 19%
-   *     honest-vague bucket per D5 empirics; acceptable per D4.
+   *     members shares the citing section's hierarchy. Honest-vague;
+   *     acceptable.
    *   - vague_no_anchor: target had a source_target whose section_id
    *     hit no anchor at all (no exact match, no collision family).
-   *     This is a binder bug indicator — D12 acceptance metric
-   *     requires zero entries.
+   *     This is a binder bug indicator — the build gate requires zero
+   *     entries.
    */
   newly_vague_by_reason: NewlyVagueByReason;
 }
@@ -166,7 +166,7 @@ function buildModuleUniverse(allModules: readonly ParsedModule[]): ModuleAnchorU
   return out;
 }
 
-// Per-module collision-family index used for D9 vague-bucket attribution.
+// Per-module collision-family index used for vague-bucket attribution.
 // Mirrors binder.buildCollisionFamilies; kept local to avoid pulling the
 // binder module into validate-corpus's dependency graph. Values carry
 // each member's hierarchy so the validator can re-derive the binder's
@@ -337,7 +337,7 @@ function computeCitationReport(
   for (const section of parsed.sections) {
     for (const citation of section.citations) {
       total += 1;
-      // D9 — vague bucketing. Runs BEFORE classifyCitation so the
+      // Vague bucketing runs BEFORE classifyCitation so the
       // bookkeeping isn't entangled with the resolution verdict.
       if (citation.target.kind === "vague") {
         bucketVague(
@@ -380,10 +380,10 @@ function computeCitationReport(
   return { total, resolved, unresolvedIntra, unresolvedCross, newly_vague_by_reason };
 }
 
-// D9 — attribute a vague target to one of three buckets. The validator
+// Attribute a vague target to one of three buckets. The validator
 // dry-runs the binder's disambiguation logic against the per-module
 // collision-family index so its verdict agrees with the runtime
-// resolver's (per the design's "validator/binder agreement" property).
+// resolver's (validator/binder agreement property).
 function bucketVague(
   target: {
     kind: "vague";
@@ -419,15 +419,15 @@ function bucketVague(
   const family = families?.get(stripped);
   if (family) {
     // The family exists; the binder must have come up ambiguous on
-    // hierarchy disambiguation. That's the design's 19% honest-vague
-    // case: every family member shares the citing section's
-    // hierarchy, or the ancestor walk hit ambiguity at every depth.
+    // hierarchy disambiguation. Honest-vague: every family member
+    // shares the citing section's hierarchy, or the ancestor walk hit
+    // ambiguity at every depth.
     bucket.vague_collision_unresolvable += 1;
     return;
   }
   // No collision family — but the cite still came up vague. That
   // means the source_target's section_id matched no anchor at all,
-  // which is the D12 binder-bug indicator (acceptance requires 0).
+  // which is the binder-bug indicator the build gate forbids.
   // If the anchor IS present, the binder shouldn't have reclassified;
   // count it under no_anchor anyway so the gate surfaces the
   // disagreement.
@@ -443,16 +443,14 @@ type CitationVerdict =
   | { kind: "intra-unresolved"; targetId: string }
   | { kind: "cross-unresolved"; targetId: string; reason: string };
 
-// Phase 4 — validator now dry-runs the binder. The legacy hierarchy
-// walk + "a"-prefix hack + cross-module slip demotion in
-// validate-corpus.ts:207-278 are deleted. Every section-ref must hit
-// a real anchor (the build-time binder guarantees this for shipped
-// cites); every leftover internal / cross_module target with an
-// installed target module is the binder having failed and the build
-// refuses to ship it. Cites to modules NOT in this build stay as
-// cross_module and report cross-unresolved (install-time concern,
-// not gated). vague / structural / internal_appendix pass through;
-// the runtime resolver handles them, the build doesn't gate on them.
+// Dry-runs the binder. Every section-ref must hit a real anchor (the
+// build-time binder guarantees this for shipped cites); every leftover
+// internal / cross_module target with an installed target module is
+// the binder having failed and the build refuses to ship it. Cites to
+// modules NOT in this build stay as cross_module and report
+// cross-unresolved (install-time concern, not gated). vague /
+// structural / internal_appendix pass through; the runtime resolver
+// handles them, the build doesn't gate on them.
 function classifyCitation(
   _source: SectionFile,
   citation: SectionFile["citations"][number],
@@ -476,19 +474,17 @@ function classifyCitation(
       // in source TOC anchors (deletion stubs / Note sub-elements).
       if (ownSectionIds.has(target.anchor_id as SectionId)) return { kind: "resolved" };
       if (ownTocAnchors.has(target.anchor_id)) return { kind: "resolved" };
-      // Defense in depth: ownTocAnchorsRaw kept the case-mixed source
-      // form for legacy compat in earlier phases — Phase 2 lowercased
-      // the canonical set, but the raw fallback catches a regression
-      // path where a binder change drifts from the validator. Drop in
-      // Phase 6 if the accuracy fixture confirms no real hit.
+      // Defense in depth: ownTocAnchorsRaw keeps the case-mixed source
+      // form to catch a regression path where a binder change drifts
+      // from the validator.
       if (ownTocAnchorsRaw.has(target.anchor_id)) return { kind: "resolved" };
       return { kind: "intra-unresolved", targetId: target.anchor_id };
     }
     case "internal":
-      // Phase 4 — the binder always rewrites bindable internals to
-      // section-ref and reclassifies unbindable ones as vague. An
-      // internal target on disk means the binder pass didn't run on
-      // this section, which is a regression worth gating.
+      // The binder always rewrites bindable internals to section-ref
+      // and reclassifies unbindable ones as vague. An internal target
+      // on disk means the binder pass didn't run on this section,
+      // which is a regression worth gating.
       return {
         kind: "intra-unresolved",
         targetId: target.section_id,

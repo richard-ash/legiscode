@@ -4,19 +4,16 @@
 // section-ref when a candidate hits.
 //
 // Two-pass design lives upstream (pipeline.ts):
-//   Pass A — extract + body-build (existing). Citation targets land as
-//            the legacy internal / cross_module / structural / vague /
+//   Pass A — extract + body-build. Citation targets land as the legacy
+//            internal / cross_module / structural / vague /
 //            internal_appendix shapes.
 //   Pass B — binder. After every module has been parsed, build a
 //            per-module anchor index (parsed section.id ∪ tocAnchors)
 //            and rewrite citations whose target resolves to an anchor.
-//            Unbindable cites keep their legacy target so the corpus
-//            still ships during the Phase 2 → Phase 4 transition; the
-//            Phase 4 gate then refuses to promote unbound cites.
 //
-// The binder is the single code path Phase 4 collapses validator and
-// resolver onto. The same candidates this file produces at build time
-// become the runtime lookup keys after Phase 3 — except the runtime
+// The binder is the single code path the build-time gate collapses
+// validator and resolver onto. The same candidates this file produces
+// at build time become the runtime lookup keys — except the runtime
 // only ever sees the winning candidate, baked into the disk shape.
 
 import type { Citation, CitationTarget, DisplayRules, ModuleId, SectionFile } from "@/types";
@@ -33,7 +30,7 @@ export type AnchorIndex = ReadonlySet<string>;
 // the family has more than one member — single-section families are
 // elided so the lookup answers "is this id ambiguous?" in one Map.has.
 //
-// Drives D5's hierarchy-scoped fallback: a bare cite "Section 16.9" in
+// Drives the hierarchy-scoped fallback: a bare cite "Section 16.9" in
 // a module with sections "16.9", "16.9-2", "16.9-21" carries the family
 // {"16.9": [those three]}. The binder uses the citing section's
 // hierarchy to pick which family member the author meant.
@@ -47,7 +44,7 @@ export interface BindContext {
   /** display_rules keyed by module_id; missing modules use bare lookup. */
   readonly rulesByModule: ReadonlyMap<ModuleId, DisplayRules | undefined>;
   /**
-   * Per-module collision families keyed by module_id. Used by D5
+   * Per-module collision families keyed by module_id. Used by the
    * hierarchy-scoped fallback to disambiguate bare cites whose stripped
    * form has multiple disambiguator siblings in the target module.
    * Optional so legacy call sites that don't supply it fall back to
@@ -89,7 +86,7 @@ function hierarchiesEqual(a: readonly string[], b: readonly string[]): boolean {
   return true;
 }
 
-// D5 disambiguation. Pick the family member whose hierarchy best
+// Family disambiguation. Pick the family member whose hierarchy best
 // matches the citing section's. Verdicts:
 //   - exact hierarchy match on exactly one member → bind that member
 //   - exact hierarchy match on multiple members → ambiguous (vague)
@@ -138,19 +135,17 @@ function disambiguateFamilyByHierarchy(
 //
 //   section-ref — the binder found a hit (either in the citing module,
 //                 a sibling module via sibling-fallback, or the target
-//                 module of a cross_module cite). Phase 3 runtime
+//                 module of a cross_module cite). The runtime
 //                 dereferences these in O(1) against titleMap.
-//   vague       — Phase 4 reclassification. The cite looked like it
-//                 wanted to be internal / cross_module but no anchor
-//                 hit exists in this build's union of modules. Almost
-//                 always: a cite to an external code (CA / US) without
-//                 a phrase prefix the registry could pick up, or a
-//                 stale source reference to a renumbered section.
-//                 The renderer shows the cite text in citation chrome
-//                 but ⌘-click is a no-op (the resolver returns
-//                 unresolvable for vague). This collapses the legacy
-//                 cross-unresolved demotion bucket the build gate
-//                 quietly leaned on.
+//   vague       — reclassification. The cite looked like it wanted to
+//                 be internal / cross_module but no anchor hit exists
+//                 in this build's union of modules. Almost always: a
+//                 cite to an external code (CA / US) without a phrase
+//                 prefix the registry could pick up, or a stale source
+//                 reference to a renumbered section. The renderer
+//                 shows the cite text in citation chrome but ⌘-click
+//                 is a no-op (the resolver returns unresolvable for
+//                 vague).
 //   structural / internal_appendix — passed through unchanged. The
 //                 binder has no anchor to bind to.
 //
@@ -162,11 +157,11 @@ function disambiguateFamilyByHierarchy(
 // section_id values in legacy targets are already lowercase per the
 // SectionIdSchema; candidatesFor lowercases again as defense in depth.
 //
-// citingHierarchy supplies the per-section context D5 needs to
-// disambiguate bare cites whose stripped form has multiple
-// disambiguator siblings in the target module. Optional so legacy
-// callers (older tests, sandboxed binder use) keep working without
-// hierarchy info — they just lose D5 fallback for that call.
+// citingHierarchy supplies the per-section context the disambiguator
+// needs for bare cites whose stripped form has multiple disambiguator
+// siblings in the target module. Optional so legacy callers (older
+// tests, sandboxed binder use) keep working without hierarchy info —
+// they just lose the fallback for that call.
 export function bindCitation(
   citation: Citation,
   ctx: BindContext,
@@ -200,11 +195,10 @@ export function bindCitation(
       if (sibling) return { ...citation, target: sibling };
       // Nothing matched anywhere. Reclassify as vague so the runtime
       // resolver and validator both treat it as an informational
-      // citation (no navigation, no build failure). Per the Phase 4
-      // gate: only bindable-shape-but-actually-unbindable targets
-      // remain internal / cross_module past this point; the validator
-      // then refuses to ship them. D9: preserve source_target so the
-      // validator can bucket newly-vague cites by reason.
+      // citation (no navigation, no build failure). The build gate
+      // then refuses to ship any internal / cross_module that survives
+      // to validation. Preserve source_target so the validator can
+      // bucket newly-vague cites by reason.
       return {
         ...citation,
         target: {
@@ -231,10 +225,10 @@ export function bindCitation(
       // downloaded". Anchor lookup will run when the module installs.
       if (!ctx.anchorsByModule.has(target.module_id)) return citation;
       // Target module IS in build but anchor missing — bindable-shape
-      // unbindable. Reclassify as vague to fall outside the Phase 4
-      // intra-gate; the source corpus is the actual culprit. D9:
-      // preserve the original target so the validator can attribute
-      // the failure to a cross_module reclass.
+      // unbindable. Reclassify as vague so the intra-gate doesn't catch
+      // it (the source corpus is the actual culprit). Preserve the
+      // original target so the validator can attribute the failure to
+      // a cross_module reclass.
       return {
         ...citation,
         target: {
@@ -319,7 +313,7 @@ function tryBind(
   for (const candidate of candidatesFor(sectionRef, rules)) {
     if (!anchors.has(candidate)) continue;
 
-    // D5-followup: if the cite was BARE (no `-N` suffix in the
+    // Bare-hit follow-up: if the cite was BARE (no `-N` suffix in the
     // source) and the directly-hit candidate belongs to a collision
     // family, run hierarchy disambiguation BEFORE returning. A unique
     // hierarchy winner redirects the bare cite to the implied
@@ -359,15 +353,12 @@ function tryBind(
     return buildBoundTarget(candidate, targetModuleId, extras, anchors, rules);
   }
 
-  // No primary candidate hit. D5 fallback: when the cite's stripped
-  // form has a collision family in the target module (i.e. the bare
-  // cite "16.9" doesn't bind directly, but "16.9-2" / "16.9-5" /
+  // No primary candidate hit. Hierarchy fallback: when the cite's
+  // stripped form has a collision family in the target module (i.e. the
+  // bare cite "16.9" doesn't bind directly, but "16.9-2" / "16.9-5" /
   // "16.9-21" all exist), pick the family member whose hierarchy
-  // matches the citing section's. This recovers the 1,671/2,060
-  // (81%) of legacy bare cites whose disambiguator dropped during
-  // the old `-N` strip but whose context still names the section
-  // uniquely. The remaining 389 collision families share their
-  // hierarchy across siblings → honest-vague (D9).
+  // matches the citing section's. Families that share their hierarchy
+  // across all siblings stay as honest-vague.
   if (families && isBareRef(sectionRef) && citingHierarchy) {
     const familyKey = stripOrdinalSuffix(sectionRef.toLowerCase());
     const family = families.get(familyKey);

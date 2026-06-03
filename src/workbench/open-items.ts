@@ -11,10 +11,9 @@
 // that fail validation on read are dropped silently — the caller reflects
 // the reduced state and the user re-clicks if needed.
 //
-// `reorderItems` is the only state mutator added for feat/tabs; the
-// `recentlyClosed` buffer lives in the use-tabs hook (sibling useState)
-// rather than on `OpenItemsState` so persistence stays focused on the
-// canonical "what's open right now" shape — see plan A5.
+// The `recentlyClosed` buffer lives in the use-tabs hook (sibling
+// useState) rather than on `OpenItemsState` so persistence stays
+// focused on the canonical "what's open right now" shape.
 
 import type { CorpusRef } from "@/corpus/refs";
 import { parse as parseRef, hash as refHash, equals as refsEqual } from "@/corpus/refs";
@@ -340,8 +339,8 @@ export function fromPersisted(
         surviving.push(i);
       }
     }
-    // Future kinds: chat is feat/ai-agent's problem; unknown kinds drop
-    // here AND at the schema layer (item-wise tolerant parsing in storage.ts).
+    // Unknown kinds drop here AND at the schema layer (item-wise
+    // tolerant parsing in storage.ts).
   }
   let active: number | null = null;
   if (persisted.activeIndex !== null) {
@@ -367,7 +366,7 @@ export function toPersisted(state: OpenItemsState): PersistedOpenItems {
     } else if (it.kind === "bill") {
       items.push({ kind: "bill", billId: it.billId });
     } else {
-      // chat persistence is feat/ai-agent's problem
+      // Other kinds are not persisted.
       continue;
     }
     survivingOriginalIdx.push(i);

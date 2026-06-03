@@ -4,11 +4,10 @@
 // branches land. The rail intentionally does NOT advertise unbuilt modes:
 // no placeholder icons, no fake badge counts, no "coming soon" copy.
 //
-// C14 wires keyboard nav: role=tablist + arrow keys + Enter to activate.
-// Active state is aria-selected (canonical for role=tab; C14's earlier
-// "aria-pressed" wording was from the toggle-button pattern, which
-// doesn't compose with role=tab). C15 ensures every icon button has
-// aria-label matching its title.
+// Keyboard nav: role=tablist + arrow keys + Enter to activate.
+// Active state is aria-selected (canonical for role=tab; aria-pressed
+// would be the toggle-button pattern, which doesn't compose with
+// role=tab). Every icon button has aria-label matching its title.
 //
 // `setBadge(iconId, count|null)` is exposed for downstream branches that
 // own the data backing each badge — the API is registration-style, not
@@ -88,7 +87,7 @@ export function ActivityBar({ active, onChange }: ActivityBarProps) {
         if (next) onChange(next.id);
       } else if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        // Re-activate active item (C3: same-icon → toggle in App-level wiring).
+        // Re-activate active item — App-level wiring treats same-icon as toggle.
         onChange(active);
       }
     },
@@ -125,7 +124,7 @@ export function ActivityBar({ active, onChange }: ActivityBarProps) {
         );
       })}
       <div className="lc-spacer" />
-      {/* A20: bottom Pin/Settings intentionally not rendered Phase 1. */}
+      {/* Bottom Pin/Settings affordances intentionally absent — backing systems not shipped. */}
     </div>
   );
 }

@@ -1,13 +1,7 @@
-// r11 bill detail. Compose the kicker + h1 + meta header, the long_title
-// purpose block, the parse-status notice (when applicable), the Amends
-// chips (navigation to affected sections), and the structured ordinance
-// body parsed from the source PDF.
-//
-// Pre-typography-spike: each block renders without insertion/deletion
-// coloring. When the spike addendum lands, paragraph + subsection
-// content will be replaced by styled `text_diff[]` spans inside the
-// same OrdinanceBlock tree, so the renderer's block layout doesn't
-// change.
+// Bill detail. Composes the kicker + h1 + meta header, the long_title
+// purpose block, the parse-status notice (when applicable), the
+// Amends chips (navigation to affected sections), and the structured
+// ordinance body parsed from the source PDF.
 
 import { useCallback } from "react";
 import type { CorpusRef } from "@/corpus/refs";

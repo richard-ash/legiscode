@@ -1,11 +1,9 @@
-// Kind dispatcher for the active tab's body. Today only `section` has a
-// renderer; `chat` (future, feat/ai-agent) emits a console.warn and
-// renders null until #13 ships the panel. The exhaustive switch is the
-// extension point — adding a new kind anywhere else in the renderer is a
-// type error.
-//
-// Plan CQ5 (codex F9: warn + null rather than throw — a missing renderer
-// shouldn't crash the user's workbench).
+// Kind dispatcher for the active tab's body. Today `section`, `bill`,
+// `appendix`, and `settings` have renderers; `chat` is a placeholder
+// that warns + renders null until the AI agent ships. The exhaustive
+// switch is the extension point — adding a new kind anywhere else in
+// the renderer is a type error. The warn-and-render-null fallback
+// chooses crash-avoidance over loud failure for a missing renderer.
 
 import type { ReactNode } from "react";
 import type { ResolutionResult } from "@/citations/resolver";
@@ -135,7 +133,7 @@ export function TabContent({
       );
     }
     case "chat": {
-      // Future: feat/ai-agent (#13) replaces this with <ChatPanel />.
+      // Placeholder until the AI agent ships a <ChatPanel />.
       console.warn(`[tabs] no renderer for kind=chat yet (chatId=${item.chatId})`);
       return null;
     }

@@ -1,5 +1,5 @@
-// Tab strip empty state — rendered inside `.lc-center` when the user has
-// closed every tab (or cold-started with a persisted-empty list per A7).
+// Tab strip empty state — rendered inside `.lc-center` when the user
+// has closed every tab (or cold-started with a persisted-empty list).
 // Quiet document-register cue — Source Serif 4 title, sans-serif hint,
 // `.lc-kbd` keycap for ⌘P. No fake content, no "coming soon" copy.
 

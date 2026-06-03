@@ -7,11 +7,10 @@
 //   3. Within hierarchy, longest matching prefix wins
 //   4. Ties broken by defined_in ascending
 //
-// cross_module-scoped Definitions never resolve in the L1-L3 scope —
-// no extractor emits them yet (the slot is reserved for the post-L3
-// follow-up plan). The resolver explicitly treats cross_module as
+// cross_module-scoped Definitions never resolve here — no extractor
+// emits them yet. The resolver explicitly treats cross_module as
 // out-of-scope so a hypothetical hand-curated cross_module entry
-// doesn't accidentally resolve here without the matching reader-side
+// doesn't accidentally resolve without the matching reader-side
 // support.
 
 import type { Definition, ScopeExpr, SectionId } from "@/types";
@@ -29,10 +28,10 @@ export interface ResolutionResult {
    */
   winner: Definition | null;
   /**
-   * Other in-scope candidates that lost the precedence rule. Empty when
-   * winner is null or when no other candidates were in scope. Stored
-   * on the defined_term body segment as candidates_dropped (per-occurrence,
-   * not per-Definition — see §9 L3).
+   * Other in-scope candidates that lost the precedence rule. Empty
+   * when winner is null or when no other candidates were in scope.
+   * Stored on the defined_term body segment as candidates_dropped
+   * (per-occurrence, not per-Definition).
    */
   dropped: Definition[];
 }

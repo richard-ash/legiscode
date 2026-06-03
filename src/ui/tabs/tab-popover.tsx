@@ -14,9 +14,9 @@
 // can Tab away to other chrome; Escape returns focus to the originating
 // anchor element so they're not stranded if they cancel.
 //
-// `useDismissOnOutsideOrEscape` is intentionally NOT extracted yet (C2
-// lock — rule of three; SettingsDropdown's variant has F11-dialog-defer
-// branches that haven't reconciled with this surface).
+// `useDismissOnOutsideOrEscape` is intentionally NOT extracted yet —
+// rule of three; SettingsDropdown's variant has dialog-defer branches
+// that haven't reconciled with this surface.
 
 import {
   type CSSProperties,
@@ -188,7 +188,7 @@ export function TabPopover({ anchorElement, rows, ariaLabel, onAction, onClose }
             <span className="lc-menu-row-shortcut">{row.shortcut}</span>
           ) : (
             // Empty span keeps the label column from stretching when
-            // the row has no shortcut (D4 — blank column, not "—").
+            // the row has no shortcut (blank column, not "—").
             <span className="lc-menu-row-shortcut" aria-hidden="true" />
           )}
         </div>
@@ -206,9 +206,9 @@ function focusRowAt(root: HTMLElement | null, idx: number): void {
 // ── Overflow menu ────────────────────────────────────────────────────
 
 export interface OverflowMenuRow {
-  /** Stable identity for the row's per-item state (`itemIdentity` from
-   *  open-items.ts). Per X9 lock: row actions key on identity, not
-   *  captured index, so the menu stays consistent across row × closures. */
+  /** Stable identity for the row's per-item state (`itemIdentity`
+   *  from open-items.ts). Row actions key on identity, not captured
+   *  index, so the menu stays consistent across row × closures. */
   id: string;
   /** Label rendered in the row (`§ 10.04.020 · Sales Tax Definitions`). */
   label: string;
@@ -219,10 +219,10 @@ export interface OverflowMenuRow {
 
 export interface OverflowMenuProps {
   anchorElement: HTMLElement | null;
-  /** Rows in open-order (D1 lock — mirror the strip, not MRU). */
+  /** Rows in open-order — mirror the strip, not MRU. */
   rows: readonly OverflowMenuRow[];
-  /** ARIA label including the open-tab count (D1 lock — replaces the
-   *  omitted "Open tabs · N" header for screen readers). */
+  /** ARIA label including the open-tab count — replaces the omitted
+   *  "Open tabs · N" header for screen readers. */
   ariaLabel: string;
   /** Activate the row identified by `id`. */
   onActivate: (id: string) => void;

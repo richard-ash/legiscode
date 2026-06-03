@@ -113,8 +113,8 @@ export async function buildCorpus(opts: BuildCorpusOptions): Promise<BuildResult
       });
     }
     if (m.duplicateSectionIds.length > 0) {
-      // Per D7: short-circuit writeModule for any module whose section.ids
-      // are not unique. The writer's `<sectionId>.json` filename layout
+      // Short-circuit writeModule for any module whose section.ids are
+      // not unique. The writer's `<sectionId>.json` filename layout
       // collapses duplicates to a last-write winner, silently dropping
       // every other colliding entry. A bundle on disk would already be
       // bad data; we'd rather fail loudly than ship it.
@@ -140,7 +140,7 @@ export async function buildCorpus(opts: BuildCorpusOptions): Promise<BuildResult
   // `valid: false` with the typed errors so consumers can inspect; file
   // presence alone is no longer the validity signal.
 
-  // Step 5 — purge outputDir (D6) then write each requested module.
+  // Step 5 — purge outputDir then write each requested module.
   // When --only is set we purge ONLY the targeted module subdirectories so
   // unselected modules in an existing corpus survive across iteration runs.
   // A whole-outputDir purge would otherwise delete every module the
@@ -156,9 +156,9 @@ export async function buildCorpus(opts: BuildCorpusOptions): Promise<BuildResult
   }
 
   for (const ps of filtered) {
-    // Short-circuit per D7: a module with duplicate section.ids would
-    // produce a silently-collapsed bundle (multiple sections writing to
-    // the same `<sectionId>.json` path). Skip the writeModule call
+    // Short-circuit: a module with duplicate section.ids would produce
+    // a silently-collapsed bundle (multiple sections writing to the
+    // same `<sectionId>.json` path). Skip the writeModule call
     // entirely so no per-module directory exists; corpus-meta still
     // records `valid: false` with the duplicate_section_ids error.
     if (modulesWithDuplicates.has(ps.module.id)) {

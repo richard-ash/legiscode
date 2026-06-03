@@ -74,15 +74,15 @@ export function parseExport(buffer: Buffer, manifest: JurisdictionManifest): Par
   return runBinderPass(built);
 }
 
-// Phase 2 — second pass over the parsed corpus that walks every section's
-// citations and rewrites bindable targets as section-refs. Runs after
-// every module is built so the binder sees a complete anchor index for
-// every sibling. Modules without display_rules contribute their anchors
-// (sections still bind via bare lookup); modules with display_rules
-// contribute their candidate-generation knobs.
+// Binder pass: walks every section's citations and rewrites bindable
+// targets as section-refs. Runs after every module is built so the
+// binder sees a complete anchor index for every sibling. Modules
+// without display_rules contribute their anchors (sections still bind
+// via bare lookup); modules with display_rules contribute their
+// candidate-generation knobs.
 //
 // Citations that don't bind keep their legacy internal / cross_module
-// shape until the Phase 4 gate refuses to promote them. structural /
+// shape until the build gate refuses to promote them. structural /
 // vague / internal_appendix targets pass through unchanged because the
 // binder has nothing to bind to.
 function runBinderPass(modules: ParsedModule[]): ParsedModule[] {
@@ -106,7 +106,7 @@ function runBinderPass(modules: ParsedModule[]): ParsedModule[] {
     const sections = m.sections.map((section): SectionFile => {
       // Skip sections with no citations to avoid pointless reallocation.
       if (section.citations.length === 0) return section;
-      // Pass the citing section's hierarchy so D5 hierarchy-scoped
+      // Pass the citing section's hierarchy so hierarchy-scoped
       // disambiguation can run for cites whose target lives in a
       // collision family.
       const rewritten: Citation[] = section.citations.map((c) =>
@@ -156,7 +156,7 @@ function buildParsedModule(
   const resolutionHistories: ResolutionHistory[] = [];
   const corpusEntryKinds = new Set<CorpusEntryKind>(["section"]);
 
-  // Three-pass section build (CT1 + CT4):
+  // Three-pass section build:
   //
   //   Pass 1 — per section: extract citations + defined terms (positions
   //            retained for Pass 2 and Pass 3), build a body-less
@@ -203,7 +203,7 @@ function buildParsedModule(
       title: ps.title,
       text: ps.text,
       hierarchy: ps.hierarchy,
-      // A1: SectionFile shape stays Citation[] / string[]. Map back,
+      // SectionFile shape stays Citation[] / string[]. Map back,
       // deduping defined terms (the position-aware extractor surfaces
       // every occurrence including same-section duplicates).
       citations: citationMatches.map((c) => c.citation),
@@ -387,10 +387,9 @@ function buildParsedModule(
     moduleDefinitions,
     unresolvedReferences,
     skipped,
-    // Warnings: the parse-html-level InterCodeLink resolver returns these,
-    // but it isn't yet wired into parseExport's per-module slice. Empty for
-    // now; surfacing happens when the InterCodeLink graph lands in the
-    // pipeline (deferred from round 12).
+    // Warnings: the parse-html-level InterCodeLink resolver returns
+    // these, but isn't yet wired into parseExport's per-module slice.
+    // See TODOS.md "Wire InterCodeLink graph through @/corpus".
     warnings: [],
     corpusEntryKinds: Array.from(corpusEntryKinds).sort(),
     tocAnchors: raw.tocAnchors,

@@ -1,6 +1,6 @@
-// Section pending-rail (r11 → variant B overlay). Surfaces every
-// pending bill that touches the currently-rendered section above the
-// body. Each row carries two distinct affordances:
+// Section pending-rail (variant B overlay). Surfaces every pending
+// bill that touches the currently-rendered section above the body.
+// Each row carries two distinct affordances:
 //
 //   1. Bill identifier (file_no) — opens the bill tab. Plain click +
 //      Cmd-click background pattern, same as every other bill-open

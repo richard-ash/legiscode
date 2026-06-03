@@ -1,6 +1,7 @@
-// Shared boot overlay (A17). Two variants over one component: crash-recovery
-// (renderer process gone) and corpus-load-failure (corpus IPC error). Same
-// surface, different copy + actions. No marketing tone.
+// Shared boot overlay. Two variants over one component:
+// crash-recovery (renderer process gone) and corpus-load-failure
+// (corpus IPC error). Same surface, different copy + actions. No
+// marketing tone.
 
 import type { CorpusError } from "@/corpus/wire";
 

@@ -8,10 +8,10 @@
 // dead-external.
 //
 // The phrase patterns are also the source of truth for the parser's
-// code-phrase scope tracking (L3): when the parser sees "California
-// Vehicle Code" it sets an active code-prefix for the paragraph; every
-// § cite inside that paragraph is then classified as cross_module with
-// the matching module_id.
+// code-phrase scope tracking: when the parser sees "California
+// Vehicle Code" it sets an active code-prefix for the paragraph;
+// every § cite inside that paragraph is then classified as
+// cross_module with the matching module_id.
 
 import type { ModuleId } from "@/types";
 

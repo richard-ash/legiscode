@@ -22,11 +22,11 @@ const isDev = !app.isPackaged;
 // out/renderer). Hardcoding a port would diverge if Vite picks a fallback.
 const devRendererUrl = process.env.ELECTRON_RENDERER_URL;
 
-// Window state — resilient to disconnected displays. localStorage placeholder
-// per A9 / C1; feat/sqlite-state migrates persistence later.
+// Window state — resilient to disconnected displays. Bounds persist
+// via the renderer's localStorage until a main-side store lands.
 const DEFAULT_WIDTH = 1440;
 const DEFAULT_HEIGHT = 900;
-const MIN_WIDTH = 960; // A19 — three-panel IDE breaks below this floor
+const MIN_WIDTH = 960; // three-panel IDE breaks below this floor
 const MIN_HEIGHT = 600;
 
 let mainWindow: BrowserWindow | null = null;
@@ -37,8 +37,8 @@ const projectRoot = isDev ? join(fileDir, "..", "..") : app.getAppPath();
 
 app.whenReady().then(async () => {
   // Kick the corpus load before the window so disk I/O overlaps with
-  // BrowserWindow construction. The window stays show:false until both
-  // webContents.did-finish-load and this promise resolve (P4 / A18).
+  // BrowserWindow construction. The window stays show:false until
+  // both webContents.did-finish-load and this promise resolve.
   corpusReady = loadCorpus(
     resolveCorpusPath({
       isPackaged: app.isPackaged,
@@ -68,7 +68,7 @@ async function createMainWindow(): Promise<void> {
   const titleBarOptions = computeTitleBarOptions();
 
   mainWindow = new BrowserWindow({
-    show: false, // P4 / A18 — defer until corpus + did-finish-load both resolve
+    show: false, // defer until corpus + did-finish-load both resolve
     width: bounds.width,
     height: bounds.height,
     x: bounds.x,
@@ -87,9 +87,9 @@ async function createMainWindow(): Promise<void> {
 
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     // The renderer is gone; reload it so the renderer-side BootOverlay
-    // (crash variant, A17) can paint. The crash overlay logic itself lives
-    // in src/ui/chrome/boot-overlay.tsx — wired via a query-string flag the
-    // renderer reads at boot. Phase 1 keeps the recovery path simple.
+    // (crash variant) can paint. The crash overlay logic itself lives
+    // in src/ui/chrome/boot-overlay.tsx — wired via a query-string flag
+    // the renderer reads at boot.
     console.error("renderer process gone:", details);
     if (mainWindow && !mainWindow.isDestroyed()) {
       const url = devRendererUrl
@@ -139,8 +139,8 @@ function computeTitleBarOptions() {
       },
     };
   }
-  // Linux + Windows 10 fall through to a native frame. T3 polish lands in
-  // feat/release-prep v1.1 with a custom-frame Win10 implementation.
+  // Linux + Windows 10 fall through to a native frame. A custom-frame
+  // Windows 10 implementation is tracked in TODOS.md.
   return {} as const;
 }
 
@@ -173,7 +173,7 @@ function installCspGuard(): void {
   });
 }
 
-// E2E mock seam (codex C13). When LEGISCODE_E2E_MOCK_CORPUS_READ is set,
+// E2E mock seam. When LEGISCODE_E2E_MOCK_CORPUS_READ is set,
 // corpus:read intercepts and returns a synthetic response. "fail" returns
 // CorpusError("not_found") on the FIRST call only so the spec can verify
 // banner-then-recover. "long" returns a synthetic 100KB section that
@@ -272,19 +272,19 @@ interface SavedBounds {
 }
 
 function restoreBounds(): SavedBounds {
-  // Phase 1 stores bounds via the renderer's localStorage; the main process
-  // can't reach localStorage directly, so on first load we fall back to the
-  // default. After the renderer mounts it persists bounds itself via an IPC
-  // round-trip in feat/sqlite-state. For Phase 1 the default-on-cold-start
-  // behaviour is adequate.
+  // Bounds live in renderer localStorage; the main process can't reach
+  // localStorage directly, so on first load we fall back to the
+  // default. After the renderer mounts it persists bounds itself via
+  // an IPC round-trip. Default-on-cold-start is fine until a main-
+  // side persistence layer lands.
   const fallback: SavedBounds = { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
   return clampToConnectedDisplay(fallback);
 }
 
 function persistBounds(_window: BrowserWindow): void {
-  // Intentional no-op for Phase 1 — see restoreBounds(). feat/sqlite-state
-  // wires up a real persistence path. Hook is here so the close-handler
-  // contract stays stable across that change.
+  // Intentional no-op — see restoreBounds(). Hook is here so the
+  // close-handler contract stays stable when a real persistence path
+  // wires up.
 }
 
 function clampToConnectedDisplay(b: SavedBounds): SavedBounds {

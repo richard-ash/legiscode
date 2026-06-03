@@ -1,5 +1,5 @@
 #!/usr/bin/env -S node --experimental-vm-modules
-// Recogniser-stage recall gate (design D9) — classified before/after diff.
+// Recogniser-stage recall gate — classified before/after diff.
 //
 // The defined-term precision work intentionally drops two classes of
 // tag: ① a name highlighted inside a longer proper name ("Department"
@@ -208,7 +208,7 @@ export function diff(baseline: Capture, current: Capture): number {
     for (const k of afterCites) if (!beforeCites.has(k)) citeAdds += 1;
   }
 
-  process.stdout.write("\n=== RECALL DIFF (D9 classified) ===\n\n");
+  process.stdout.write("\n=== RECALL DIFF (classified) ===\n\n");
   process.stdout.write("DEFINED-TERM TAGS (section, def_id) set:\n");
   process.stdout.write(`  added:                       ${definedAdds}\n`);
   process.stdout.write(`  dropped — capitalised (①):    ${capitalisedDrops} (intended)\n`);

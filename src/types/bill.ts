@@ -12,10 +12,9 @@ import { TextDiffSchema } from "./text-diff";
 // or the Impact card without re-scraping):
 //
 //   audit         — fields the operator needs to debug a sync run
-//   scope         — the install-set filter result (advisory, not gating;
-//                   every Ordinance-type matter downloads + parses per
-//                   Codex amendment A3 reversal — parse_status carries
-//                   the real bucket)
+//   scope         — the install-set filter result (advisory, not
+//                   gating; every Ordinance-type matter downloads +
+//                   parses, and parse_status carries the real bucket)
 //   ui            — fields the renderer needs to populate header / Impact
 //                   card / status pill without round-tripping to Legistar
 //
@@ -101,10 +100,11 @@ export type BillStatus = z.infer<typeof BillStatusSchema>;
 // inside an AMEND section's body. The body parser tokenises the slice
 // between two SEC. headers into a list of these.
 //
-//   section_header — `SEC. 407. CONVEYANCE OF BREAD...` style entry that
-//                    introduces a code section. Always present for every
-//                    SEC. header the structural pass identified — the A3
-//                    parse-quality gate throws if the parser emits fewer.
+//   section_header — `SEC. 407. CONVEYANCE OF BREAD...` style entry
+//                    that introduces a code section. Always present
+//                    for every SEC. header the structural pass
+//                    identified — the parse-quality gate throws if
+//                    the parser emits fewer.
 //   subsection     — paren-marker entry (`(a)`, `(b)`, `(1)`, ...). The
 //                    body is recursive so nested markers like `(a)(1)`
 //                    represent cleanly. NO lead_in field in Layer 2 —
@@ -201,7 +201,7 @@ export type OrdinanceBody = z.infer<typeof OrdinanceBodySchema>;
 // renderer in this PR consumes affected_sections + parse_status; the
 // inline-diff renderer consumes text_diff[].
 //
-// parse_status semantics (3 buckets per Codex amendment, schema unchanged):
+// parse_status semantics (3 buckets):
 //   ok                — full inline diff was parsed cleanly
 //                       (text_diff[] non-empty, no manual review needed)
 //   manual_review     — structural pass succeeded but the typography

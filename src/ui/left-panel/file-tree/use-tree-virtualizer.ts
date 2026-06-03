@@ -31,12 +31,12 @@ export const TREE_ROW_HEIGHT_PX = 24;
 
 export interface UseTreeVirtualizerOptions {
   /** Height in px of any content pinned to the top of the scroll
-   *  container (today: the sticky ancestor stack — D10). Threads
-   *  through to `useVirtualizer({ scrollMargin })` so `scrollToIndex`
-   *  with `align: "auto"` lands focused rows below the pinned content,
+   *  container (today: the sticky ancestor stack). Threads through
+   *  to `useVirtualizer({ scrollMargin })` so `scrollToIndex` with
+   *  `align: "auto"` lands focused rows below the pinned content,
    *  not behind it. Defaults to 0.
    *
-   *  PAIRED WITH translateY MATH (D14):
+   *  PAIRED WITH translateY MATH:
    *
    *      visible viewport
    *      ┌─────────────────────┐

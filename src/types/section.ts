@@ -48,15 +48,14 @@ export const SectionEditorialStatusSchema = z
 //                      italic, list, listItem. Recursive: format
 //                      children may themselves be format, citation,
 //                      defined_term, etc. Format spans nest INSIDE
-//                      citation/defined_term spans (CQ2 — see overlap
-//                      diagram below).
+//                      citation/defined_term spans.
 //
 // ─── Overlap precedence ───────────────────────────────────────────────────
 //
 // When a substring of `text` matches multiple annotation types, precedence
 // is strict: citation > defined_term. A single overlap arbiter
 // (parser/recognize.ts:arbitrate) tiles term and citation spans together to
-// enforce this; it replaced the earlier ad-hoc CQ2 referee that lived inline
+// enforce this; it replaced the earlier ad-hoc referee that lived inline
 // in the body builder. Format spans nest inside whichever non-format span won.
 //
 //   text:   "see Section 1.01 ('Person')"
@@ -116,18 +115,16 @@ const CitationSegmentSchema = z
   })
   .strict();
 
-// DefinedTermSegment carries the per-occurrence resolution that L2a's
-// build-time pipeline computed: `raw` (surface form as written) and
-// `def_id` (the resolved canonical Definition) are required. The
-// legacy `term` field is gone — bodyToText emits `raw` and the
-// renderer keys popover lookup off `def_id`.
+// DefinedTermSegment carries the per-occurrence resolution computed
+// at build time: `raw` (surface form as written) and `def_id` (the
+// resolved canonical Definition) are required. bodyToText emits
+// `raw` and the renderer keys popover lookup off `def_id`.
 //
 // candidates_dropped lives on the segment, not on Definition, because
 // runner-up resolution candidates vary by reader location: the same
-// term may resolve to definer A in subtree X (with B dropped) and to B
-// in subtree Y (with A dropped). A global field on Definition would
-// conflate unrelated resolution contexts. See §9 L3 of the
-// definitions-foundation plan.
+// term may resolve to definer A in subtree X (with B dropped) and to
+// B in subtree Y (with A dropped). A global field on Definition would
+// conflate unrelated resolution contexts.
 const DefinedTermSegmentSchema = z
   .object({
     type: z.literal("defined_term"),
@@ -265,18 +262,13 @@ export function bodyToText(segments: readonly BodySegment[]): string {
 // successor section. editorial_status discriminates the variants so the
 // renderer can show "[Reserved.]", "[Repealed.]", or a redirect affordance.
 //
-// `body` starts optional with `.default([])` (CT7 — protects custom
-// `--corpus-path` users with old `body`-less section JSON during the
-// two-commit migration). Flips to required after Phase 2 ships and every
-// fixture has been regenerated with populated body[].
-// Phase 5 collapse: section.id IS the canonical anchor (lowercase
-// JD_-stripped form like "p109" / "b102a" / "5.102"). display_label
-// carries the human-readable form readers see in headings, tabs, and
-// breadcrumbs ("109.0" / "102A" / "5.102"). Splitting these closes
-// the original-sin three-identifier confusion documented in the
-// refoundation plan; the Phase 1 `anchor_id` additive field is now
-// redundant (anchor_id was always equal to id post-normalize) and
-// removed.
+// `body` is optional with `.default([])` so custom `--corpus-path`
+// users with old `body`-less section JSON keep loading.
+//
+// section.id IS the canonical anchor (lowercase JD_-stripped form
+// like "p109" / "b102a" / "5.102"). display_label carries the
+// human-readable form readers see in headings, tabs, and breadcrumbs
+// ("109.0" / "102A" / "5.102").
 export const SectionFileSchema = z
   .object({
     kind: z.literal("section").default("section"),

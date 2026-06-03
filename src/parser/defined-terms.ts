@@ -19,16 +19,16 @@ export class DefinedTermPatternError extends Error {
   }
 }
 
-// Position-bearing match. Per A1 in the feat-parse-html-ast design, this
-// extractor mirrors extractCitations' shape (CitationMatch) for symmetry.
+// Position-bearing match. Mirrors extractCitations' CitationMatch
+// shape for symmetry.
 //
 // Positions point at the *defining* site (`<term>` inside `"<term>"
 // means …`), NOT at usage sites elsewhere in the section. The body-segment
 // builder's defined-term highlighting is OCCURRENCE-based — it scans
 // `text` against the module-wide dictionary in Pass 3 of the pipeline.
-// The defining-site positions surfaced here are also used by L2a to
-// populate Definition.body_anchor (the canonical defining range that the
-// renderer uses for popover excerpts post-cutover).
+// The defining-site positions surfaced here are also used to populate
+// Definition.body_anchor (the canonical defining range that the
+// renderer uses for popover excerpts).
 //
 // If a real consumer materializes that needs robust positions across
 // pathological patterns, switch the regex to use the `d` flag and read
@@ -52,22 +52,21 @@ export interface DefinedTermMatch {
   pattern_kind: string;
   /**
    * Exclusive end of the full match including the trigger phrase
-   * ("means", "shall mean", etc.). Used by L2a to bound the excerpt
-   * region that becomes Definition.body_anchor — the excerpt covers the
+   * ("means", "shall mean", etc.). Used to bound the excerpt region
+   * that becomes Definition.body_anchor — the excerpt covers the
    * defining clause, not just the term.
    */
   full_match_end: number;
 }
 
 // Pattern-kind classifier. Canonical regex strings → documented names.
-// Source: definitions-foundation plan §3.1.1.
 //
 // The keys are the exact strings operators write in manifest
 // `defined_term_patterns` arrays. When a manifest adds a new
 // well-documented pattern, register it here so audit-grouping stays
 // consistent across modules.
 const KNOWN_PATTERN_KINDS: Record<string, string> = {
-  // Straight ASCII quotes + "means" — the L1 default pattern shipped
+  // Straight ASCII quotes + "means" — the default pattern shipped
   // across every SF module today.
   '"([^"]+)"\\s+means': "quoted-means",
   // "X" shall mean — common AmLegal definitional verb.

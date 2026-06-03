@@ -24,11 +24,10 @@ import type { Bill, DefinitionId, ScopeExpr, SectionFile, SectionId } from "@/ty
  *   level 2 — intra-module hierarchy ("chapter" kind)
  *   leaf    — section ("section" kind)
  *
- * Pending bills are NOT tree nodes. r11 (feat/ordinance-ingestion) moved
- * them to a sibling left-panel activity panel sourced from
- * `CorpusModuleSummary.pendingBills`. The `bill-branch` and `bill` kinds
- * were removed because bills aren't sections — collapsing them into the
- * section-tree shape was a category error.
+ * Pending bills are NOT tree nodes. They live in a sibling left-panel
+ * activity panel sourced from `CorpusModuleSummary.pendingBills` —
+ * bills aren't sections, so collapsing them into the section-tree
+ * shape would be a category error.
  */
 export interface CorpusTreeNode {
   /** Stable id, unique across the entire jurisdiction. */
@@ -145,14 +144,14 @@ export interface CorpusSectionView {
   next: { moduleId: string; sectionId: string } | null;
   /**
    * Pre-resolved definition lookup for every def_id that appears as a
-   * `defined_term` segment in this section's `body[]`. L2b cutover:
-   * keys are now DefinitionIds (string `<module>/<section>#<sha8>`)
-   * instead of terms, because per-occurrence resolution at build time
-   * means the same term may resolve to different Definitions across
-   * subtrees of the module. Each value carries the canonical
-   * Definition's renderable bits (term, excerpt, scope, first_use
-   * section) so the popover renders synchronously from props with no
-   * IPC, no flicker. Keys are restricted to def_ids referenced by
+   * `defined_term` segment in this section's `body[]`. Keys are
+   * DefinitionIds (string `<module>/<section>#<sha8>`) rather than
+   * terms because per-occurrence resolution at build time means the
+   * same term may resolve to different Definitions across subtrees of
+   * the module. Each value carries the canonical Definition's
+   * renderable bits (term, excerpt, scope, first_use section) so the
+   * popover renders synchronously from props with no IPC, no flicker.
+   * Keys are restricted to def_ids referenced by
    * this section so the payload stays bounded by section size.
    */
   definitions: Readonly<

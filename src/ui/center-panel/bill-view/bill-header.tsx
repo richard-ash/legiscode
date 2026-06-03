@@ -1,13 +1,12 @@
-// r11 bill-detail header: kicker (Code · status badge) + h1 (#file_no
-// + short_title) + bill-meta row (introduced date, sponsor, Open in
-// Legistar). Status pill in the meta row was dropped per Pass 7 lock
-// #5 — the kicker already conveys the same signal, and duplication
-// added noise.
+// Bill-detail header: kicker (Code · status badge) + h1 (#file_no +
+// short_title) + bill-meta row (introduced date, sponsor, Open in
+// Legistar). The status badge in the kicker conveys the signal — no
+// duplicate pill in the meta row.
 //
 // `bills` is the per-module Bill rows for this file_no (the BillView
-// aggregator passes them through). Header fields collapse on file_no,
-// so any row is fine; we use the first plus the module display name
-// from the matching tree node.
+// aggregator passes them through). Header fields collapse on
+// file_no, so any row is fine; we use the first plus the module
+// display name from the matching tree node.
 
 import type { CorpusRef } from "@/corpus/refs";
 import type { Bill } from "@/types";

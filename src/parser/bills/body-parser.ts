@@ -1,31 +1,30 @@
 // Body parser — turns chrome-stripped ordinance text plus a
-// StructuralPassResult into an OrdinanceBody. This is the Layer 2
-// follow-up to the spike at docs/spike-ordinance-body-parsing.md:
-// instead of handing the renderer a flat `proposed_text` string, the
-// pipeline now emits a structured document with preamble, per-AMEND
-// sections, and closing boilerplate.
+// StructuralPassResult into an OrdinanceBody. Instead of handing the
+// renderer a flat `proposed_text` string, the pipeline emits a
+// structured document with preamble, per-AMEND sections, and closing
+// boilerplate.
 //
-// **Architecture (locked):**
+// **Invariants:**
 //
-// - **One source of truth for the document skeleton (D2).** body-parser
+// - **One source of truth for the document skeleton.** body-parser
 //   doesn't re-detect AMEND action lines or SEC. headers; it slices
 //   the chrome-stripped text using the offsets the structural pass
 //   already produced. Its job is the tokenisation INSIDE a SEC.
 //   range — paragraphs and paren subsection markers `(a)`, `(b)`,
 //   `(1)`, `(2)`, …
 //
-// - **Parse-quality gate (A3).** If structural-pass identified N
-//   `(group, section)` pairs, body-parser MUST emit a `section_header`
-//   block for each. A mismatch throws synchronously at ingest. No
-//   configurable threshold — legal corpus completeness is a hard gate
-//   (see `project_legal_corpus_zero_skip`).
+// - **Parse-quality gate.** If structural-pass identified N (group,
+//   section) pairs, body-parser MUST emit a `section_header` block
+//   for each. A mismatch throws synchronously at ingest. No
+//   configurable threshold — legal corpus completeness is a hard
+//   gate (see `project_legal_corpus_zero_skip`).
 //
-// - **Operator-only quality channel (A5).** Soft body-quality concerns
+// - **Operator-only quality channel.** Soft body-quality concerns
 //   surface as `quality_warnings: string[]` for the operator log,
 //   never as a 4th `parse_status` bucket — readers can't act on body
 //   parser internals.
 //
-// - **Always renderable (D1).** When the structural pass found zero
+// - **Always renderable.** When the structural pass found zero
 //   groups, the parser emits `{ preamble: <all text>, sections: [],
 //   closing: "" }`. The renderer always has something to show.
 
@@ -53,7 +52,7 @@ export type ParseBodyResult = {
  *   the same input).
  * @param pass `runStructuralPass(chromeStripped, installed)`.
  *
- * Throws when the A3 parse-quality gate trips — the structural pass
+ * Throws when the parse-quality gate trips — the structural pass
  * found a SEC. header the body parser couldn't account for.
  */
 export function parseBody(chromeStripped: string, pass: StructuralPassResult): ParseBodyResult {
@@ -89,7 +88,7 @@ export function parseBody(chromeStripped: string, pass: StructuralPassResult): P
     sections.push(result.section);
   }
 
-  // A3 parse-quality gate. The structural pass is the document
+  // Parse-quality gate. The structural pass is the document
   // skeleton; if the body parser can't account for every SEC. header
   // it identified, the output would silently lose structural anchors
   // the renderer depends on. Throw rather than ship a partial body.

@@ -1,11 +1,11 @@
-// Theme state. Dark default per C7. Light is opt-in only via the Settings
-// dropdown — `prefers-color-scheme` is deliberately ignored. Mutations swap
-// a single class on <html> (P1) so the next paint hits the correct token
-// set without an inline-style rewrite.
+// Theme state. Dark default; light is opt-in only via the Settings
+// dropdown — `prefers-color-scheme` is deliberately ignored.
+// Mutations swap a single class on <html> so the next paint hits the
+// correct token set without an inline-style rewrite.
 //
-// Persistence is delegated to `@/persistence` (Layer 1 — feat/file-tree).
-// The synchronous FOUC-avoidance read in `src/theme-bootstrap.ts` is the
-// one documented carve-out that still touches localStorage directly; see
+// Persistence is delegated to `@/persistence`. The synchronous
+// FOUC-avoidance read in `src/theme-bootstrap.ts` is the one
+// documented carve-out that still touches localStorage directly; see
 // that file's header for why.
 
 import { type Theme, writeTheme } from "@/persistence";

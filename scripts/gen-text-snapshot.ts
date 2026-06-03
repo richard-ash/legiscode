@@ -1,12 +1,10 @@
 #!/usr/bin/env -S node --experimental-vm-modules
-// Pre-regen text snapshot generator (CT3 + codex finding #6).
+// Pre-regen text snapshot generator.
 //
-// Why this exists: the feat/parse-html-ast branch ships in two commits.
-// Commit 1 adds `body: BodySegment[]` to every fixture but leaves `text`
-// untouched. Commit 2 changes the parser walker (span-table emission,
-// 3-pass pipeline) and re-emits fixtures with populated body[]. Across
-// that boundary, `text` MUST stay byte-identical — the renderer, the
-// search index (#8), and downstream tools all assume `text` is stable.
+// Why this exists: `text` is the load-bearing search index and the
+// renderer's source-of-truth string. Any parser change that alters
+// `body[]` MUST keep `text` byte-identical for every section.
+// Downstream code assumes `text` is stable; drift = bug.
 //
 // This script captures `text` for every section in the committed test
 // fixture (test/fixtures/sf/source.html → sf-charter + sf-transportation

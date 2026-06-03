@@ -1,10 +1,11 @@
 // Inline highlight + hover trigger for a defined-term occurrence. The
 // popover is rendered SYNCHRONOUSLY from the `definition` prop:
-// build-time resolution (L2a) attached a def_id to every defined_term
-// body segment, and the loader projected the canonical Definition's
-// renderable bits (term, excerpt, scope, defined_in) down to a per-section
-// lookup map (electron/corpus-loader.ts joinDefinitionsForSection), so
-// the renderer has zero IPC latency and zero flicker.
+// build-time resolution attached a def_id to every defined_term body
+// segment, and the loader projected the canonical Definition's
+// renderable bits (term, excerpt, scope, defined_in) down to a
+// per-section lookup map (electron/corpus-loader.ts
+// joinDefinitionsForSection), so the renderer has zero IPC latency
+// and zero flicker.
 //
 // Hover state lives on the SectionView's shared `useHoverPopover`
 // instance (via SectionHoverContext) — DefinedTerm doesn't own its own

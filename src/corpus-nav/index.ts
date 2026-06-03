@@ -1,7 +1,6 @@
-// Public surface of @/corpus-nav (Layer 3 of the feat/file-tree
-// foundation). Pure-function primitives separated from React so tests
-// run in pure Node and future filters / nav features compose without
-// rewrites.
+// Public surface of @/corpus-nav. Pure-function primitives separated
+// from React so tests run in pure Node and future filters / nav
+// features compose without rewrites.
 
 export type { Predicate } from "./filter-predicate";
 export { alwaysTrue, and, or, prefixMatch } from "./filter-predicate";

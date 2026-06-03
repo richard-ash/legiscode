@@ -6,10 +6,9 @@
 //     once the right tab has loaded, and
 //   - the ⌘⌥← / ⌘⌥→ keyboard shortcuts for switching between tabs.
 //
-// Per-tab history was deleted in feat/citation-resolution (2026-05-20)
-// in favor of the VS Code tab model: ⌘-click opens a new foreground
-// tab, ⌘⌥← / ⌘⌥→ moves between tabs (wrapping at boundaries). To
-// revisit a section you bring its tab forward.
+// VS Code tab model: ⌘-click opens a new foreground tab; ⌘⌥← / ⌘⌥→
+// moves between tabs (wrapping at boundaries). There is no per-tab
+// history — to revisit a section you bring its tab forward.
 
 import { useCallback, useEffect, useState } from "react";
 import { getShortcut, matchShortcut } from "@/ui/shortcuts/registry";

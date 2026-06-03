@@ -4,18 +4,17 @@
 // `${num} ${name} ${path}`.toLowerCase().includes(q)` and silently
 // orders the (random!) input.
 //
-// Three Codex amendments make the scorer correct rather than vaguely
-// better:
+// Three load-bearing scoring rules:
 //
-//   - F1 numCanonical: strip `§` and all whitespace from both the
+//   - numCanonical: strip `§` and all whitespace from both the
 //     item's `num` and the user's query before comparing, so "133"
 //     matches "§ 133" exactly (not just as a substring of "§ 1330").
 //
-//   - F3 case folding: defined-term `:def` mode lower-cases both
-//     `term` and the query before matching, but the original
-//     non-folded `term` is what the row renderer displays.
+//   - case folding: defined-term `:def` mode lower-cases both `term`
+//     and the query before matching, but the original non-folded
+//     `term` is what the row renderer displays.
 //
-//   - F7 filter-before-sort: items with score 0 (no match anywhere)
+//   - filter-before-sort: items with score 0 (no match anywhere)
 //     are dropped before the sort runs, so sort cost is bounded by
 //     match count, not corpus size. At 5-10× SF scale this is the
 //     difference between "feels instant" and "noticeable lag."
@@ -88,8 +87,8 @@ export type PaletteMode = "section" | "defined-term";
  * `mode === "defined-term"`) — the open palette renders the full
  * corpus until the user types.
  *
- * Items scoring 0 are dropped BEFORE the sort runs (F7) so sort cost
- * is bounded by match count rather than corpus size. Stable sort
+ * Items scoring 0 are dropped BEFORE the sort runs so sort cost is
+ * bounded by match count rather than corpus size. Stable sort
  * preserves original order on ties.
  */
 export function rank(

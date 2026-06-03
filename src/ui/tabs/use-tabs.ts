@@ -2,13 +2,14 @@
 // belong on the canonical `OpenItemsState`:
 //
 //   • `recentlyClosed` — LIFO buffer of OpenItems closed during this
-//     session, consumed by ⌘shift+T. Capped at 10, deduped on pop so an
-//     item that's currently open never resurrects from a stale buffer
-//     entry. External-citation items participate alongside sections; the
-//     dedup key is `itemIdentity`. Plan A5 + T8.
-//   • `sectionScroll` — per-section vertical scroll offsets so switching
-//     tabs restores the user's read position. CQ8 (~100ms debounce, restore
-//     after section state updates via useLayoutEffect).
+//     session, consumed by ⌘shift+T. Capped at 10, deduped on pop so
+//     an item that's currently open never resurrects from a stale
+//     buffer entry. External-citation items participate alongside
+//     sections; the dedup key is `itemIdentity`.
+//   • `sectionScroll` — per-section vertical scroll offsets so
+//     switching tabs restores the user's read position. ~100ms
+//     debounce, restore after section state updates via
+//     useLayoutEffect.
 //
 // `close()` wraps `closeItem` so the buffer write and the items mutation
 // land in the same render via React 18 batching. `reopenLast()` recurses
@@ -38,9 +39,9 @@ export interface UseTabsParams {
   /** Predicate used to drop stale entries from `recentlyClosed` (e.g. on
    *  cold-start after a corpus upgrade that renumbered sections). */
   isValidRef?: (ref: CorpusRef) => boolean;
-  /** Tab-dispatch primitive. Used by `reopenLast` so reopens go through
-   *  the same navigate seam as every other tab open (per C5: reopen
-   *  starts a fresh history, matching browser ⌘shift+T). */
+  /** Tab-dispatch primitive. Used by `reopenLast` so reopens go
+   *  through the same navigate seam as every other tab open —
+   *  reopen starts a fresh history, matching browser ⌘shift+T. */
   navigate: (item: OpenItem, intent: NavigationIntent) => void;
 }
 
@@ -68,7 +69,7 @@ export interface UseTabsResult {
   /** Read scroll offset for a ref, or 0 if unknown. */
   getScroll: (ref: CorpusRef) => number;
   /** Hook for `<SectionView>` host to set up scroll restoration after
-   *  the body has rendered (useLayoutEffect timing — CQ8 / codex F12). */
+   *  the body has rendered (useLayoutEffect timing). */
   useRestoreScroll: (
     activeRef: CorpusRef | null,
     scrollContainer: HTMLElement | null,
@@ -108,7 +109,7 @@ export function useTabs({
         if (target) {
           // React 18 batches these into the same render; the closeItem
           // result and recentlyClosed push commit together. External-
-          // citation tabs participate alongside sections (T8) — the buffer
+          // citation tabs participate alongside sections — the buffer
           // holds the full OpenItem so reopen restores the same kind.
           setRecentlyClosed((buf) => {
             // No dedup on push — the same item can be opened, closed,
@@ -166,11 +167,12 @@ export function useTabs({
   }, [setOpenItems]);
 
   const reopenLast = useCallback(() => {
-    // Pop + dedup loop: skip any buffer head whose identity is already
-    // open (Chrome semantic — the user's intent is "give me back something
-    // I closed," not "duplicate something I already have"). Reopens route
-    // through `navigate(item, "primary")` so the reopened tab starts a
-    // fresh navigation history (C5 — matches browser ⌘shift+T).
+    // Pop + dedup loop: skip any buffer head whose identity is
+    // already open (Chrome semantic — the user's intent is "give me
+    // back something I closed," not "duplicate something I already
+    // have"). Reopens route through `navigate(item, "primary")` so
+    // the reopened tab starts a fresh navigation history (matches
+    // browser ⌘shift+T).
     setRecentlyClosed((buf) => {
       if (buf.length === 0) return buf;
       let i = 0;
@@ -220,8 +222,8 @@ export function useTabs({
     };
   }, []);
 
-  // CQ8 / codex F12 — restore scroll after the section body finishes
-  // rendering (sectionKey flip), not on every activeRef change. Without
+  // Restore scroll after the section body finishes rendering
+  // (sectionKey flip), not on every activeRef change. Without
   // the sectionKey gate the scrollTop write would land while the DOM
   // still shows the previous section's content. scrollContainer is in
   // deps so the effect re-fires once the callback ref hands us the

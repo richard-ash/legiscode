@@ -1,8 +1,7 @@
 // biome-ignore-all lint/suspicious/noExplicitAny: cheerio's parse5 backend
 // exposes node objects (with startIndex / attribs) that aren't surfaced by
 // cheerio's TypeScript types. Casting through `any` is the standard escape
-// hatch for source-position-aware traversal in cheerio. PoC accepts this;
-// the round-12 rewrite can wrap a typed adapter if it matters.
+// hatch for source-position-aware traversal in cheerio.
 
 import * as cheerio from "cheerio";
 import { prettifyTitle } from "@/corpus/pretty-title";
@@ -17,7 +16,7 @@ import { slugify } from "./slugify";
 
 export type { UnresolvedInterCodeLinkWarning };
 
-// AmLegal HTML walker (PoC, round 11). Single entry point:
+// AmLegal HTML walker. Single entry point:
 //
 //   parseExport(buffer, jurisdiction) — slices a full-jurisdiction AmLegal
 //                                       HTML export on JD_<CodeRoot> anchors,
@@ -33,13 +32,13 @@ export type { UnresolvedInterCodeLinkWarning };
 // the most recent Article/Chapter/Division wrapper before a Section
 // determines that section's hierarchy stack.
 //
-// PoC scope: structural parse only. ParsedSection.text is rendered text
+// Scope: structural parse only. ParsedSection.text is rendered text
 // (no markup) so the existing extractCitations regex pipeline keeps
-// working unchanged. parseInterCodeLinks demonstrates the editorial-graph
-// value-add as a separate capability for the round-12 rewrite.
+// working unchanged. parseInterCodeLinks demonstrates the
+// editorial-graph value-add as a separate capability.
 
 // SpanRecord — a positioned format run inside a section's `text`. The
-// span-table approach (CT1) lets the body-builder in pipeline.ts merge
+// span-table approach lets the body-builder in pipeline.ts merge
 // formatting with citation/defined-term annotations in a single pass
 // against the same `text`. Format kinds:
 //   - bold / italic   : <b>/<strong>, <i>/<em>
@@ -70,8 +69,7 @@ export interface ParsedSection {
    * Human-readable identifier the renderer shows in headings, tab
    * titles, and breadcrumbs ("109.0", "102A", "8.559"). Distinct from
    * `id`, which is the canonical lowercase anchor used for navigation
-   * keys and on-disk filenames. Phase 5 splits identity from label so
-   * `id` stops doing double duty.
+   * keys and on-disk filenames.
    */
   display_label: string;
   title: string;
@@ -1003,7 +1001,7 @@ function parseSectionElement(
   if (rawId === "") {
     rawId = stripJdAnchorSuffixes(anchorTitle);
   }
-  // D10 anchor-name fallback. When `title` is missing the disambiguator
+  // Anchor-name fallback. When `title` is missing the disambiguator
   // we care about ("title=\"\" name=\"JD_16.9-2\"" is a real shape AmLegal
   // emits when the title attribute is dropped during their export step),
   // read the canonical id from the `name` attribute with the JD_ prefix
@@ -1248,10 +1246,10 @@ function normalizeBodyText(s: string): string {
   return normalizeBodyTextWithSpans(s, []).text;
 }
 
-// GENERIC: tag-to-format mapping. The AmLegal HTML corpus uses standard
-// inline tags for formatting; future jurisdictions may need different
-// mappings, in which case this lives behind a parser-strategy switch
-// per A5.
+// GENERIC: tag-to-format mapping. The AmLegal HTML corpus uses
+// standard inline tags for formatting; future jurisdictions may need
+// different mappings, in which case this lives behind a
+// parser-strategy switch.
 function tagToFormat(tag: string | undefined): Exclude<SpanFormat, "paragraph_break"> | null {
   switch (tag?.toLowerCase()) {
     case "b":

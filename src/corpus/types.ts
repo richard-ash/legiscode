@@ -42,8 +42,8 @@ export interface BuildCorpusOptions {
    */
   sourcePath: string;
   /**
-   * Already-validated absolute path of the base output directory. Per
-   * D6, @/corpus purges this directory at the start of every build —
+   * Already-validated absolute path of the base output directory.
+   * @/corpus purges this directory at the start of every build —
    * `outputDir` is ephemeral build state, not authoritative storage.
    */
   outputDir: string;

@@ -18,9 +18,10 @@ import { activeSectionRef, type OpenItemsState } from "@/workbench";
 
 export interface UseRovingFocusOptions {
   rows: readonly Row[];
-  /** Reverse index `row.id → position in rows`. REQUIRED (D6); used for
-   * the F-pendingFocus visibility check and the scroll-into-view index
-   * lookup so neither path falls back to a per-render `findIndex` scan. */
+  /** Reverse index `row.id → position in rows`. REQUIRED; used for
+   * the pending-focus visibility check and the scroll-into-view
+   * index lookup so neither path falls back to a per-render
+   * `findIndex` scan. */
   rowIndexById: ReadonlyMap<string, number>;
   openItems: OpenItemsState;
   containerRef: RefObject<HTMLDivElement | null>;

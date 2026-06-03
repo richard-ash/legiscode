@@ -1,11 +1,11 @@
 // Section view — the centre-panel reader for a single corpus section.
-// Iterates `section.body[]` (the BodySegment discriminated union shipped
-// in #6.5) into React, rendering citations, defined-terms, subsection
-// labels, and inline formatting without re-parsing text. Three top-level
+// Iterates `section.body[]` (the BodySegment discriminated union)
+// into React, rendering citations, defined-terms, subsection labels,
+// and inline formatting without re-parsing text. Three top-level
 // states:
 //
-//   error  →  in-section error banner replaces the body (D8 + C7).
-//             App.tsx clears `view` to null on `corpus.read` ok:false so
+//   error  →  in-section error banner replaces the body. App.tsx
+//             clears `view` to null on `corpus.read` ok:false so
 //             stale chrome (breadcrumb, parents kicker) doesn't leak.
 //   null   →  "No section selected" placeholder. Only visible if the
 //             workbench has no active section item; corpus:read latency
@@ -62,7 +62,7 @@ export interface SectionViewProps {
   view: CorpusSectionView | null;
   /** Pretty parents string for the kicker — e.g. "Port Code · ARTICLE 1". */
   parentsLabel: string;
-  /** Set when corpus.read returns ok:false; replaces the body with a banner (D8). */
+  /** Set when corpus.read returns ok:false; replaces the body with a banner. */
   error: CorpusError | null;
   /** Tab-dispatch primitive. Used by defined-term tooltip jump-links and
    *  the redesignated redirect link — both `navigate(item, "primary")`. */
@@ -113,9 +113,9 @@ interface RenderCtx {
   citations: ReadonlyArray<Citation>;
   definitions: CorpusSectionView["definitions"];
   onJump: (sectionId: SectionId) => void;
-  /** Mutable set of subsection labels still owed an id emission (D7,
-   *  D14). Pre-seeded with one entry per distinct label and drained on
-   *  the first encounter in render order, so duplicate labels render
+  /** Mutable set of subsection labels still owed an id emission.
+   *  Pre-seeded with one entry per distinct label and drained on the
+   *  first encounter in render order, so duplicate labels render
    *  plain. Mutating during render is safe because the set is rebuilt
    *  per render — never observed across renders. */
   pendingSubsectionIds: Set<string>;
@@ -496,9 +496,10 @@ function resolvePreview(
 }
 
 /**
- * Distinct subsection labels appearing in body iteration order — flat or
- * nested in format children. Used as the seed for the "still owed an id"
- * set drained during render to enforce first-occurrence-wins (D7, D14).
+ * Distinct subsection labels appearing in body iteration order —
+ * flat or nested in format children. Used as the seed for the "still
+ * owed an id" set drained during render to enforce
+ * first-occurrence-wins.
  */
 function collectDistinctLabels(body: readonly BodySegment[]): ReadonlySet<string> {
   const result = new Set<string>();
@@ -562,19 +563,20 @@ function renderSegment(seg: BodySegment, ctx: RenderCtx, key: string): ReactNode
       );
     }
     case "defined_term": {
-      // L2b cutover: lookup keyed by def_id (build-time-resolved per
-      // occurrence). The loader owns prototype-key safety (Object.create(null)
-      // on the producer side; DEFINITION_ID_RE rejects every Object.prototype
-      // name by construction), so a missing def_id reads as `undefined` here
-      // and falls through to DefinedTerm's graceful-degrade branch.
+      // Lookup keyed by def_id (build-time-resolved per occurrence).
+      // The loader owns prototype-key safety (Object.create(null) on
+      // the producer side; DEFINITION_ID_RE rejects every
+      // Object.prototype name by construction), so a missing def_id
+      // reads as `undefined` here and falls through to DefinedTerm's
+      // graceful-degrade branch.
       const definition = ctx.definitions[seg.def_id];
       return <DefinedTerm key={key} raw={seg.raw} definition={definition} onJump={ctx.onJump} />;
     }
     case "subsection_label": {
-      // First-occurrence-wins anchor id (D7, D14). Duplicate labels
-      // render plain so a navigate(subsection) jump-link lands at the
+      // First-occurrence-wins anchor id. Duplicate labels render
+      // plain so a navigate(subsection) jump-link lands at the
       // canonical first instance. Real legal sections rarely reuse
-      // subsection labels; collision-strategy upgrade is v1.1 TODO.
+      // subsection labels; collision-strategy upgrade is in TODOS.md.
       const emitId = ctx.pendingSubsectionIds.delete(seg.label);
       return (
         <span

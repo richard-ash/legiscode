@@ -21,8 +21,7 @@ import { type PaletteMode, rank, type SearchableItem } from "./score";
 
 /** Trailing space is required so that typing `:def` mid-string (with
  *  more to come) doesn't flip mode until the user commits with a
- *  space. Codex F9 — `:de` and `:def` alone should not trigger; only
- *  `:def ` does. */
+ *  space. `:de` and `:def` alone should not trigger; only `:def ` does. */
 export const DEFINED_TERM_PREFIX = ":def ";
 
 /** Empty-state cap: when the user opens the palette with no query (or
@@ -160,7 +159,7 @@ function buildSearchableItems(corpus: CorpusModuleSummary): SearchableItem[] {
   for (const n of corpus.tree) walk(n, []);
 
   // Defined-term rows — already aggregated per-(term, moduleId) at
-  // load time by the corpus loader (D5). One row per pair; intra-module
+  // load time by the corpus loader. One row per pair; intra-module
   // duplicates collapse via the `definers[]` length count surfaced
   // as "+N more" in the row renderer.
   for (const def of corpus.definitions) {

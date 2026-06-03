@@ -38,7 +38,7 @@ const CrossModuleTargetSchema = z
     path: ["section_id"],
   });
 
-// D9 — vague reclass observability. When the binder reclassifies an
+// Vague reclass observability. When the binder reclassifies an
 // `internal` or `cross_module` cite as vague (no anchor matched, or
 // hierarchy-disambiguation came up ambiguous), preserve the original
 // target so the validator can attribute the reclass to its cause:
@@ -101,13 +101,12 @@ const InternalAppendixTargetSchema = z
   })
   .strict();
 
-// SectionRef carries the anchor-bound citation target produced by the
-// build-time binder. anchor_id is the lowercase, JD_-stripped section
-// anchor; module names the module that owns it (same module the citing
-// section lives in for intra-module cites, a sibling module for cross-
-// module). Phase 5 collapses this with the legacy internal / cross_module
-// variants — after the rename, every section-ref's anchor_id equals the
-// target section's id, and the resolver is one titleMap lookup.
+// SectionRef carries the anchor-bound citation target produced by
+// the build-time binder. anchor_id is the lowercase, JD_-stripped
+// section anchor (equals the target section's id); module_id names
+// the module that owns it (same as the citing section for intra-
+// module cites, a sibling module for cross-module). The runtime
+// resolver is one titleMap lookup.
 const SectionRefTargetSchema = z
   .object({
     kind: z.literal("section-ref"),

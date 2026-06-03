@@ -4,7 +4,7 @@
 // matter to LegislationDetail, downloads the latest Leg Ver{N} attachment,
 // writes BillMeta rows into build/downloads/bills/bills-index.json, and
 // caches PDFs under build/downloads/bills/pdfs/ keyed by attachment ID +
-// GUID + content-hash prefix (per Codex amendment #1).
+// GUID + content-hash prefix.
 //
 // This script is intentionally non-hermetic — CI never runs it. The
 // hermetic surface is exercised by test/scripts/fetch-bills.test.ts
@@ -12,7 +12,7 @@
 // job; sync-bills.ts (Lane 2) then turns the cached PDFs into per-module
 // Bill files using only committed-disk inputs.
 //
-// Rate-limit policy (T4):
+// Rate-limit policy:
 //   - 500ms minimum between Legistar requests (token bucket; no concurrency)
 //   - 3x exponential backoff on 5xx (1s → 2s → 4s, then abort)
 //   - Hard fail on 4xx except 429 (rate-limited; same backoff as 5xx)
@@ -212,7 +212,7 @@ function defaultSleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// Cache key per Codex amendment #1: attachment_id + matter_guid +
+// Cache key: attachment_id + matter_guid +
 // sha256(bytes) prefix. Filename pattern:
 //   pdfs/{attachment_id}-{guid8}-{sha16}.pdf
 // where guid8 is the first 8 hex chars of the matter_guid (without dashes)
