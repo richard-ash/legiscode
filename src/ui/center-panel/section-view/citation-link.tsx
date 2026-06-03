@@ -3,7 +3,7 @@
 // the section-view body container: plain click is selection only,
 // ⌘/Ctrl-click dispatches resolve() → navigate (VS Code-style).
 //
-// Indirection layout: `BodySegment` (type:"citation") carries `raw` +
+// Indirection layout: `BodySegment` (kind:"citation") carries `raw` +
 // `citation_index`. The discriminator (kind/target/subsection/range) lives
 // on `section.citations[citation_index]` (validated by the section schema's
 // superRefine — see src/types/section.ts). This component reads the indexed

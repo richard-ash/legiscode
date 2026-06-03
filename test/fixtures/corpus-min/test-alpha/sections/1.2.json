@@ -12,7 +12,7 @@
   "editorial_status": "active",
   "body": [
     {
-      "type": "text",
+      "kind": "text",
       "text": "Hermetic fixture content for section 1.2."
     }
   ]

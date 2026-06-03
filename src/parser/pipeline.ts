@@ -217,7 +217,7 @@ function buildParsedModule(
       // which doesn't exist yet. Keeping Pass 1's safeParse means
       // shape errors in non-body fields skip early, before the
       // expensive body builder runs.
-      body: ps.text.length > 0 ? [{ type: "text", text: ps.text }] : [],
+      body: ps.text.length > 0 ? [{ kind: "text", text: ps.text }] : [],
     };
     const validated = SectionFileSchema.safeParse(candidate);
     if (!validated.success) {

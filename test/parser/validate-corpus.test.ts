@@ -320,7 +320,7 @@ describe("validateCorpus — unresolvable_def_id gate", () => {
   }
 
   function definedTerm(defId: string, raw = "Tenant"): BodySegment {
-    return { type: "defined_term", raw, def_id: defId };
+    return { kind: "defined_term", raw, def_id: defId };
   }
 
   // The loader's joinDefinitionsForSection used to silent-skip
@@ -357,7 +357,7 @@ describe("validateCorpus — unresolvable_def_id gate", () => {
     const sectionA = makeSection("1.1");
     sectionA.body = [
       {
-        type: "format",
+        kind: "format",
         style: "bold",
         children: [definedTerm("sf-charter/1.1#deadbeef")],
       },

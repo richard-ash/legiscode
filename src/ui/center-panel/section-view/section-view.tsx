@@ -505,9 +505,9 @@ function collectDistinctLabels(body: readonly BodySegment[]): ReadonlySet<string
   const result = new Set<string>();
   const walk = (segs: readonly BodySegment[]): void => {
     for (const seg of segs) {
-      if (seg.type === "subsection_label") {
+      if (seg.kind === "subsection_label") {
         result.add(seg.label);
-      } else if (seg.type === "format") {
+      } else if (seg.kind === "format") {
         walk(seg.children);
       }
     }
@@ -527,7 +527,7 @@ function splitParagraphs(body: readonly BodySegment[]): BodySegment[][] {
   const out: BodySegment[][] = [];
   let current: BodySegment[] = [];
   for (const seg of body) {
-    if (seg.type === "paragraph_break") {
+    if (seg.kind === "paragraph_break") {
       if (current.length > 0) out.push(current);
       current = [];
     } else {
@@ -547,7 +547,7 @@ function renderInline(
 }
 
 function renderSegment(seg: BodySegment, ctx: RenderCtx, key: string): ReactNode {
-  switch (seg.type) {
+  switch (seg.kind) {
     case "text":
       return <span key={key}>{seg.text}</span>;
     case "citation": {
@@ -664,7 +664,7 @@ function renderOverlaySegments(segments: SegmentedText, keyPrefix: string): Reac
 }
 
 function renderFormat(
-  seg: Extract<BodySegment, { type: "format" }>,
+  seg: Extract<BodySegment, { kind: "format" }>,
   ctx: RenderCtx,
   key: string,
 ): ReactNode {

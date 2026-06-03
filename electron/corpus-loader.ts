@@ -337,9 +337,9 @@ function joinDefinitionsForSection(
 
 function collectDefIds(body: readonly BodySegment[], visit: (defId: DefinitionId) => void): void {
   for (const seg of body) {
-    if (seg.type === "defined_term") {
+    if (seg.kind === "defined_term") {
       if (seg.def_id) visit(seg.def_id);
-    } else if (seg.type === "format") {
+    } else if (seg.kind === "format") {
       collectDefIds(seg.children, visit);
     }
   }
@@ -825,7 +825,7 @@ function extractSubsectionPreviews(body: readonly BodySegment[]): Record<string,
 
   const walk = (segs: readonly BodySegment[]): void => {
     for (const seg of segs) {
-      switch (seg.type) {
+      switch (seg.kind) {
         case "subsection_label":
           flush();
           currentLabel = seg.label;

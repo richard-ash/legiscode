@@ -226,13 +226,13 @@ function buildSyntheticLongSection(
   // 184.12 worst case. Body[] is text + paragraph_break only; the spec
   // is measuring layout cost, not annotation density.
   const para = "x".repeat(500);
-  const body: Array<{ type: string; text?: string }> = [];
+  const body: Array<{ kind: string; text?: string }> = [];
   const textLines: string[] = [];
   for (let i = 0; i < 200; i++) {
-    body.push({ type: "text", text: para });
+    body.push({ kind: "text", text: para });
     textLines.push(para);
     if (i < 199) {
-      body.push({ type: "paragraph_break" });
+      body.push({ kind: "paragraph_break" });
       textLines.push("\n");
     }
   }

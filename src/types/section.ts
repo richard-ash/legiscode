@@ -23,7 +23,9 @@ export const SectionEditorialStatusSchema = z
 // drift — the body-text-roundtrip invariant test in test/parser/ enforces
 // that re-flattening `body[]` reproduces `text` byte-for-byte.
 //
-// The shape is a discriminated union over `type`. Six variants:
+// The shape is a discriminated union over `kind`. Every discriminated
+// union in the codebase uses `kind:` (Span, OrdinanceBlock, OpenItem,
+// CorpusError, HoverPayload). Six variants:
 //
 //   text             — raw prose between annotations.
 //   citation         — a recognized statutory reference. Carries `raw`
@@ -79,7 +81,7 @@ export const SectionEditorialStatusSchema = z
 //                           emit
 //
 //                    citation classify failure on a span?
-//                      emit raw {type:"text"} segment
+//                      emit raw {kind:"text"} segment
 //                      (NOT a defined_term fallback)
 //
 //                              │
@@ -102,14 +104,14 @@ export const SectionEditorialStatusSchema = z
 
 const TextSegmentSchema = z
   .object({
-    type: z.literal("text"),
+    kind: z.literal("text"),
     text: z.string(),
   })
   .strict();
 
 const CitationSegmentSchema = z
   .object({
-    type: z.literal("citation"),
+    kind: z.literal("citation"),
     raw: z.string(),
     citation_index: z.number().int().nonnegative(),
   })
@@ -127,7 +129,7 @@ const CitationSegmentSchema = z
 // conflate unrelated resolution contexts.
 const DefinedTermSegmentSchema = z
   .object({
-    type: z.literal("defined_term"),
+    kind: z.literal("defined_term"),
     raw: z.string().min(1),
     def_id: DefinitionIdSchema,
     candidates_dropped: z.array(DefinitionIdSchema).optional(),
@@ -136,14 +138,14 @@ const DefinedTermSegmentSchema = z
 
 const SubsectionLabelSegmentSchema = z
   .object({
-    type: z.literal("subsection_label"),
+    kind: z.literal("subsection_label"),
     label: z.string(),
   })
   .strict();
 
 const ParagraphBreakSegmentSchema = z
   .object({
-    type: z.literal("paragraph_break"),
+    kind: z.literal("paragraph_break"),
   })
   .strict();
 
@@ -154,28 +156,28 @@ const ParagraphBreakSegmentSchema = z
 // raw positions all collapsed away, so a format wrapper with empty
 // children would indicate a parser regression.
 type FormatSegment = {
-  type: "format";
+  kind: "format";
   style: "bold" | "italic" | "list" | "listItem";
   children: BodySegment[];
 };
 
 type BodySegment =
-  | { type: "text"; text: string }
-  | { type: "citation"; raw: string; citation_index: number }
+  | { kind: "text"; text: string }
+  | { kind: "citation"; raw: string; citation_index: number }
   | {
-      type: "defined_term";
+      kind: "defined_term";
       raw: string;
       def_id: DefinitionId;
       candidates_dropped?: DefinitionId[];
     }
-  | { type: "subsection_label"; label: string }
-  | { type: "paragraph_break" }
+  | { kind: "subsection_label"; label: string }
+  | { kind: "paragraph_break" }
   | FormatSegment;
 
 const FormatSegmentSchema: z.ZodType<FormatSegment> = z.lazy(() =>
   z
     .object({
-      type: z.literal("format"),
+      kind: z.literal("format"),
       style: z.enum(["bold", "italic", "list", "listItem"]),
       children: z.array(BodySegmentSchema).min(1),
     })
@@ -201,7 +203,7 @@ const BodySegmentSchema: z.ZodType<BodySegment> = z.lazy(() =>
 function forEachCitationSegment(
   segments: readonly BodySegment[],
   visit: (
-    segment: { type: "citation"; raw: string; citation_index: number },
+    segment: { kind: "citation"; raw: string; citation_index: number },
     path: (string | number)[],
   ) => void,
   path: (string | number)[] = [],
@@ -210,9 +212,9 @@ function forEachCitationSegment(
     const seg = segments[i];
     if (!seg) continue;
     const here = [...path, i];
-    if (seg.type === "citation") {
+    if (seg.kind === "citation") {
       visit(seg, here);
-    } else if (seg.type === "format") {
+    } else if (seg.kind === "format") {
       forEachCitationSegment(seg.children, visit, [...here, "children"]);
     }
   }
@@ -229,7 +231,7 @@ function forEachCitationSegment(
 export function bodyToText(segments: readonly BodySegment[]): string {
   let out = "";
   for (const seg of segments) {
-    switch (seg.type) {
+    switch (seg.kind) {
       case "text":
         out += seg.text;
         break;

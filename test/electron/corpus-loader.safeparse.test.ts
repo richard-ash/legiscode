@@ -61,7 +61,7 @@ const validSection = {
   // body[] must re-flatten to text per the SectionFileSchema roundtrip
   // invariant. Spread overrides change either both fields together or
   // neither.
-  body: [{ type: "text" as const, text: "Sample text." }],
+  body: [{ kind: "text" as const, text: "Sample text." }],
 };
 
 describe("corpus-loader safeParse boundary (T1 #24-26)", () => {
@@ -140,7 +140,7 @@ describe("corpus-loader safeParse boundary (T1 #24-26)", () => {
             ...validSection,
             text: "§ 1.01",
             citations: [],
-            body: [{ type: "citation", raw: "§ 1.01", citation_index: 0 }],
+            body: [{ kind: "citation", raw: "§ 1.01", citation_index: 0 }],
           },
         },
       ],

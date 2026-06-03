@@ -49,7 +49,7 @@ async function buildFixtureModule(
       defined_terms: [],
       hierarchy: [opts.id],
       editorial_status: "active",
-      body: [{ type: "text", text: "Stub." }],
+      body: [{ kind: "text", text: "Stub." }],
     }),
   );
   if (opts.pendingBills === undefined) return;

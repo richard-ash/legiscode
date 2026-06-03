@@ -40,13 +40,13 @@ export function buildCorpusSectionView(
 }
 
 export function bodyText(text: string): BodySegment {
-  return { type: "text", text };
+  return { kind: "text", text };
 }
 export function bodyParaBreak(): BodySegment {
-  return { type: "paragraph_break" };
+  return { kind: "paragraph_break" };
 }
 export function bodyCitation(raw: string, citation_index: number): BodySegment {
-  return { type: "citation", raw, citation_index };
+  return { kind: "citation", raw, citation_index };
 }
 // Post-L2b every defined_term segment carries a def_id and raw. The
 // `term` argument is the canonical-term shorthand used to derive a
@@ -58,7 +58,7 @@ export function bodyDefinedTerm(
   opts: { defId?: string; raw?: string } = {},
 ): BodySegment {
   return {
-    type: "defined_term",
+    kind: "defined_term",
     raw: opts.raw ?? term,
     def_id: opts.defId ?? testDefId(term),
   };
@@ -99,13 +99,13 @@ export function testDefinitionView(
   };
 }
 export function bodySubsectionLabel(label: string): BodySegment {
-  return { type: "subsection_label", label };
+  return { kind: "subsection_label", label };
 }
 export function bodyFormat(
   style: "bold" | "italic" | "list" | "listItem",
   children: BodySegment[],
 ): BodySegment {
-  return { type: "format", style, children };
+  return { kind: "format", style, children };
 }
 
 export function citationInternal(display_text: string, section_id: string): Citation {
