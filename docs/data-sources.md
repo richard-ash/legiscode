@@ -33,7 +33,7 @@ module under `build/modules/<module-id>/`.
 | Parsers              | `src/parser/bills/legistar-html.ts` (search + detail HTML), `src/parser/bills/index.ts` (PDF structural pass) |
 | Manifest declaration | `manifests/sf/jurisdiction.json` → `pending_bill_source.format = "legistar-search-html"` |
 | Programmatic access  | **Open.** No Cloudflare gate; standard `fetch` works. Rate-limited at 500ms minimum between requests; 3× exponential backoff on 5xx + 429 (per `scripts/fetch-bills.ts`). |
-| Refresh cadence      | Operator-driven; run `mise run bills:fetch && mise run bills:sync` to refresh. |
+| Refresh cadence      | Operator-driven; run `make bills-fetch && make bills-sync` to refresh. |
 
 The Legistar scrape is a **UI scrape, not a Web API call**. SF's Legistar
 deployment exposes a SOAP / REST API surface to authorized accounts, but
@@ -52,8 +52,8 @@ makes a live network call:
 | ---- | --------- | ------------ | ----- | ------ |
 | **Lane 1 — AmLegal fetch** | ❌ (manual) | Operator (no script yet) | `library.amlegal.com` | `build/downloads/sf.html` |
 | **Lane 2 — Corpus build** | ✅ | `mise run corpus:build` / `mise run validate:full` | `build/downloads/sf.html`, manifest | `build/modules/<m>/` |
-| **Lane 1 — Bills fetch** | ❌ (operator-driven) | `mise run bills:fetch` | `sfgov.legistar.com` | `build/downloads/bills/{bills-index.json, pdfs/}` |
-| **Lane 2 — Bills sync** | ✅ | `mise run bills:sync` | `build/downloads/bills/`, manifest, `build/modules/<m>/sections/` | `build/modules/<m>/pending-bills/` |
+| **Lane 1 — Bills fetch** | ❌ (operator-driven) | `make bills-fetch` | `sfgov.legistar.com` | `build/downloads/bills/{bills-index.json, pdfs/}` |
+| **Lane 2 — Bills sync** | ✅ | `make bills-sync` | `build/downloads/bills/`, manifest, `build/modules/<m>/sections/` | `build/modules/<m>/pending-bills/` |
 
 CI runs Lane-2 commands only. Tests against the bill pipeline use
 committed fixtures at `test/fixtures/sf/{bills,legistar-html}/`.
@@ -86,14 +86,12 @@ update:
 
 ```bash
 # 1. (Manual) Download fresh AmLegal HTML into build/downloads/sf.html.
-# 2. Rebuild the codified corpus.
-mise run validate:full
 
-# 3. Scrape pending bills from Legistar.
-mise run bills:fetch
+# 2. Scrape pending bills from Legistar.
+make bills-fetch
 
-# 4. Parse + write per-module pending-bill files.
-mise run bills:sync
+# 3. Rebuild the codified corpus AND write per-module pending-bill files.
+make corpus-rebuild
 ```
 
 After step 4 the renderer reflects every pending bill in the tree,

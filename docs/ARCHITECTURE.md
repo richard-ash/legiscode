@@ -621,7 +621,7 @@ this branch had no body[]. The schema's `body: z.array(...).default([])`
 fills in `[]`, which then fails the roundtrip invariant for any
 content-bearing section. Stale bundles surface as
 `CorpusError("corrupt")` at boot rather than rendering blank — users
-must re-run `mise run sync-corpus` to regenerate.
+must re-run `make corpus-rebuild` to regenerate.
 
 **Two regression invariants** guard the migration end-to-end:
 `text-fidelity.test.ts` pins text bytes against a committed snapshot;

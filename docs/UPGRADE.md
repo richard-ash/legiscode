@@ -113,7 +113,7 @@ Then:
 
 ```sh
 mise exec -- pnpm up typescript@<version>       # update package.json + lockfile
-mise run typecheck                              # see deprecation warnings
+make typecheck                                  # see deprecation warnings
 ```
 
 If new deprecations fire, decide: fix the underlying config, or add
