@@ -5,7 +5,7 @@
     "path": "build/downloads/sf.html"
   },
   "parser_strategy": "sf-amlegal",
-  "pending_bill_source": {
+  "bill_source": {
     "format": "legistar-search-html",
     "url": "https://sfgov.legistar.com/Legislation.aspx"
   },

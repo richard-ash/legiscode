@@ -450,28 +450,28 @@ describe("JurisdictionManifestSchema — legislative_session cross-field", () =>
     cycle_months: 24,
   };
 
-  it("accepts a manifest without pending_bill_source or legislative_session", () => {
+  it("accepts a manifest without bill_source or legislative_session", () => {
     expect(JurisdictionManifestSchema.safeParse(validJurisdiction).success).toBe(true);
   });
 
-  it("accepts pending_bill_source paired with legislative_session", () => {
+  it("accepts bill_source paired with legislative_session", () => {
     const result = JurisdictionManifestSchema.safeParse({
       ...validJurisdiction,
-      pending_bill_source: billSource,
+      bill_source: billSource,
       legislative_session: session,
     });
     expect(result.success).toBe(true);
   });
 
-  it("rejects pending_bill_source without legislative_session", () => {
+  it("rejects bill_source without legislative_session", () => {
     const result = JurisdictionManifestSchema.safeParse({
       ...validJurisdiction,
-      pending_bill_source: billSource,
+      bill_source: billSource,
     });
     expect(result.success).toBe(false);
   });
 
-  it("accepts legislative_session without pending_bill_source (scope-only declaration)", () => {
+  it("accepts legislative_session without bill_source (scope-only declaration)", () => {
     const result = JurisdictionManifestSchema.safeParse({
       ...validJurisdiction,
       legislative_session: session,

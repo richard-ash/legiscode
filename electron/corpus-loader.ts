@@ -105,12 +105,17 @@ interface LoadedModule {
    */
   ancestorIndex: ReadonlyMap<SectionId, ReadonlyArray<AncestorEntry>>;
   /**
-   * Pending Bills loaded from this module's pending-bills/ directory.
-   * Empty array when the directory is missing, when sync-bills has not
-   * been run, or when no matters currently target this module.
-   * Per `feedback_no_placeholder_ui`, the renderer hides the pending-
-   * bill surfaces (tree branch, banner, Impact tab, bill-detail tab)
-   * entirely when this is empty across all modules.
+   * Session bills loaded from this module's bills/ directory. Empty
+   * array when the directory is missing, when sync-bills has not been
+   * run, or when no matters currently target this module. Per
+   * `feedback_no_placeholder_ui`, the renderer hides the bill surfaces
+   * (tree branch, banner, Impact tab, bill-detail tab) entirely when
+   * this is empty across all modules.
+   *
+   * Field name kept as `pendingBills` until the activity-panel reshape
+   * (T5) renames the IPC contract field to `sessionBills` to match the
+   * widened semantics. T2 only swung the on-disk directory + storage
+   * function names.
    */
   pendingBills: readonly Bill[];
 }
@@ -425,7 +430,7 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
   const definitions = await loadDefinitions(moduleDir, manifest.id);
   const definitionsById = indexDefinitionsById(definitions);
   const ancestorIndex = buildAncestorIndex(sections);
-  const pendingBills = await loadPendingBills(moduleDir, manifest.id);
+  const pendingBills = await loadSessionBills(moduleDir, manifest.id);
 
   return {
     id: manifest.id,
@@ -442,9 +447,9 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
 }
 
 /**
- * Scan `<moduleDir>/pending-bills/` and return every Bill validated
- * against BillSchema. Missing directory returns an empty array — modules
- * without pending bills (or with no sync-bills run yet) are a normal
+ * Scan `<moduleDir>/bills/` and return every Bill validated against
+ * BillSchema. Missing directory returns an empty array — modules
+ * without session bills (or with no sync-bills run yet) are a normal
  * steady-state; per `feedback_no_placeholder_ui` the renderer hides the
  * surface entirely instead of rendering an empty stub.
  *
@@ -454,8 +459,8 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
  * is corrupt and should surface as CorpusError("corrupt") rather than
  * silently skipping.
  */
-async function loadPendingBills(moduleDir: string, moduleId: string): Promise<readonly Bill[]> {
-  const dir = join(moduleDir, "pending-bills");
+async function loadSessionBills(moduleDir: string, moduleId: string): Promise<readonly Bill[]> {
+  const dir = join(moduleDir, "bills");
   const exists = await stat(dir).catch(() => null);
   if (!exists || !exists.isDirectory()) return [];
   const entries = await readdir(dir, { withFileTypes: true });
@@ -468,13 +473,13 @@ async function loadPendingBills(moduleDir: string, moduleId: string): Promise<re
       parsed = JSON.parse(await readFile(path, "utf8"));
     } catch (cause) {
       throw new Error(
-        `module ${moduleId}: pending-bill ${path} is not valid JSON: ${describe(cause)}`,
+        `module ${moduleId}: session-bill ${path} is not valid JSON: ${describe(cause)}`,
       );
     }
     const result = BillSchema.safeParse(parsed);
     if (!result.success) {
       const issues = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-      throw new Error(`module ${moduleId}: pending-bill ${path} failed schema: ${issues}`);
+      throw new Error(`module ${moduleId}: session-bill ${path} failed schema: ${issues}`);
     }
     bills.push(result.data);
   }

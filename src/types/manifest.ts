@@ -167,23 +167,28 @@ export const BillLabelSchema = z
 
 export type BillLabel = z.infer<typeof BillLabelSchema>;
 
-// PendingBillSource — Lane 1 fetcher input. format names which parser path
-// the fetcher uses (today only legistar-search-html is supported; CA's
+// BillSource — Lane 1 fetcher input. format names which parser path the
+// fetcher uses (today only legistar-search-html is supported; CA's
 // CalMatters-style API and other future surfaces join the union as their
 // scrapers land). url is the canonical search page; snapshot_at is the
 // scrape-run wall clock the Lane 1 fetcher writes after each successful
 // run (mirrors source.snapshot_at on the corpus side).
-export const PendingBillSourceFormatSchema = z.enum(["legistar-search-html"]);
+//
+// Renamed from PendingBillSource when the bill substrate widened from
+// pending-only to session-scoped — the same fetcher now pulls every
+// bill in the legislative-session window, not just the ones still in
+// flight.
+export const BillSourceFormatSchema = z.enum(["legistar-search-html"]);
 
-export const PendingBillSourceSchema = z
+export const BillSourceSchema = z
   .object({
-    format: PendingBillSourceFormatSchema,
+    format: BillSourceFormatSchema,
     url: z.url(),
     snapshot_at: z.iso.datetime({ offset: true }).optional(),
   })
   .strict();
 
-export type PendingBillSource = z.infer<typeof PendingBillSourceSchema>;
+export type BillSource = z.infer<typeof BillSourceSchema>;
 
 // LegislativeSession — the political-event window the bill surface
 // filters against. A bill belongs to the session if its introduced_at
@@ -220,10 +225,10 @@ export type LegislativeSession = z.infer<typeof LegislativeSessionSchema>;
 // that source should become installable modules. The slicer locates each
 // module's region by code_title (and jd_anchor for amlegal-html).
 //
-// pending_bill_source + bill_label + legislative_session are optional —
-// jurisdictions that don't publish pending-bill data (or don't have a
-// Bill renderer yet) omit them and the bill-related UI surfaces hide
-// entirely (per feedback_no_placeholder_ui). When pending_bill_source IS
+// bill_source + bill_label + legislative_session are optional —
+// jurisdictions that don't publish bill data (or don't have a Bill
+// renderer yet) omit them and the bill-related UI surfaces hide
+// entirely (per feedback_no_placeholder_ui). When bill_source IS
 // declared, legislative_session is required cross-field — the scraper
 // post-filter needs the window to bound the bill set, and the panel
 // header copy needs the label.
@@ -233,13 +238,13 @@ export const JurisdictionManifestSchema = z
     source: SourceConfigSchema,
     parser_strategy: ParserStrategySchema,
     modules: z.array(ModuleConfigSchema).min(1),
-    pending_bill_source: PendingBillSourceSchema.optional(),
+    bill_source: BillSourceSchema.optional(),
     legislative_session: LegislativeSessionSchema.optional(),
     bill_label: BillLabelSchema.optional(),
   })
   .strict()
-  .refine((m) => m.pending_bill_source === undefined || m.legislative_session !== undefined, {
-    message: "jurisdiction with pending_bill_source must also declare legislative_session",
+  .refine((m) => m.bill_source === undefined || m.legislative_session !== undefined, {
+    message: "jurisdiction with bill_source must also declare legislative_session",
     path: ["legislative_session"],
   })
   .refine(
