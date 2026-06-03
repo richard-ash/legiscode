@@ -29,6 +29,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
+  type ActionHistoryRow,
   buildLegistarPaginationSubmission,
   buildLegistarSearchSubmission,
   type DetailAttachment,
@@ -41,11 +42,15 @@ import {
   type SearchPageRow,
 } from "@/parser/bills/legistar-html";
 import { classifyBillTitle, type InstalledModule } from "@/parser/bills/scope-filter";
+import { auditStatusAgainstHistory, mapLegistarStatusToBillStatus } from "@/parser/bills/status";
 import {
   BILLS_INDEX_SCHEMA_VERSION,
   type BillMeta,
+  type BillStatus,
   type BillsIndex,
   type JurisdictionManifest,
+  PENDING_STATES,
+  TERMINAL_STATES,
 } from "@/types";
 import { readJurisdictionManifest } from "@/types/validate";
 
@@ -350,7 +355,7 @@ export async function fetchSessionBills(args: {
       now: now(),
     });
     if (meta === null) continue;
-    if (session !== undefined && !isInSessionWindow(meta.introduced_at, session)) continue;
+    if (session !== undefined && !belongsInSession(meta, session)) continue;
     bills.push(meta);
   }
 
@@ -362,17 +367,24 @@ export async function fetchSessionBills(args: {
   };
 }
 
-// Session-window predicate. Bills with null introduced_at pass through;
-// the alternative (dropping them silently) hides operator-actionable
-// data. T3 will layer a status-based carryover clause on top so
-// pending-status bills from a prior session survive turnover; until
-// then, introduced_at is the only signal we have.
-function isInSessionWindow(
-  introducedAt: string | null,
+// Session predicate with D3 carryover: a bill belongs to the current
+// session if it was introduced inside the session window OR its
+// bill_status is still in PENDING_STATES (it carried over from a prior
+// session and hasn't terminated yet). The carryover clause defends
+// against the Jan-2027 boundary case where in-flight bills from the
+// 2025–2026 session would otherwise vanish on session turnover. Null
+// introduced_at falls through unchanged — operator audit, not silent
+// drop.
+function belongsInSession(
+  meta: BillMeta,
   session: NonNullable<JurisdictionManifest["legislative_session"]>,
 ): boolean {
-  if (introducedAt === null) return true;
-  return introducedAt >= session.current.start && introducedAt <= session.current.end;
+  if (meta.introduced_at === null) return true;
+  if (meta.introduced_at >= session.current.start && meta.introduced_at <= session.current.end) {
+    return true;
+  }
+  const billStatus = mapLegistarStatusToBillStatus(meta.legistar_status).status;
+  return PENDING_STATES.has(billStatus);
 }
 
 async function processMatter(args: {
@@ -491,6 +503,22 @@ function assembleMeta(args: {
   scrapedAt: Date;
 }): BillMeta {
   const scope = classifyBillTitle(args.detail.long_title, args.installed);
+  const { enacted_at, terminal_at } = deriveActionDates(args.detail.action_history);
+  // Audit pass: when the mapped status disagrees with the action
+  // history's terminal evidence, surface a louder warning per D7.4 +
+  // D12.7. The renderer would otherwise pin a "filed" pill on an
+  // enacted bill if Legistar's status text drifted.
+  const mappedStatus = mapLegistarStatusToBillStatus(args.detail.legistar_status).status;
+  const audit = auditStatusAgainstHistory({
+    legistarStatus: args.detail.legistar_status,
+    mappedStatus,
+    history: args.detail.action_history,
+  });
+  if (audit !== null) {
+    process.stderr.write(
+      `fetch-bills: status audit for ${args.row.file_no}: legistar="${audit.legistar_status}" mapped=${audit.mapped_status} but history says ${audit.implied_status} on ${audit.evidence.date} ("${audit.evidence.action}")\n`,
+    );
+  }
   return {
     file_no: args.row.file_no,
     matter_id: args.row.matter_id,
@@ -500,6 +528,8 @@ function assembleMeta(args: {
     legistar_status: args.detail.legistar_status,
     sponsor: args.detail.sponsor,
     introduced_at: args.detail.introduced_at,
+    enacted_at,
+    terminal_at,
     legistar_url: args.row.detail_url,
     title_class: scope.class,
     touched_code_stubs: scope.touched_code_stubs,
@@ -511,6 +541,41 @@ function assembleMeta(args: {
     pdf_cache_path: args.pdfCachePath,
     attachment_content_hash: args.contentSha256.slice(0, 16),
   };
+}
+
+// Derive enacted_at + terminal_at from the parsed action history.
+// enacted_at = latest signing/effective action's date (terminal +
+// passage). terminal_at = latest terminal action of any kind (signing,
+// veto, withdrawal, failure). For an enacted bill both are populated
+// and typically equal; for a vetoed/withdrawn/failed bill enacted_at
+// stays null and terminal_at carries the terminal date.
+function deriveActionDates(history: readonly ActionHistoryRow[]): {
+  enacted_at: string | null;
+  terminal_at: string | null;
+} {
+  let enacted: string | null = null;
+  let terminal: string | null = null;
+  for (const row of history) {
+    const status = classifyHistoryAction(row.action);
+    if (status === null) continue;
+    if (status === "enacted") {
+      if (enacted === null || row.date > enacted) enacted = row.date;
+    }
+    if (TERMINAL_STATES.has(status)) {
+      if (terminal === null || row.date > terminal) terminal = row.date;
+    }
+  }
+  return { enacted_at: enacted, terminal_at: terminal };
+}
+
+function classifyHistoryAction(action: string): BillStatus | null {
+  if (/\bvetoed?\b/iu.test(action)) return "vetoed";
+  if (/\bsigned\s+by\s+(?:the\s+)?mayor\b/iu.test(action)) return "enacted";
+  if (/\bmayor['’]?s?\s+signature\b/iu.test(action)) return "enacted";
+  if (/\beffective\b/iu.test(action)) return "enacted";
+  if (/\bwithdrawn\b/iu.test(action)) return "withdrawn";
+  if (/\bfailed\b/iu.test(action) || /\bdefeated\b/iu.test(action)) return "failed";
+  return null;
 }
 
 // CLI entry point. Reads the manifest, derives the search URL from

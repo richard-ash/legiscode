@@ -29,6 +29,8 @@ function buildMeta(opts: {
     legistar_status: opts.status ?? "Pending Committee Hearing",
     sponsor: null,
     introduced_at: null,
+    enacted_at: null,
+    terminal_at: null,
     legistar_url: "https://sfgov.legistar.com/LegislationDetail.aspx?ID=1&GUID=g",
     title_class: "A",
     touched_code_stubs: [],

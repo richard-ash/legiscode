@@ -31,6 +31,8 @@ function makeMeta(overrides: Partial<BillsIndex["bills"][0]>): BillsIndex["bills
     legistar_status: "Pending Committee Hearing",
     sponsor: "Sup. Walton (District 10)",
     introduced_at: "2026-05-15",
+    enacted_at: null,
+    terminal_at: null,
     legistar_url: "https://sfgov.legistar.com/LegislationDetail.aspx?ID=1&GUID=g",
     title_class: "A",
     touched_code_stubs: ["Administrative Code", "Health Code", "Planning Code"],

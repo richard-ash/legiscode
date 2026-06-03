@@ -136,6 +136,21 @@ describe("parseLegistarDetailPage", () => {
     const broken = `<html><body><span id="lblTitle">x</span></body></html>`;
     expect(() => parseLegistarDetailPage(broken, DETAIL_URL)).toThrow(LegistarParseError);
   });
+
+  it("returns an empty action_history when the detail page omits a history table", () => {
+    // detail-260217.html ships no tblHistory — parser must return [].
+    const detail = parseLegistarDetailPage(read("detail-260217.html"), DETAIL_URL);
+    expect(detail.action_history).toEqual([]);
+  });
+
+  it("parses action_history rows from the LegislationDetail history table", () => {
+    const detail = parseLegistarDetailPage(read("detail-260700-enacted.html"), DETAIL_URL);
+    expect(detail.action_history.length).toBeGreaterThan(0);
+    const dates = detail.action_history.map((r) => r.date);
+    expect(dates).toEqual(["2026-02-03", "2026-03-10", "2026-03-24", "2026-04-03", "2026-05-03"]);
+    const signedRow = detail.action_history.find((r) => /Signed by Mayor/.test(r.action));
+    expect(signedRow?.date).toBe("2026-04-03");
+  });
 });
 
 describe("extractLegistarSearchForm", () => {

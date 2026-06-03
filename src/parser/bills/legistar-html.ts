@@ -286,6 +286,21 @@ export type DetailPage = {
   introduced_at: string | null;
   /** All attachment rows in the order Legistar lists them. */
   attachments: DetailAttachment[];
+  /**
+   * Action history rows in document order (oldest first). Empty when
+   * the LegislationDetail page omits the history table — pending bills
+   * without committee activity yet, or jurisdictions whose Legistar
+   * skin hides the history block from public pages. Drives enacted_at
+   * + terminal_at derivation in the BillMeta assembler.
+   */
+  action_history: ActionHistoryRow[];
+};
+
+export type ActionHistoryRow = {
+  /** ISO date (YYYY-MM-DD) of the action. */
+  date: string;
+  /** Free-text action label as Legistar rendered it. */
+  action: string;
 };
 
 // LegislationDetail renders inside an asp.net master page. The label cells
@@ -326,6 +341,8 @@ export function parseLegistarDetailPage(html: string, baseUrl: string): DetailPa
     });
   });
 
+  const action_history = parseLegistarActionHistory($);
+
   return {
     short_title: shortTitle,
     long_title: longTitle,
@@ -333,7 +350,40 @@ export function parseLegistarDetailPage(html: string, baseUrl: string): DetailPa
     sponsor,
     introduced_at,
     attachments,
+    action_history,
   };
+}
+
+// Read the LegislationDetail action-history table. SF's Legistar markup
+// uses `<table id="ctl00_ContentPlaceHolder1_tblHistory">` (or a similar
+// `*History*` id) with columns [Date | Ver | Action By | Action |
+// Result | ...]. We extract (date, action) pairs and ignore the rest;
+// the assembler downstream needs the action verbiage to detect signing,
+// veto, withdrawal, failure. Unknown / pending bills with no committee
+// activity yet ship an empty history block — return [].
+function parseLegistarActionHistory($: cheerio.CheerioAPI): ActionHistoryRow[] {
+  const rows: ActionHistoryRow[] = [];
+  // Match any table whose id contains "History" so we tolerate skin
+  // variations like tblHistory / tblActions / gridHistory.
+  const table = $("table[id*='History' i]").first();
+  if (table.length === 0) return rows;
+  const headerCells = table
+    .find("thead th, tr:first-child th")
+    .toArray()
+    .map((th) => $(th).text().replace(/\s+/g, " ").trim().toLowerCase());
+  const dateIdx = headerCells.findIndex((h) => h === "date" || h === "action date");
+  const actionIdx = headerCells.indexOf("action");
+  if (dateIdx < 0 || actionIdx < 0) return rows;
+  table.find("tbody tr").each((_, tr) => {
+    const cells = $(tr).find("td").toArray();
+    if (cells.length <= Math.max(dateIdx, actionIdx)) return;
+    const dateRaw = $(cells[dateIdx]).text().trim();
+    const actionRaw = $(cells[actionIdx]).text().trim().replace(/\s+/g, " ");
+    const date = parseLegistarDate(dateRaw);
+    if (date === null || actionRaw.length === 0) return;
+    rows.push({ date, action: actionRaw });
+  });
+  return rows;
 }
 
 // Pick the latest Leg Ver{N} attachment from a LegislationDetail page.

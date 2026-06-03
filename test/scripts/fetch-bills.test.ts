@@ -375,21 +375,124 @@ describe("fetchSessionBills end-to-end (hermetic, stub HTTP)", () => {
     expect(post2?.body).toContain("__VIEWSTATE=FIXTURE-VIEWSTATE-PAGE-1");
   });
 
-  it("drops bills introduced outside the legislative-session window", async () => {
-    // D5: session-window post-filter. A bill with introduced_at
-    // before the session start is dropped from the index; bills with
-    // null introduced_at fall through because the predicate has no
-    // ground truth to compare against.
+  it("keeps a pre-session bill when its legistar_status is still pending (D3 carryover)", async () => {
+    // D3: bills introduced before the session window but still in
+    // PENDING_STATES carry over from the prior session. Without this,
+    // in-flight bills would vanish at Jan-2027 turnover with no
+    // semantic explanation.
+    const manifest = await readJurisdictionManifest(MANIFEST_PATH);
+    const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+
+    // Synthesize a search.html that names one bill, then rewrite its
+    // detail page so introduced_at=2024-06-01 (pre-session) but
+    // legistar_status still maps to a PENDING state (committee).
+    const carryoverDetailHtml = (await loadFixture("detail-260541.html")).replace(
+      /lblIntroduced2"[^>]*>([^<]+)<\/span>/,
+      'lblIntroduced2">6/1/2024</span>',
+    );
+
+    const http = new StubHttp(
+      {
+        [SEARCH_URL]: `
+          <form action="./Legislation.aspx">
+            <input type="hidden" name="__VIEWSTATE" value="V" />
+            <table class="rgMasterTable">
+              <thead><tr><th>File #</th><th>Type</th><th>Status</th><th>Title</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><a href="LegislationDetail.aspx?ID=6789014&GUID=AAAAAAAA-BBBB-CCCC-DDDD-333333333333">260541</a></td>
+                  <td>Ordinance</td>
+                  <td>Pending - Public Works Committee</td>
+                  <td>Public works waiver authorization</td>
+                </tr>
+              </tbody>
+            </table>
+          </form>`,
+        "https://sfgov.legistar.com/LegislationDetail.aspx?ID=6789014&GUID=AAAAAAAA-BBBB-CCCC-DDDD-333333333333":
+          carryoverDetailHtml,
+      },
+      {
+        "https://sfgov.legistar.com/View.ashx?M=F&ID=9003001&GUID=AAAAAAAA-BBBB-CCCC-DDDD-C11C11C11C11":
+          pdfBytes,
+      },
+    );
+
+    const index = await fetchSessionBills({
+      searchUrl: SEARCH_URL,
+      manifest,
+      outputDir: tmpDir,
+      maxMatters: null,
+      deps: { http, now: () => new Date("2026-05-30T10:00:00-07:00") },
+    });
+
+    // The bill is pre-session by introduced_at but pending by status
+    // → survives the carryover predicate.
+    expect(index.bills.map((b) => b.file_no)).toEqual(["260541"]);
+  });
+
+  it("derives enacted_at + terminal_at from action history when present", async () => {
+    const manifest = await readJurisdictionManifest(MANIFEST_PATH);
+    const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+
+    const http = new StubHttp(
+      {
+        [SEARCH_URL]: `
+          <form action="./Legislation.aspx">
+            <input type="hidden" name="__VIEWSTATE" value="V" />
+            <table class="rgMasterTable">
+              <thead><tr><th>File #</th><th>Type</th><th>Status</th><th>Title</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><a href="LegislationDetail.aspx?ID=6789020&GUID=AAAAAAAA-BBBB-CCCC-DDDD-777777777777">260700</a></td>
+                  <td>Ordinance</td>
+                  <td>Signed by Mayor</td>
+                  <td>Affordable Housing Streamlining</td>
+                </tr>
+              </tbody>
+            </table>
+          </form>`,
+        "https://sfgov.legistar.com/LegislationDetail.aspx?ID=6789020&GUID=AAAAAAAA-BBBB-CCCC-DDDD-777777777777":
+          await loadFixture("detail-260700-enacted.html"),
+      },
+      {
+        "https://sfgov.legistar.com/View.ashx?M=F&ID=9007001&GUID=AAAAAAAA-BBBB-CCCC-DDDD-D11D11D11D11":
+          pdfBytes,
+      },
+    );
+
+    const index = await fetchSessionBills({
+      searchUrl: SEARCH_URL,
+      manifest,
+      outputDir: tmpDir,
+      maxMatters: null,
+      deps: { http, now: () => new Date("2026-05-30T10:00:00-07:00") },
+    });
+
+    expect(index.bills).toHaveLength(1);
+    const bill = index.bills[0];
+    // Latest "Effective" date is the terminal date; latest signing
+    // event is the enacted date.
+    expect(bill?.enacted_at).toBe("2026-05-03");
+    expect(bill?.terminal_at).toBe("2026-05-03");
+  });
+
+  it("drops bills introduced outside the session window AND no longer pending", async () => {
+    // D5 + D3 combined: a bill drops only when it's both pre-session
+    // AND no longer in a PENDING_STATE. A bill rewritten to a
+    // pre-session date with a TERMINAL legistar_status ("Vetoed") is
+    // a clean prior-session terminal record and gets dropped.
     const manifest = await readJurisdictionManifest(MANIFEST_PATH);
     const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
 
     // SF manifest session is 2025-01-01..2026-12-31. detail-260296
     // ships introduced_at=null (passes); detail-260217 ships
     // 2026-05-15 (passes); we craft a synthetic detail page with
-    // introduced_at=2024-06-01 (pre-session → drops).
-    const earlyDetailHtml = (await loadFixture("detail-260541.html"))
+    // introduced_at=2024-06-01 AND legistar_status=Vetoed (terminal)
+    // so it drops despite the carryover clause.
+    const earlyTerminalHtml = (await loadFixture("detail-260541.html"))
       .replace(/lblIntroduced2[^>]*>\s*<\/span>/, 'lblIntroduced2">6/1/2024</span>')
-      .replace(/lblIntroduced2"[^>]*>([^<]+)<\/span>/, 'lblIntroduced2">6/1/2024</span>');
+      .replace(/lblIntroduced2"[^>]*>([^<]+)<\/span>/, 'lblIntroduced2">6/1/2024</span>')
+      .replace(/lblStatus2"[^>]*>([^<]+)<\/span>/, 'lblStatus2">Vetoed</span>');
 
     const http = new StubHttp(
       {
@@ -399,7 +502,7 @@ describe("fetchSessionBills end-to-end (hermetic, stub HTTP)", () => {
         "https://sfgov.legistar.com/LegislationDetail.aspx?ID=6789013&GUID=AAAAAAAA-BBBB-CCCC-DDDD-222222222222":
           await loadFixture("detail-260296.html"),
         "https://sfgov.legistar.com/LegislationDetail.aspx?ID=6789014&GUID=AAAAAAAA-BBBB-CCCC-DDDD-333333333333":
-          earlyDetailHtml,
+          earlyTerminalHtml,
       },
       {
         "https://sfgov.legistar.com/View.ashx?M=F&ID=9001002&GUID=AAAAAAAA-BBBB-CCCC-DDDD-A22A22A22A22":
@@ -420,9 +523,9 @@ describe("fetchSessionBills end-to-end (hermetic, stub HTTP)", () => {
     });
 
     const fileNos = index.bills.map((b) => b.file_no).sort();
-    // 260217 (2026-05-15) — in window.
+    // 260217 (2026-05-15, in window) — kept.
     // 260296 (null) — passes the predicate (no ground truth).
-    // 260541 (rewritten to 2024-06-01) — pre-session, dropped.
+    // 260541 (2024-06-01 + Vetoed) — pre-session AND terminal → dropped.
     expect(fileNos).toEqual(["260217", "260296"]);
   });
 

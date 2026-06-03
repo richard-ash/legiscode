@@ -11,6 +11,8 @@ function validMeta(overrides: Partial<Record<string, unknown>> = {}) {
     legistar_status: "Pending Committee Hearing",
     sponsor: "Sup. Walton (District 10)",
     introduced_at: "2026-05-15",
+    enacted_at: null,
+    terminal_at: null,
     legistar_url: "https://sfgov.legistar.com/LegislationDetail.aspx?ID=6789012&GUID=aaaa",
     title_class: "A",
     touched_code_stubs: ["Administrative Code", "Building Code"],
@@ -137,7 +139,14 @@ describe("BillSchema", () => {
   });
 
   it("rejects an unknown bill_status key", () => {
-    expect(BillSchema.safeParse(validBill({ bill_status: "vetoed" })).success).toBe(false);
+    expect(BillSchema.safeParse(validBill({ bill_status: "absorbed" })).success).toBe(false);
+  });
+
+  it("accepts the four new terminal bill_status values", () => {
+    for (const bill_status of ["enacted", "vetoed", "withdrawn", "failed"]) {
+      const result = BillSchema.safeParse(validBill({ bill_status }));
+      expect(result.success).toBe(true);
+    }
   });
 });
 
