@@ -3,8 +3,10 @@
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { type Bill, BillSchema } from "@/types";
+import { type Bill, BillSchema, type SectionId } from "@/types";
 import { SectionPendingRail } from "@/ui/center-panel/section-view/section-pending-rail";
+
+const SECTION_ID = "1.1" as SectionId;
 
 function makeBill(over: Partial<Bill> = {}): Bill {
   return BillSchema.parse({
@@ -18,8 +20,15 @@ function makeBill(over: Partial<Bill> = {}): Bill {
     legistar_status: "Pending",
     bill_status: "committee",
     affected_sections: ["1.1"],
-    text_diff: [],
-    parse_status: "manual_review",
+    text_diff: [
+      {
+        section_id: "1.1",
+        op: "insert",
+        text: "new",
+        anchor: { baseline_offset: 0, baseline_length: 0 },
+      },
+    ],
+    parse_status: "ok",
     structural_change_scope: null,
     body: { preamble: "", amendments: [], closing: "" },
     ...over,
@@ -29,6 +38,7 @@ function makeBill(over: Partial<Bill> = {}): Bill {
 const RESTING = {
   activeOverlayBillId: null,
   onToggleOverlay: vi.fn(),
+  sectionId: SECTION_ID,
 };
 
 describe("SectionPendingRail — visibility", () => {
@@ -103,6 +113,7 @@ describe("SectionPendingRail — file-no opens bill", () => {
     render(
       <SectionPendingRail
         bills={[makeBill()]}
+        sectionId={SECTION_ID}
         activeOverlayBillId={null}
         onToggleOverlay={onToggleOverlay}
         onOpenBill={vi.fn()}
@@ -130,6 +141,7 @@ describe("SectionPendingRail — overlay toggle (variant B)", () => {
     render(
       <SectionPendingRail
         bills={[makeBill()]}
+        sectionId={SECTION_ID}
         activeOverlayBillId={null}
         onToggleOverlay={onToggleOverlay}
         onOpenBill={vi.fn()}
@@ -144,6 +156,7 @@ describe("SectionPendingRail — overlay toggle (variant B)", () => {
     render(
       <SectionPendingRail
         bills={[makeBill()]}
+        sectionId={SECTION_ID}
         activeOverlayBillId={"260217"}
         onToggleOverlay={onToggleOverlay}
         onOpenBill={vi.fn()}
@@ -159,6 +172,7 @@ describe("SectionPendingRail — overlay toggle (variant B)", () => {
     render(
       <SectionPendingRail
         bills={[makeBill()]}
+        sectionId={SECTION_ID}
         activeOverlayBillId={"260217"}
         onToggleOverlay={vi.fn()}
         onOpenBill={vi.fn()}
@@ -171,6 +185,7 @@ describe("SectionPendingRail — overlay toggle (variant B)", () => {
     render(
       <SectionPendingRail
         bills={[makeBill()]}
+        sectionId={SECTION_ID}
         activeOverlayBillId={"260217"}
         onToggleOverlay={vi.fn()}
         onOpenBill={vi.fn()}
@@ -183,6 +198,7 @@ describe("SectionPendingRail — overlay toggle (variant B)", () => {
     render(
       <SectionPendingRail
         bills={[makeBill({ file_no: "260100" }), makeBill({ file_no: "260200" })]}
+        sectionId={SECTION_ID}
         activeOverlayBillId={"260200"}
         onToggleOverlay={vi.fn()}
         onOpenBill={vi.fn()}
@@ -196,6 +212,7 @@ describe("SectionPendingRail — overlay toggle (variant B)", () => {
     render(
       <SectionPendingRail
         bills={[makeBill()]}
+        sectionId={SECTION_ID}
         activeOverlayBillId={"260217"}
         onToggleOverlay={vi.fn()}
         onOpenBill={vi.fn()}
@@ -205,6 +222,81 @@ describe("SectionPendingRail — overlay toggle (variant B)", () => {
     expect(screen.queryByText(/as if Ord\. 260217 had passed/i)).toBeNull();
     expect(
       screen.getByText(/We couldn't compute changes for this section under Ord\. 260217/i),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("SectionPendingRail — toggle gating (parse_status + diff coverage)", () => {
+  it("suppresses the Show changes toggle when bill.parse_status is not 'ok'", () => {
+    render(
+      <SectionPendingRail
+        bills={[makeBill({ parse_status: "manual_review", text_diff: [] })]}
+        {...RESTING}
+        onOpenBill={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /view this section as if/i })).toBeNull();
+    // Bill row itself still renders — file_no opens the bill.
+    expect(screen.getByRole("button", { name: /open ord\. 260217/i })).toBeInTheDocument();
+  });
+
+  it("suppresses the toggle for structural_change bills (no inline diff possible)", () => {
+    render(
+      <SectionPendingRail
+        bills={[
+          makeBill({
+            parse_status: "structural_change",
+            text_diff: [],
+            structural_change_scope: "Section 1. Article 4 is hereby repealed.",
+          }),
+        ]}
+        {...RESTING}
+        onOpenBill={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /view this section as if/i })).toBeNull();
+  });
+
+  it("suppresses the toggle when parse_status is ok but no diff span anchors to this section", () => {
+    render(
+      <SectionPendingRail
+        bills={[
+          makeBill({
+            text_diff: [
+              {
+                section_id: "9.9",
+                op: "insert",
+                text: "other section",
+                anchor: { baseline_offset: 0, baseline_length: 0 },
+              },
+            ],
+          }),
+        ]}
+        {...RESTING}
+        onOpenBill={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /view this section as if/i })).toBeNull();
+  });
+
+  it("renders the toggle when parse_status is ok AND a diff span anchors to this section", () => {
+    render(<SectionPendingRail bills={[makeBill()]} {...RESTING} onOpenBill={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /view this section as if/i })).toBeInTheDocument();
+  });
+
+  it("keeps the toggle visible on the active row even if hasDiff would be false (defensive — lets user clear a stale overlay)", () => {
+    render(
+      <SectionPendingRail
+        bills={[makeBill({ parse_status: "manual_review", text_diff: [] })]}
+        sectionId={SECTION_ID}
+        activeOverlayBillId={"260217"}
+        onToggleOverlay={vi.fn()}
+        onOpenBill={vi.fn()}
+        overlayUnavailable
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: /clear overlay for ord\. 260217/i }),
     ).toBeInTheDocument();
   });
 });

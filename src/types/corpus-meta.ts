@@ -12,12 +12,18 @@ import { ModuleIdSchema, SectionIdSchema } from "./identifiers";
 // MIN_SUPPORTED_SCHEMA_VERSION and fails loudly when a stale bundle
 // would otherwise crash downstream on field-shape mismatches.
 //
-// KNOWN_SCHEMA_VERSION = 3: TextDiffSpan now carries a required
+// KNOWN_SCHEMA_VERSION = 4: BillStatusSchema widens from the 5-state
+// in-flight taxonomy to a 9-state session taxonomy (adds enacted +
+// vetoed/withdrawn/failed), and JurisdictionManifest gains a
+// `legislative_session` block declaring the session window the bill
+// scraper filters against. Both changes are additive at the type level,
+// but a v3 client cannot interpret a v4 bundle's enacted/terminal bills
+// without falling back to "filed", so MIN advances in lock-step.
+//
+// KNOWN_SCHEMA_VERSION = 3 (historical): TextDiffSpan carries a required
 // build-time `anchor` ({baseline_offset, baseline_length}) binding each
 // span to a char range in its corpus section's baseline text, and the
 // `op` enum gains "elision" for the city's "* * * *" wildcard sentinel.
-// A v2 bundle's text_diff[] spans would fail the new BillSchema invariant,
-// so MIN_SUPPORTED_SCHEMA_VERSION advances in lock-step.
 //
 // KNOWN_SCHEMA_VERSION = 2 (historical): definitions graph is canonical
 // Definition[] (id, body_anchor, scope, extracted_by); defined_term body
@@ -27,8 +33,8 @@ import { ModuleIdSchema, SectionIdSchema } from "./identifiers";
 // is added, since a stale bundle's records would fail schema validation
 // downstream. When the app learns to read additive future versions, bump
 // KNOWN above MIN.
-export const KNOWN_SCHEMA_VERSION = 3;
-export const MIN_SUPPORTED_SCHEMA_VERSION = 3;
+export const KNOWN_SCHEMA_VERSION = 4;
+export const MIN_SUPPORTED_SCHEMA_VERSION = 4;
 
 // CorpusEntry kinds enumerated in corpus-meta.json's `corpus_entry_kinds`
 // field, so consumers can detect kind-extension at meta-read time without

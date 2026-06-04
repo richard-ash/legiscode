@@ -177,6 +177,80 @@ export function buildLegistarSearchSubmission(
   return body;
 }
 
+// SearchPagePagination — pagination state extracted from the rgMasterTable
+// footer. Telerik RadGrid wraps pager controls under `.rgPager` with two
+// shapes worth handling:
+//
+//   • `<a class="rgCurrentPage"><span>N</span></a>` for the active page,
+//     plus sibling page-number links carrying
+//     `__doPostBack('TARGET','Page$M')` in their href.
+//   • An `<input ... class="rgPageNext">` submit-button alternative on
+//     some skins; Telerik picks shape per `PagerStyle` server config.
+//
+// The parser detects the current page number and the postback target
+// from any `__doPostBack` it can find inside the pager block, then
+// computes the next page's `Page$N+1` argument. This shape lets a
+// downstream POST advance the grid one page without inventing a parallel
+// HTTP client. When no next-page link is reachable, the parser reports
+// `hasNext: false` and the orchestrator stops walking.
+export type SearchPagePagination =
+  | {
+      hasNext: true;
+      /** Telerik grid postback target — e.g. `ctl00$ContentPlaceHolder1$gridMain`. */
+      eventTarget: string;
+      /** Event argument that selects the next page — `Page$N+1`. */
+      eventArgument: string;
+    }
+  | { hasNext: false };
+
+const DOPOSTBACK_RE = /__doPostBack\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]\s*\)/gu;
+
+export function parseLegistarSearchPagination(html: string): SearchPagePagination {
+  const $ = cheerio.load(html);
+  // The pager lives alongside the master table, typically as a sibling
+  // <tfoot> or wrapping div. Search the whole table-and-pager subtree;
+  // the master table itself stops at <tbody>, but `closest('form')`
+  // covers both Telerik shapes (in-table pager + sibling pager).
+  const table = $("table.rgMasterTable").first();
+  if (table.length === 0) return { hasNext: false };
+  const scope = table.closest("form");
+  const pager = scope.find(".rgPager, tfoot .rgWrap").first();
+  if (pager.length === 0) return { hasNext: false };
+  // Current page — rgCurrentPage's inner text. Fall back to "1" when
+  // the active-page indicator is missing (single-page result).
+  const currentText = pager.find(".rgCurrentPage").first().text().trim();
+  const currentPage = Number.parseInt(currentText.replace(/[^\d]/g, ""), 10);
+  if (!Number.isFinite(currentPage) || currentPage < 1) return { hasNext: false };
+  const nextPageArg = `Page$${currentPage + 1}`;
+  // Find a __doPostBack call whose second argument matches the next-page
+  // selector. The target (first arg) is the grid's postback name; reuse
+  // it as the event target so the POST routes to the grid handler.
+  const pagerHtml = pager.html() ?? "";
+  for (const match of pagerHtml.matchAll(DOPOSTBACK_RE)) {
+    const target = match[1] ?? "";
+    const arg = match[2] ?? "";
+    if (arg === nextPageArg && target.length > 0) {
+      return { hasNext: true, eventTarget: target, eventArgument: arg };
+    }
+  }
+  return { hasNext: false };
+}
+
+// Build the POST body for a pagination advance. Same hidden-input bundle
+// as the search submission, but the __EVENTTARGET/__EVENTARGUMENT pair
+// targets the RadGrid's next-page handler instead of the search button.
+// The caller is responsible for re-extracting the form from the current
+// page's HTML so __VIEWSTATE reflects the new server-signed state.
+export function buildLegistarPaginationSubmission(
+  form: LegistarSearchForm,
+  pagination: { eventTarget: string; eventArgument: string },
+): URLSearchParams {
+  const body = new URLSearchParams(form.hidden);
+  body.set("__EVENTTARGET", pagination.eventTarget);
+  body.set("__EVENTARGUMENT", pagination.eventArgument);
+  return body;
+}
+
 function radComboBoxClientState(text: string): string {
   return JSON.stringify({
     logEntries: [],
@@ -212,6 +286,21 @@ export type DetailPage = {
   introduced_at: string | null;
   /** All attachment rows in the order Legistar lists them. */
   attachments: DetailAttachment[];
+  /**
+   * Action history rows in document order (oldest first). Empty when
+   * the LegislationDetail page omits the history table — pending bills
+   * without committee activity yet, or jurisdictions whose Legistar
+   * skin hides the history block from public pages. Drives enacted_at
+   * + terminal_at derivation in the BillMeta assembler.
+   */
+  action_history: ActionHistoryRow[];
+};
+
+export type ActionHistoryRow = {
+  /** ISO date (YYYY-MM-DD) of the action. */
+  date: string;
+  /** Free-text action label as Legistar rendered it. */
+  action: string;
 };
 
 // LegislationDetail renders inside an asp.net master page. The label cells
@@ -252,6 +341,8 @@ export function parseLegistarDetailPage(html: string, baseUrl: string): DetailPa
     });
   });
 
+  const action_history = parseLegistarActionHistory($);
+
   return {
     short_title: shortTitle,
     long_title: longTitle,
@@ -259,7 +350,40 @@ export function parseLegistarDetailPage(html: string, baseUrl: string): DetailPa
     sponsor,
     introduced_at,
     attachments,
+    action_history,
   };
+}
+
+// Read the LegislationDetail action-history table. SF's Legistar markup
+// uses `<table id="ctl00_ContentPlaceHolder1_tblHistory">` (or a similar
+// `*History*` id) with columns [Date | Ver | Action By | Action |
+// Result | ...]. We extract (date, action) pairs and ignore the rest;
+// the assembler downstream needs the action verbiage to detect signing,
+// veto, withdrawal, failure. Unknown / pending bills with no committee
+// activity yet ship an empty history block — return [].
+function parseLegistarActionHistory($: cheerio.CheerioAPI): ActionHistoryRow[] {
+  const rows: ActionHistoryRow[] = [];
+  // Match any table whose id contains "History" so we tolerate skin
+  // variations like tblHistory / tblActions / gridHistory.
+  const table = $("table[id*='History' i]").first();
+  if (table.length === 0) return rows;
+  const headerCells = table
+    .find("thead th, tr:first-child th")
+    .toArray()
+    .map((th) => $(th).text().replace(/\s+/g, " ").trim().toLowerCase());
+  const dateIdx = headerCells.findIndex((h) => h === "date" || h === "action date");
+  const actionIdx = headerCells.indexOf("action");
+  if (dateIdx < 0 || actionIdx < 0) return rows;
+  table.find("tbody tr").each((_, tr) => {
+    const cells = $(tr).find("td").toArray();
+    if (cells.length <= Math.max(dateIdx, actionIdx)) return;
+    const dateRaw = $(cells[dateIdx]).text().trim();
+    const actionRaw = $(cells[actionIdx]).text().trim().replace(/\s+/g, " ");
+    const date = parseLegistarDate(dateRaw);
+    if (date === null || actionRaw.length === 0) return;
+    rows.push({ date, action: actionRaw });
+  });
+  return rows;
 }
 
 // Pick the latest Leg Ver{N} attachment from a LegislationDetail page.

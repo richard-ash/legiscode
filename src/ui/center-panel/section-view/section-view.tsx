@@ -407,6 +407,7 @@ export function SectionView({
           {pendingRailBills && pendingRailBills.length > 0 && onOpenBill ? (
             <SectionPendingRail
               bills={pendingRailBills}
+              sectionId={section.id}
               onOpenBill={onOpenBill}
               activeOverlayBillId={activeOverlayBillId}
               onToggleOverlay={setActiveOverlayBillId}

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { mapLegistarStatusToBillStatus } from "@/parser/bills/status";
+import {
+  type ActionHistoryRow,
+  auditStatusAgainstHistory,
+  mapLegistarStatusToBillStatus,
+} from "@/parser/bills/status";
 
 describe("mapLegistarStatusToBillStatus", () => {
   it("maps committee-pending free-text to committee", () => {
@@ -49,5 +53,88 @@ describe("mapLegistarStatusToBillStatus", () => {
     // fires before the generic "committee" catch.
     const r = mapLegistarStatusToBillStatus("Enrolled — moved out of committee");
     expect(r.status).toBe("enrolled");
+  });
+
+  it("maps signed-by-Mayor variants to enacted", () => {
+    expect(mapLegistarStatusToBillStatus("Signed by Mayor").status).toBe("enacted");
+    expect(mapLegistarStatusToBillStatus("Signed by the Mayor on 4/12/2026").status).toBe(
+      "enacted",
+    );
+    expect(mapLegistarStatusToBillStatus("Effective 6/1/2026").status).toBe("enacted");
+    expect(mapLegistarStatusToBillStatus("Enacted - Mayor's signature").status).toBe("enacted");
+  });
+
+  it("keeps awaiting-Mayor as enrolled (NOT enacted)", () => {
+    // "Awaiting Mayor's signature" carries the word "signature" but the
+    // bill is still in flight. The pre-passage qualifier must fire
+    // before the enacted matchers.
+    expect(mapLegistarStatusToBillStatus("Awaiting Mayor's signature").status).toBe("enrolled");
+    expect(mapLegistarStatusToBillStatus("Awaiting the Mayor").status).toBe("enrolled");
+  });
+
+  it("maps vetoed variants to vetoed", () => {
+    expect(mapLegistarStatusToBillStatus("Vetoed").status).toBe("vetoed");
+    expect(mapLegistarStatusToBillStatus("Veto sustained").status).toBe("vetoed");
+  });
+
+  it("maps withdrawn / rescinded to withdrawn", () => {
+    expect(mapLegistarStatusToBillStatus("Withdrawn by sponsor").status).toBe("withdrawn");
+    expect(mapLegistarStatusToBillStatus("Motion rescinded").status).toBe("withdrawn");
+  });
+
+  it("maps failed / defeated / tabled to failed", () => {
+    expect(mapLegistarStatusToBillStatus("Failed on Board vote").status).toBe("failed");
+    expect(mapLegistarStatusToBillStatus("Defeated").status).toBe("failed");
+    expect(mapLegistarStatusToBillStatus("Tabled indefinitely").status).toBe("failed");
+  });
+});
+
+describe("auditStatusAgainstHistory", () => {
+  const enactedHistory: ActionHistoryRow[] = [
+    { date: "2026-03-01", action: "Referred to Land Use Committee" },
+    { date: "2026-04-10", action: "Passed second reading" },
+    { date: "2026-04-15", action: "Signed by Mayor" },
+  ];
+
+  it("returns null when mapped status agrees with history terminal event", () => {
+    const result = auditStatusAgainstHistory({
+      legistarStatus: "Effective",
+      mappedStatus: "enacted",
+      history: enactedHistory,
+    });
+    expect(result).toBeNull();
+  });
+
+  it("returns null when history has no terminal events", () => {
+    const result = auditStatusAgainstHistory({
+      legistarStatus: "Pending — Land Use Committee",
+      mappedStatus: "committee",
+      history: [{ date: "2026-03-01", action: "Referred to Land Use Committee" }],
+    });
+    expect(result).toBeNull();
+  });
+
+  it("escalates when mapped status disagrees with a Mayor-signing history row", () => {
+    const result = auditStatusAgainstHistory({
+      legistarStatus: "Pending Committee Hearing",
+      mappedStatus: "committee",
+      history: enactedHistory,
+    });
+    expect(result).not.toBeNull();
+    expect(result?.mapped_status).toBe("committee");
+    expect(result?.implied_status).toBe("enacted");
+    expect(result?.evidence.action).toMatch(/Signed by Mayor/);
+  });
+
+  it("escalates when mapped status disagrees with a veto history row", () => {
+    const result = auditStatusAgainstHistory({
+      legistarStatus: "Enrolled",
+      mappedStatus: "enrolled",
+      history: [
+        { date: "2026-04-10", action: "Passed second reading" },
+        { date: "2026-04-20", action: "Vetoed by Mayor" },
+      ],
+    });
+    expect(result?.implied_status).toBe("vetoed");
   });
 });

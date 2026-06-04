@@ -48,7 +48,7 @@ export interface TabStripProps {
   /** Pending Bill rows keyed by file_no, used to title bill tabs.
    *  Bills live outside the corpus tree, so the tab strip can't lean
    *  on titleMap for them. Empty when no module has pending bills. */
-  pendingBillsById: ReadonlyMap<string, Bill>;
+  sessionBillsById: ReadonlyMap<string, Bill>;
   closeAt: (index: number) => void;
   /** Close every tab except the one at `keepIndex`. Bulk-close menu rows
    *  call into these wrappers so the hook-side recently-closed buffer
@@ -77,7 +77,7 @@ export function TabStrip({
   openItems,
   setOpenItems,
   titleMap,
-  pendingBillsById,
+  sessionBillsById,
   closeAt,
   closeOthers,
   closeToRight,
@@ -269,10 +269,10 @@ export function TabStrip({
   const overflowRows = useMemo<readonly OverflowMenuRow[]>(() => {
     return items.map((it, idx) => ({
       id: itemIdentity(it),
-      label: buildTitle(it, titleMap, pendingBillsById),
+      label: buildTitle(it, titleMap, sessionBillsById),
       isActive: idx === activeIndex,
     }));
-  }, [items, titleMap, pendingBillsById, activeIndex]);
+  }, [items, titleMap, sessionBillsById, activeIndex]);
 
   const onChevronClick = useCallback(() => {
     setOpenMenu((prev) => {
@@ -382,7 +382,7 @@ export function TabStrip({
           >
             {items.map((it, idx) => {
               const isActive = idx === activeIndex;
-              const fullTitle = buildTitle(it, titleMap, pendingBillsById);
+              const fullTitle = buildTitle(it, titleMap, sessionBillsById);
               return (
                 <Tab
                   key={tabSortableId(it)}
@@ -440,11 +440,11 @@ export function TabStrip({
 function buildTitle(
   item: OpenItem,
   titleMap: ReadonlyMap<string, CorpusTreeNode>,
-  pendingBillsById: ReadonlyMap<string, Bill>,
+  sessionBillsById: ReadonlyMap<string, Bill>,
 ): string {
   if (item.kind === "settings") return "Settings";
   if (item.kind === "bill") {
-    const bill = pendingBillsById.get(item.billId);
+    const bill = sessionBillsById.get(item.billId);
     if (!bill) return `Ord. ${item.billId}`;
     return `Ord. ${bill.file_no} ${MIDDLE_DOT} ${bill.short_title}`;
   }
@@ -457,7 +457,7 @@ function buildTitle(
 
 /** Build a lookup map from section refHash → CorpusTreeNode. Threaded
  *  into TabStrip so title lookup is O(1) per tab on render. Bills are
- *  resolved separately via `pendingBillsById` because they aren't
+ *  resolved separately via `sessionBillsById` because they aren't
  *  tree nodes. */
 export function buildTitleMap(tree: readonly CorpusTreeNode[]): Map<string, CorpusTreeNode> {
   const out = new Map<string, CorpusTreeNode>();
@@ -477,7 +477,7 @@ export function buildTitleMap(tree: readonly CorpusTreeNode[]): Map<string, Corp
 /** Build a lookup map from bill file_no → Bill. Dedupes multi-module
  *  rows (a multi-code bill emits one row per touched module, but the
  *  tab strip cares about the matter, not the per-module slice). */
-export function buildPendingBillsById(bills: ReadonlyArray<Bill>): Map<string, Bill> {
+export function buildSessionBillsById(bills: ReadonlyArray<Bill>): Map<string, Bill> {
   const out = new Map<string, Bill>();
   for (const bill of bills) {
     if (!out.has(bill.file_no)) out.set(bill.file_no, bill);

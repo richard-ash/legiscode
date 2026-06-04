@@ -26,7 +26,7 @@ import { usePendingBillsStatus } from "@/ui/chrome/use-pending-bills-status";
 import { CommandPalette } from "@/ui/command-palette/command-palette";
 import { useCommandPalette } from "@/ui/command-palette/use-command-palette";
 import { ThreePanel } from "@/ui/layout/three-panel";
-import { usePendingBills } from "@/ui/left-panel/activity/use-pending-bills";
+import { useSessionBills } from "@/ui/left-panel/activity/use-session-bills";
 import { FileTree } from "@/ui/left-panel/file-tree/file-tree";
 import { LeftPanel } from "@/ui/left-panel/left-panel";
 import { getKeySpec, matchEvent } from "@/ui/shortcuts/registry";
@@ -94,7 +94,7 @@ export function App() {
         setCorpus(r.value);
 
         const persisted = readOpenItems();
-        const knownBills = new Set(r.value.pendingBills.bills.map((b) => b.file_no));
+        const knownBills = new Set(r.value.sessionBills.bills.map((b) => b.file_no));
         let state = persisted
           ? fromPersisted(persisted, (billId) => knownBills.has(billId))
           : emptyOpenItems();
@@ -200,7 +200,7 @@ export function App() {
 
   const {
     titleMap,
-    pendingBillsById,
+    sessionBillsById,
     installedModules,
     lookupCodeLabel,
     lookupSectionTitle,
@@ -220,7 +220,7 @@ export function App() {
       });
   }, []);
 
-  const pendingBillsView = usePendingBills(corpus);
+  const sessionBillsView = useSessionBills(corpus);
 
   // useNavigation owns the active-tab state mutators + the ⌘⌥←/→
   // keyboard listener. navigate(item, intent) is the only entry
@@ -392,7 +392,7 @@ export function App() {
             openItems={openItems}
             setOpenItems={setOpenItems}
             titleMap={titleMap}
-            pendingBillsById={pendingBillsById}
+            sessionBillsById={sessionBillsById}
             closeAt={closeTabAt}
             closeOthers={closeOthersAt}
             closeToRight={closeToRightAt}
@@ -418,11 +418,11 @@ export function App() {
               getCitationPreview={getCitationPreview}
               scrollContainerRef={setScrollEl}
               onScrollY={onScrollY}
-              pendingBills={corpus?.pendingBills.bills}
+              sessionBills={corpus?.sessionBills.bills}
               lookupCodeLabel={lookupCodeLabel}
               lookupSectionTitle={lookupSectionTitle}
               onOpenLegistar={onOpenLegistar}
-              pendingRailBills={pendingRailBillsForSection(pendingBillsView, section)}
+              pendingRailBills={pendingRailBillsForSection(sessionBillsView, section)}
               onOpenBill={onOpenBill}
             />
           ) : null}
@@ -518,9 +518,21 @@ function hasRefInTree(tree: readonly CorpusTreeNode[], ref: CorpusRef): boolean 
  * module. Without this, a bill affecting "1.0" in sf-admin would
  * surface on a section "1.0" in sf-police — wrong, because those are
  * different legal targets.
+ *
+ * Rail-eligibility (status filter) is decided at the hook level
+ * `useSessionBills.bySection` — currently PENDING_STATES plus enacted.
+ * Vetoed, withdrawn, and failed bills never enter the rail because
+ * they won't affect the section's text. Enacted bills stay on the
+ * rail forever until they age out by other means — the
+ * AmLegal-absorption signal that would drop them once the canonical
+ * code reflects the change is deferred (TODOS.md, T4 originally).
+ * Trigger to revisit: signed-bill clutter on a high-traffic section
+ * (Police Code §96, Planning Code 309, etc.) OR users complaining
+ * about reading stale section text without realizing a signed
+ * amendment exists.
  */
 function pendingRailBillsForSection(
-  view: ReturnType<typeof usePendingBills>,
+  view: ReturnType<typeof useSessionBills>,
   section: CorpusSectionView | null,
 ): ReadonlyArray<Bill> | undefined {
   if (!section) return undefined;

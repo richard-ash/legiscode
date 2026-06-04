@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readJurisdictionManifest } from "@/types/validate";
 import {
   buildPdfCachePath,
-  fetchPendingBills,
+  fetchSessionBills,
   type HttpClient,
   makeHttpClient,
   parseArgs,
@@ -142,7 +142,7 @@ describe("makeHttpClient retry behavior", () => {
   });
 });
 
-describe("fetchPendingBills end-to-end (hermetic, stub HTTP)", () => {
+describe("fetchSessionBills end-to-end (hermetic, stub HTTP)", () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -176,7 +176,7 @@ describe("fetchPendingBills end-to-end (hermetic, stub HTTP)", () => {
       },
     );
 
-    const index = await fetchPendingBills({
+    const index = await fetchSessionBills({
       searchUrl: SEARCH_URL,
       manifest,
       outputDir: tmpDir,
@@ -256,7 +256,7 @@ describe("fetchPendingBills end-to-end (hermetic, stub HTTP)", () => {
       },
     );
 
-    const index = await fetchPendingBills({
+    const index = await fetchSessionBills({
       searchUrl: SEARCH_URL,
       manifest,
       outputDir: tmpDir,
@@ -285,7 +285,7 @@ describe("fetchPendingBills end-to-end (hermetic, stub HTTP)", () => {
       },
     );
 
-    const index = await fetchPendingBills({
+    const index = await fetchSessionBills({
       searchUrl: SEARCH_URL,
       manifest,
       outputDir: tmpDir,
@@ -300,6 +300,233 @@ describe("fetchPendingBills end-to-end (hermetic, stub HTTP)", () => {
     // and 260541 never happen because --max-matters caps the fan-out.
     expect(http.textCalls).toHaveLength(3);
     expect(http.textCalls.slice(0, 2).map((c) => c.method)).toEqual(["GET", "POST"]);
+  });
+
+  it("walks every page when the Telerik grid advertises pagination", async () => {
+    // D2 + project_legal_corpus_zero_skip: the session scrape must
+    // exhaust pagination, not stop at page 1. Stubs the GET (form
+    // page) + first POST (search submit → page 1) + second POST
+    // (Page$2 selector → page 2). Page 2's pager has no next-page
+    // link, so the orchestrator terminates after accumulating rows
+    // from both pages.
+    const manifest = await readJurisdictionManifest(MANIFEST_PATH);
+    const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+
+    // Sequence-aware stub: returns the next text response per call;
+    // earlier tests use URL → text but pagination needs the same URL
+    // to yield different responses based on call order. The actual
+    // detail-fetch hops still resolve by URL since they hit unique
+    // LegislationDetail URLs per matter.
+    const formHtml = await loadFixture("search.html");
+    const page1Html = await loadFixture("search-page-1.html");
+    const page2Html = await loadFixture("search-page-2.html");
+
+    let postCount = 0;
+    class PagingHttp implements HttpClient {
+      readonly textCalls: TextCall[] = [];
+      async fetchText(url: string, init?: RequestInit): Promise<string> {
+        const method = (init?.method ?? "GET") as "GET" | "POST";
+        const body = typeof init?.body === "string" ? init.body : null;
+        this.textCalls.push({ url, method, body });
+        if (url.includes("LegislationDetail.aspx")) {
+          const map: Record<string, string> = {
+            "https://sfgov.legistar.com/LegislationDetail.aspx?ID=6789012&GUID=AAAAAAAA-BBBB-CCCC-DDDD-111111111111":
+              await loadFixture("detail-260217.html"),
+            "https://sfgov.legistar.com/LegislationDetail.aspx?ID=6789013&GUID=AAAAAAAA-BBBB-CCCC-DDDD-222222222222":
+              await loadFixture("detail-260296.html"),
+            "https://sfgov.legistar.com/LegislationDetail.aspx?ID=6789014&GUID=AAAAAAAA-BBBB-CCCC-DDDD-333333333333":
+              await loadFixture("detail-260541.html"),
+          };
+          const hit = map[url];
+          if (hit === undefined) throw new Error(`no stub for detail url: ${url}`);
+          return hit;
+        }
+        if (method === "GET") return formHtml;
+        // POST: first call is search submit, second is Page$2.
+        postCount++;
+        if (postCount === 1) return page1Html;
+        if (postCount === 2) return page2Html;
+        throw new Error(`unexpected POST #${postCount} to ${url}`);
+      }
+      async fetchBytes(_url: string): Promise<Uint8Array> {
+        return pdfBytes;
+      }
+    }
+
+    const http = new PagingHttp();
+    const index = await fetchSessionBills({
+      searchUrl: SEARCH_URL,
+      manifest,
+      outputDir: tmpDir,
+      maxMatters: null,
+      deps: { http, now: () => new Date("2026-05-30T10:00:00-07:00") },
+    });
+
+    // All 3 ordinances surface (2 from page 1 + 1 from page 2).
+    expect(index.bills.map((b) => b.file_no)).toEqual(["260217", "260296", "260541"]);
+
+    // Page 2's POST carries the Page$2 event argument so the grid
+    // advances rather than re-submitting the search.
+    const post2 = http.textCalls.find(
+      (c) => c.method === "POST" && c.body !== null && c.body.includes("__EVENTARGUMENT=Page%242"),
+    );
+    expect(post2).toBeDefined();
+    // And it carries page-1's mutated __VIEWSTATE, not the form-page's.
+    expect(post2?.body).toContain("__VIEWSTATE=FIXTURE-VIEWSTATE-PAGE-1");
+  });
+
+  it("keeps a pre-session bill when its legistar_status is still pending (D3 carryover)", async () => {
+    // D3: bills introduced before the session window but still in
+    // PENDING_STATES carry over from the prior session. Without this,
+    // in-flight bills would vanish at Jan-2027 turnover with no
+    // semantic explanation.
+    const manifest = await readJurisdictionManifest(MANIFEST_PATH);
+    const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+
+    // Synthesize a search.html that names one bill, then rewrite its
+    // detail page so introduced_at=2024-06-01 (pre-session) but
+    // legistar_status still maps to a PENDING state (committee).
+    const carryoverDetailHtml = (await loadFixture("detail-260541.html")).replace(
+      /lblIntroduced2"[^>]*>([^<]+)<\/span>/,
+      'lblIntroduced2">6/1/2024</span>',
+    );
+
+    const http = new StubHttp(
+      {
+        [SEARCH_URL]: `
+          <form action="./Legislation.aspx">
+            <input type="hidden" name="__VIEWSTATE" value="V" />
+            <table class="rgMasterTable">
+              <thead><tr><th>File #</th><th>Type</th><th>Status</th><th>Title</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><a href="LegislationDetail.aspx?ID=6789014&GUID=AAAAAAAA-BBBB-CCCC-DDDD-333333333333">260541</a></td>
+                  <td>Ordinance</td>
+                  <td>Pending - Public Works Committee</td>
+                  <td>Public works waiver authorization</td>
+                </tr>
+              </tbody>
+            </table>
+          </form>`,
+        "https://sfgov.legistar.com/LegislationDetail.aspx?ID=6789014&GUID=AAAAAAAA-BBBB-CCCC-DDDD-333333333333":
+          carryoverDetailHtml,
+      },
+      {
+        "https://sfgov.legistar.com/View.ashx?M=F&ID=9003001&GUID=AAAAAAAA-BBBB-CCCC-DDDD-C11C11C11C11":
+          pdfBytes,
+      },
+    );
+
+    const index = await fetchSessionBills({
+      searchUrl: SEARCH_URL,
+      manifest,
+      outputDir: tmpDir,
+      maxMatters: null,
+      deps: { http, now: () => new Date("2026-05-30T10:00:00-07:00") },
+    });
+
+    // The bill is pre-session by introduced_at but pending by status
+    // → survives the carryover predicate.
+    expect(index.bills.map((b) => b.file_no)).toEqual(["260541"]);
+  });
+
+  it("derives enacted_at + terminal_at from action history when present", async () => {
+    const manifest = await readJurisdictionManifest(MANIFEST_PATH);
+    const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+
+    const http = new StubHttp(
+      {
+        [SEARCH_URL]: `
+          <form action="./Legislation.aspx">
+            <input type="hidden" name="__VIEWSTATE" value="V" />
+            <table class="rgMasterTable">
+              <thead><tr><th>File #</th><th>Type</th><th>Status</th><th>Title</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><a href="LegislationDetail.aspx?ID=6789020&GUID=AAAAAAAA-BBBB-CCCC-DDDD-777777777777">260700</a></td>
+                  <td>Ordinance</td>
+                  <td>Signed by Mayor</td>
+                  <td>Affordable Housing Streamlining</td>
+                </tr>
+              </tbody>
+            </table>
+          </form>`,
+        "https://sfgov.legistar.com/LegislationDetail.aspx?ID=6789020&GUID=AAAAAAAA-BBBB-CCCC-DDDD-777777777777":
+          await loadFixture("detail-260700-enacted.html"),
+      },
+      {
+        "https://sfgov.legistar.com/View.ashx?M=F&ID=9007001&GUID=AAAAAAAA-BBBB-CCCC-DDDD-D11D11D11D11":
+          pdfBytes,
+      },
+    );
+
+    const index = await fetchSessionBills({
+      searchUrl: SEARCH_URL,
+      manifest,
+      outputDir: tmpDir,
+      maxMatters: null,
+      deps: { http, now: () => new Date("2026-05-30T10:00:00-07:00") },
+    });
+
+    expect(index.bills).toHaveLength(1);
+    const bill = index.bills[0];
+    // Latest "Effective" date is the terminal date; latest signing
+    // event is the enacted date.
+    expect(bill?.enacted_at).toBe("2026-05-03");
+    expect(bill?.terminal_at).toBe("2026-05-03");
+  });
+
+  it("drops bills introduced outside the session window AND no longer pending", async () => {
+    // D5 + D3 combined: a bill drops only when it's both pre-session
+    // AND no longer in a PENDING_STATE. A bill rewritten to a
+    // pre-session date with a TERMINAL legistar_status ("Vetoed") is
+    // a clean prior-session terminal record and gets dropped.
+    const manifest = await readJurisdictionManifest(MANIFEST_PATH);
+    const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+
+    // SF manifest session is 2025-01-01..2026-12-31. detail-260296
+    // ships introduced_at=null (passes); detail-260217 ships
+    // 2026-05-15 (passes); we craft a synthetic detail page with
+    // introduced_at=2024-06-01 AND legistar_status=Vetoed (terminal)
+    // so it drops despite the carryover clause.
+    const earlyTerminalHtml = (await loadFixture("detail-260541.html"))
+      .replace(/lblIntroduced2[^>]*>\s*<\/span>/, 'lblIntroduced2">6/1/2024</span>')
+      .replace(/lblIntroduced2"[^>]*>([^<]+)<\/span>/, 'lblIntroduced2">6/1/2024</span>')
+      .replace(/lblStatus2"[^>]*>([^<]+)<\/span>/, 'lblStatus2">Vetoed</span>');
+
+    const http = new StubHttp(
+      {
+        [SEARCH_URL]: await loadFixture("search.html"),
+        "https://sfgov.legistar.com/LegislationDetail.aspx?ID=6789012&GUID=AAAAAAAA-BBBB-CCCC-DDDD-111111111111":
+          await loadFixture("detail-260217.html"),
+        "https://sfgov.legistar.com/LegislationDetail.aspx?ID=6789013&GUID=AAAAAAAA-BBBB-CCCC-DDDD-222222222222":
+          await loadFixture("detail-260296.html"),
+        "https://sfgov.legistar.com/LegislationDetail.aspx?ID=6789014&GUID=AAAAAAAA-BBBB-CCCC-DDDD-333333333333":
+          earlyTerminalHtml,
+      },
+      {
+        "https://sfgov.legistar.com/View.ashx?M=F&ID=9001002&GUID=AAAAAAAA-BBBB-CCCC-DDDD-A22A22A22A22":
+          pdfBytes,
+        "https://sfgov.legistar.com/View.ashx?M=F&ID=9002001&GUID=AAAAAAAA-BBBB-CCCC-DDDD-B11B11B11B11":
+          pdfBytes,
+        "https://sfgov.legistar.com/View.ashx?M=F&ID=9003001&GUID=AAAAAAAA-BBBB-CCCC-DDDD-C11C11C11C11":
+          pdfBytes,
+      },
+    );
+
+    const index = await fetchSessionBills({
+      searchUrl: SEARCH_URL,
+      manifest,
+      outputDir: tmpDir,
+      maxMatters: null,
+      deps: { http, now: () => new Date("2026-05-30T10:00:00-07:00") },
+    });
+
+    const fileNos = index.bills.map((b) => b.file_no).sort();
+    // 260217 (2026-05-15, in window) — kept.
+    // 260296 (null) — passes the predicate (no ground truth).
+    // 260541 (2024-06-01 + Vetoed) — pre-session AND terminal → dropped.
+    expect(fileNos).toEqual(["260217", "260296"]);
   });
 
   it("submits the search form via POST to populate the rgMasterTable", async () => {
@@ -325,7 +552,7 @@ describe("fetchPendingBills end-to-end (hermetic, stub HTTP)", () => {
       },
     );
 
-    await fetchPendingBills({
+    await fetchSessionBills({
       searchUrl: SEARCH_URL,
       manifest,
       outputDir: tmpDir,

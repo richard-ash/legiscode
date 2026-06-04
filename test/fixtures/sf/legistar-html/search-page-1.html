@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+  <head><title>Legislation - SF Board of Supervisors (page 1)</title></head>
+  <body>
+    <!--
+      Synthetic page-1 fixture for the Telerik RadGrid pagination
+      walker. Mirrors the standard skin: rgMasterTable + rgPager block
+      with rgCurrentPage="1" and a Page$2 __doPostBack hook the parser
+      reads as "next-page available".
+
+      D12.8 (eng review): a live page-2 fixture must replace this when
+      the operator next runs corpus:build against live Legistar. The
+      pagination CODE is exercised hermetically here; the live capture
+      is a verification step, not a CI gate.
+    -->
+    <form name="aspnetForm" method="post" action="./Legislation.aspx">
+      <input type="hidden" name="__VIEWSTATE" value="FIXTURE-VIEWSTATE-PAGE-1" />
+      <input type="hidden" name="__VIEWSTATEGENERATOR" value="FEB39A26" />
+      <input type="hidden" name="__EVENTVALIDATION" value="FIXTURE-EVENTVALIDATION-PAGE-1" />
+      <input type="hidden" name="__EVENTTARGET" value="" />
+      <input type="hidden" name="__EVENTARGUMENT" value="" />
+      <table class="rgMasterTable" cellspacing="0" cellpadding="0">
+        <thead>
+          <tr>
+            <th>File #</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Title</th>
+            <th>In Control</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="rgRow">
+            <td>
+              <a href="LegislationDetail.aspx?ID=6789012&amp;GUID=AAAAAAAA-BBBB-CCCC-DDDD-111111111111">260217</a>
+            </td>
+            <td>Ordinance</td>
+            <td>Pending Committee Hearing</td>
+            <td>Multi-code update to Administrative, Building, Health, Police, Planning Codes</td>
+            <td>Rules Committee</td>
+          </tr>
+          <tr class="rgAltRow">
+            <td>
+              <a href="LegislationDetail.aspx?ID=6789013&amp;GUID=AAAAAAAA-BBBB-CCCC-DDDD-222222222222">260296</a>
+            </td>
+            <td>Ordinance</td>
+            <td>Pending - Land Use Committee</td>
+            <td>Administrative code chapter creation</td>
+            <td>Land Use &amp; Transportation Committee</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="rgPager">
+        <div class="rgWrap rgInfoPart">Page 1 of 2, items 1 to 2 of 3</div>
+        <div class="rgWrap rgNumPart">
+          <a class="rgCurrentPage"><span>1</span></a>
+          <a class="rgPageButton" href="javascript:__doPostBack('ctl00$ContentPlaceHolder1$gridMain','Page$2')"><span>2</span></a>
+        </div>
+        <div class="rgWrap rgArrPart2">
+          <a class="rgPageNext rgPageGoToButton" href="javascript:__doPostBack('ctl00$ContentPlaceHolder1$gridMain','Page$Next')"><span>Next</span></a>
+        </div>
+      </div>
+    </form>
+  </body>
+</html>

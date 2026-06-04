@@ -41,6 +41,21 @@ export const BillMetaSchema = z
     sponsor: z.string().min(1).nullable(),
     /** ISO date of introduction; null when LegislationDetail omits it. */
     introduced_at: z.iso.date().nullable(),
+    /**
+     * ISO date the Mayor signed the bill. Set only when the bill
+     * reached `enacted` status; null for in-flight or non-passage
+     * terminal bills (vetoed, withdrawn, failed). Parsed from the
+     * Legistar action-history table when present.
+     */
+    enacted_at: z.iso.date().nullable(),
+    /**
+     * ISO date the bill reached a terminal state (enacted, vetoed,
+     * withdrawn, failed). Always set when bill_status is terminal;
+     * null while the bill is in-flight (PENDING_STATES). Sort key for
+     * the Activity panel's enacted/terminal group:
+     * `coalesce(terminal_at, enacted_at, introduced_at)` desc.
+     */
+    terminal_at: z.iso.date().nullable(),
     /** Canonical LegislationDetail URL — drives "View on legistar" link. */
     legistar_url: z.url(),
 
@@ -73,7 +88,14 @@ export type BillMeta = z.infer<typeof BillMetaSchema>;
 // BillsIndex is the top-level shape of bills-index.json — a versioned
 // wrapper so the schema can evolve without re-scraping. Lane-2 (sync) refuses
 // to read an index whose schema version it doesn't recognize.
-export const BILLS_INDEX_SCHEMA_VERSION = 1 as const;
+//
+// v2: BillMeta will gain `enacted_at` + `terminal_at` action-history
+// timestamps (T3 of feat/session-bills) so the Activity panel can sort
+// the enacted/terminal group by Mayor-signing date desc. The version
+// bumps here in T1 alongside KNOWN_SCHEMA_VERSION so the corpus and
+// bills-index schemas advance together — a v1 BillsIndex would lack
+// the timestamps the v4 renderer needs.
+export const BILLS_INDEX_SCHEMA_VERSION = 2 as const;
 
 export const BillsIndexSchema = z
   .object({
@@ -88,13 +110,63 @@ export const BillsIndexSchema = z
 
 export type BillsIndex = z.infer<typeof BillsIndexSchema>;
 
-// BillStatus — the 5-key taxonomy from the Claude Design handoff
-// (bills-doc.jsx:3). The Legistar free-text status maps to this enum via
+// BillStatus — the session taxonomy that combines in-flight workflow
+// states (5 keys) with post-passage terminal states (4 keys) so a bill
+// has a non-`filed` home for every point in its lifecycle.
+//
+// In-flight (pre-passage, sorted by workflow order):
+//   filed      — introduced, no committee assignment yet
+//   committee  — pending in committee, hearing scheduled or being heard
+//   engrossed  — committee approved, finalized for floor consideration
+//   floor      — pending Board floor vote
+//   enrolled   — passed both votes, awaiting Mayor / publication
+//
+// Terminal (post-passage, no further movement):
+//   enacted    — signed by the Mayor (or published without veto)
+//   vetoed     — Mayor vetoed; Board may attempt override but the bill
+//                lives at this state until / unless an override flips it
+//   withdrawn  — sponsor pulled the bill
+//   failed     — Board vote failed
+//
+// The Legistar free-text status maps via
 // src/parser/bills/status.ts:mapLegistarStatusToBillStatus(). The
 // renderer's VersionStatusBadge keys its color off this enum.
-export const BillStatusSchema = z.enum(["filed", "committee", "engrossed", "floor", "enrolled"]);
+export const BillStatusSchema = z.enum([
+  "filed",
+  "committee",
+  "engrossed",
+  "floor",
+  "enrolled",
+  "enacted",
+  "vetoed",
+  "withdrawn",
+  "failed",
+]);
 
 export type BillStatus = z.infer<typeof BillStatusSchema>;
+
+// PENDING_STATES — the in-flight subset of BillStatus. Used by the
+// scraper's session-turnover carryover clause (a pending bill from a
+// prior session survives turnover until it terminates), the activity
+// panel's pending-group filter, and the section-pending rail. Single
+// source of truth so the three consumers can't drift.
+export const PENDING_STATES: ReadonlySet<BillStatus> = new Set<BillStatus>([
+  "filed",
+  "committee",
+  "engrossed",
+  "floor",
+  "enrolled",
+]);
+
+// TERMINAL_STATES — the post-passage subset. A bill in any terminal
+// state is in its final form; the Activity panel sorts these by
+// terminal_at (then enacted_at, then introduced_at) descending.
+export const TERMINAL_STATES: ReadonlySet<BillStatus> = new Set<BillStatus>([
+  "enacted",
+  "vetoed",
+  "withdrawn",
+  "failed",
+]);
 
 // OrdinanceBlock — the discriminated union of structured content nodes
 // inside an AMEND section's body. The body parser tokenises the slice

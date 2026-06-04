@@ -98,7 +98,7 @@ describe("TabContent — routing", () => {
         sectionError={null}
         parentsLabel=""
         navigate={vi.fn()}
-        pendingBills={[makeBill()]}
+        sessionBills={[makeBill()]}
       />,
     );
     expect(screen.getByRole("tabpanel").id).toBe("tabpanel-bill::260217");
@@ -116,7 +116,7 @@ describe("TabContent — routing", () => {
         sectionError={null}
         parentsLabel=""
         navigate={vi.fn()}
-        pendingBills={[]}
+        sessionBills={[]}
       />,
     );
     expect(screen.getByText(/no longer pending/i)).toBeInTheDocument();

@@ -39,8 +39,9 @@ ci: install typecheck lint format-check test ## Full local pipeline (mise — fa
 clean: ## Remove node_modules and build artifacts
 	@rm -rf node_modules dist coverage
 
-corpus-rebuild: ## Wipe build/modules and rebuild the SF corpus + pending bills (needs build/downloads/sf.html and a prior bills-fetch)
+corpus-rebuild: ## Rebuild the entire SF pipeline end-to-end: wipe build/modules, rebuild corpus, fetch live bills, parse into modules (needs build/downloads/sf.html and live Legistar access)
 	@mise run validate:full
+	@mise run bills:fetch
 	@mise run bills:sync
 
 bills-fetch: ## Scrape SF Legistar for pending bills into build/downloads/bills/ (non-hermetic, never runs in CI)

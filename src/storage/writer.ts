@@ -211,26 +211,29 @@ async function writeResolutionHistory(newDir: string, hist: ResolutionHistory): 
 }
 
 /**
- * Pending-bill writer. Persists a single Bill into
- * `<moduleDir>/pending-bills/<file_no>.json` using the same
+ * Session-bill writer. Persists a single Bill into
+ * `<moduleDir>/bills/<file_no>.json` using the same
  * write-to-temp + rename-on-flush pattern the main corpus path uses.
  *
- * Pending-bills are operator-driven (Lane 2 runs outside the build
+ * Session bills are operator-driven (Lane 2 runs outside the build
  * pipeline), so they sidestep the writeModule promotion dance and write
  * file-by-file. The atomicity boundary is the single file: a crashed
- * sync that wrote some but not all pending-bills leaves the previously-
+ * sync that wrote some but not all session bills leaves the previously-
  * promoted files intact, and the next sync re-derives the full set
  * from the bills-index.
  *
  * The file_no is used directly as the filename; BillSchema guarantees
  * it's non-empty, and Legistar file numbers are filesystem-safe
  * (digits + hyphens) by convention.
+ *
+ * Directory name is `bills/` (renamed from `pending-bills/` when the
+ * substrate widened from pending-only to session-scoped per design D8).
  */
-export async function writePendingBill(opts: {
+export async function writeSessionBill(opts: {
   moduleDir: string;
   bill: Bill;
 }): Promise<{ path: string }> {
-  const dir = join(opts.moduleDir, "pending-bills");
+  const dir = join(opts.moduleDir, "bills");
   await mkdir(dir, { recursive: true });
   const target = join(dir, `${opts.bill.file_no}.json`);
   const tmp = `${target}.tmp`;
@@ -241,20 +244,21 @@ export async function writePendingBill(opts: {
 }
 
 /**
- * Stale-purge for pending-bills. Lists every .json file under
- * `<moduleDir>/pending-bills/` and deletes any whose basename
+ * Stale-purge for session bills. Lists every .json file under
+ * `<moduleDir>/bills/` and deletes any whose basename
  * (file_no) is NOT in the keep set. Used by sync-bills after a fresh
- * fetch to drop matters that aged out of the bills-index (enacted,
- * withdrawn, filed, tabled).
+ * fetch to drop matters that aged out of the bills-index (now scoped
+ * by the legislative-session window, so old-session bills age out at
+ * session turnover).
  *
  * Returns the list of deleted file paths so the operator log can audit
  * what disappeared. Idempotent; missing directory returns an empty list.
  */
-export async function purgeStalePendingBills(opts: {
+export async function purgeStaleSessionBills(opts: {
   moduleDir: string;
   keepFileNos: ReadonlySet<string>;
 }): Promise<{ deleted: string[] }> {
-  const dir = join(opts.moduleDir, "pending-bills");
+  const dir = join(opts.moduleDir, "bills");
   let entries: string[];
   try {
     entries = await readdir(dir);

@@ -1,10 +1,17 @@
 #!/usr/bin/env node
-// Lane 1 — operator-driven HTTP fetcher for SF Legistar pending ordinances.
-// Walks the Legistar legislation-search listing, follows each Ordinance-type
-// matter to LegislationDetail, downloads the latest Leg Ver{N} attachment,
-// writes BillMeta rows into build/downloads/bills/bills-index.json, and
-// caches PDFs under build/downloads/bills/pdfs/ keyed by attachment ID +
-// GUID + content-hash prefix.
+// Lane 1 — operator-driven HTTP fetcher for SF Legistar session ordinances.
+// Walks the Legistar legislation-search listing one page at a time, follows
+// each Ordinance-type matter to LegislationDetail, downloads the latest
+// Leg Ver{N} attachment, writes BillMeta rows into
+// build/downloads/bills/bills-index.json, and caches PDFs under
+// build/downloads/bills/pdfs/ keyed by attachment ID + GUID +
+// content-hash prefix.
+//
+// Pulls every ordinance in the manifest's legislative_session window —
+// pending, in-flight, and enacted alike. The session-window post-filter
+// + Telerik RadGrid pagination together enforce "every bill the Board
+// touched this session, no silent truncation" per
+// project_legal_corpus_zero_skip.
 //
 // This script is intentionally non-hermetic — CI never runs it. The
 // hermetic surface is exercised by test/scripts/fetch-bills.test.ts
@@ -22,30 +29,37 @@ import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
-  type BillMeta,
-  BILLS_INDEX_SCHEMA_VERSION,
-  type BillsIndex,
-  type JurisdictionManifest,
-} from "@/types";
-import { readJurisdictionManifest } from "@/types/validate";
-import {
+  type ActionHistoryRow,
+  buildLegistarPaginationSubmission,
+  buildLegistarSearchSubmission,
   type DetailAttachment,
   type DetailPage,
-  type SearchPageRow,
-  buildLegistarSearchSubmission,
   extractLegistarSearchForm,
   parseLegistarDetailPage,
   parseLegistarSearchPage,
+  parseLegistarSearchPagination,
   pickLatestLegVer,
+  type SearchPageRow,
 } from "@/parser/bills/legistar-html";
 import { classifyBillTitle, type InstalledModule } from "@/parser/bills/scope-filter";
+import { auditStatusAgainstHistory, mapLegistarStatusToBillStatus } from "@/parser/bills/status";
+import {
+  BILLS_INDEX_SCHEMA_VERSION,
+  type BillMeta,
+  type BillStatus,
+  type BillsIndex,
+  type JurisdictionManifest,
+  PENDING_STATES,
+  TERMINAL_STATES,
+} from "@/types";
+import { readJurisdictionManifest } from "@/types/validate";
 
 const HELP_TEXT = `\
 Usage: tsx scripts/fetch-bills.ts --manifest <jurisdiction-manifest> [options]
 
 Required:
   --manifest <path>       Path to manifests/<jurisdiction>/jurisdiction.json.
-                          Must declare manifest.pending_bill_source.
+                          Must declare manifest.bill_source.
 
 Optional:
   --output <dir>          Output dir (default: build/downloads/bills/).
@@ -208,6 +222,54 @@ export async function fetchLegistarSearchResults(
   });
 }
 
+// Walk every page of the Legistar search grid and return the accumulated
+// SearchPageRow set. The first hop submits the search; each subsequent
+// hop targets the RadGrid's next-page __EVENTTARGET with the page's
+// mutated __VIEWSTATE so ASP.NET accepts the postback. Pagination ends
+// when parseLegistarSearchPagination reports `hasNext: false`.
+//
+// Hard guard: refuse to advance past PAGE_LIMIT pages. A session scrape
+// at the SF Board's current cadence sits around 500 ordinances; at
+// Legistar's default 100-rows-per-page that's 5 pages. We allow 50 as
+// a runaway guard for the case where the parser misreads pagination
+// state and ends up in a loop — the operator sees the limit hit before
+// the hammer drops on Legistar.
+const PAGE_LIMIT = 50;
+
+export async function fetchLegistarSearchAllPages(
+  searchUrl: string,
+  http: HttpClient,
+): Promise<SearchPageRow[]> {
+  const firstPageHtml = await fetchLegistarSearchResults(searchUrl, http);
+  const rows: SearchPageRow[] = parseLegistarSearchPage(firstPageHtml, searchUrl);
+  let currentHtml = firstPageHtml;
+  let pageCount = 1;
+  while (pageCount < PAGE_LIMIT) {
+    const pagination = parseLegistarSearchPagination(currentHtml);
+    if (!pagination.hasNext) return rows;
+    // Re-extract the form so the next POST carries this page's mutated
+    // __VIEWSTATE; Telerik signs each page's state separately and
+    // rejects cross-page reuse.
+    const form = extractLegistarSearchForm(currentHtml, searchUrl);
+    const body = buildLegistarPaginationSubmission(form, pagination);
+    currentHtml = await http.fetchText(form.actionUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: searchUrl,
+      },
+      body: body.toString(),
+    });
+    rows.push(...parseLegistarSearchPage(currentHtml, searchUrl));
+    pageCount++;
+  }
+  // Pagination didn't terminate within PAGE_LIMIT — surface as a hard
+  // error rather than silently truncate per project_legal_corpus_zero_skip.
+  throw new Error(
+    `Legistar pagination did not terminate within ${PAGE_LIMIT} pages — refusing to advance further`,
+  );
+}
+
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -244,7 +306,22 @@ interface FetchDeps {
 // (legistar-html.ts) does all the structural reading; this function adds
 // HTTP + cache + index assembly + scope-filter classification. Returns the
 // in-memory BillsIndex; caller persists it.
-export async function fetchPendingBills(args: {
+//
+// Session-window guard: Ordinances whose introduced_at falls outside the
+// declared legislative_session are dropped from the index. Rows with a
+// null introduced_at fall through unchanged — the post-filter cannot
+// place them and the BillMeta still surfaces (the operator audits the
+// no-date case). The session window is required on any manifest that
+// declares bill_source (enforced by JurisdictionManifestSchema), so the
+// guard always has a window to compare against here.
+//
+// Pagination: Legistar's RadGrid returns one page at a time. The
+// orchestrator walks every page sequentially, accumulating rows, until
+// the grid stops advertising a next page. Per D2 + the
+// project_legal_corpus_zero_skip gate, pagination must be 100% exhaustion
+// — a session scrape that stopped at page 1 (today's behavior) would
+// silently drop ~90% of the corpus once the substrate widens.
+export async function fetchSessionBills(args: {
   searchUrl: string;
   manifest: JurisdictionManifest;
   outputDir: string;
@@ -259,8 +336,8 @@ export async function fetchPendingBills(args: {
   }));
   const installedIds = installed.map((m) => m.id);
 
-  const searchHtml = await fetchLegistarSearchResults(args.searchUrl, http);
-  const searchRows = parseLegistarSearchPage(searchHtml, args.searchUrl);
+  const session = args.manifest.legislative_session;
+  const searchRows = await fetchLegistarSearchAllPages(args.searchUrl, http);
   const ordinanceRows = searchRows.filter((r) => /^ordinance$/i.test(r.type));
 
   await mkdir(join(args.outputDir, "pdfs"), { recursive: true });
@@ -277,7 +354,9 @@ export async function fetchPendingBills(args: {
       http,
       now: now(),
     });
-    if (meta !== null) bills.push(meta);
+    if (meta === null) continue;
+    if (session !== undefined && !belongsInSession(meta, session)) continue;
+    bills.push(meta);
   }
 
   return {
@@ -286,6 +365,26 @@ export async function fetchPendingBills(args: {
     fetched_at: now().toISOString(),
     bills,
   };
+}
+
+// Session predicate with D3 carryover: a bill belongs to the current
+// session if it was introduced inside the session window OR its
+// bill_status is still in PENDING_STATES (it carried over from a prior
+// session and hasn't terminated yet). The carryover clause defends
+// against the Jan-2027 boundary case where in-flight bills from the
+// 2025–2026 session would otherwise vanish on session turnover. Null
+// introduced_at falls through unchanged — operator audit, not silent
+// drop.
+function belongsInSession(
+  meta: BillMeta,
+  session: NonNullable<JurisdictionManifest["legislative_session"]>,
+): boolean {
+  if (meta.introduced_at === null) return true;
+  if (meta.introduced_at >= session.current.start && meta.introduced_at <= session.current.end) {
+    return true;
+  }
+  const billStatus = mapLegistarStatusToBillStatus(meta.legistar_status).status;
+  return PENDING_STATES.has(billStatus);
 }
 
 async function processMatter(args: {
@@ -404,6 +503,22 @@ function assembleMeta(args: {
   scrapedAt: Date;
 }): BillMeta {
   const scope = classifyBillTitle(args.detail.long_title, args.installed);
+  const { enacted_at, terminal_at } = deriveActionDates(args.detail.action_history);
+  // Audit pass: when the mapped status disagrees with the action
+  // history's terminal evidence, surface a louder warning per D7.4 +
+  // D12.7. The renderer would otherwise pin a "filed" pill on an
+  // enacted bill if Legistar's status text drifted.
+  const mappedStatus = mapLegistarStatusToBillStatus(args.detail.legistar_status).status;
+  const audit = auditStatusAgainstHistory({
+    legistarStatus: args.detail.legistar_status,
+    mappedStatus,
+    history: args.detail.action_history,
+  });
+  if (audit !== null) {
+    process.stderr.write(
+      `fetch-bills: status audit for ${args.row.file_no}: legistar="${audit.legistar_status}" mapped=${audit.mapped_status} but history says ${audit.implied_status} on ${audit.evidence.date} ("${audit.evidence.action}")\n`,
+    );
+  }
   return {
     file_no: args.row.file_no,
     matter_id: args.row.matter_id,
@@ -413,6 +528,8 @@ function assembleMeta(args: {
     legistar_status: args.detail.legistar_status,
     sponsor: args.detail.sponsor,
     introduced_at: args.detail.introduced_at,
+    enacted_at,
+    terminal_at,
     legistar_url: args.row.detail_url,
     title_class: scope.class,
     touched_code_stubs: scope.touched_code_stubs,
@@ -426,8 +543,43 @@ function assembleMeta(args: {
   };
 }
 
+// Derive enacted_at + terminal_at from the parsed action history.
+// enacted_at = latest signing/effective action's date (terminal +
+// passage). terminal_at = latest terminal action of any kind (signing,
+// veto, withdrawal, failure). For an enacted bill both are populated
+// and typically equal; for a vetoed/withdrawn/failed bill enacted_at
+// stays null and terminal_at carries the terminal date.
+function deriveActionDates(history: readonly ActionHistoryRow[]): {
+  enacted_at: string | null;
+  terminal_at: string | null;
+} {
+  let enacted: string | null = null;
+  let terminal: string | null = null;
+  for (const row of history) {
+    const status = classifyHistoryAction(row.action);
+    if (status === null) continue;
+    if (status === "enacted") {
+      if (enacted === null || row.date > enacted) enacted = row.date;
+    }
+    if (TERMINAL_STATES.has(status)) {
+      if (terminal === null || row.date > terminal) terminal = row.date;
+    }
+  }
+  return { enacted_at: enacted, terminal_at: terminal };
+}
+
+function classifyHistoryAction(action: string): BillStatus | null {
+  if (/\bvetoed?\b/iu.test(action)) return "vetoed";
+  if (/\bsigned\s+by\s+(?:the\s+)?mayor\b/iu.test(action)) return "enacted";
+  if (/\bmayor['’]?s?\s+signature\b/iu.test(action)) return "enacted";
+  if (/\beffective\b/iu.test(action)) return "enacted";
+  if (/\bwithdrawn\b/iu.test(action)) return "withdrawn";
+  if (/\bfailed\b/iu.test(action) || /\bdefeated\b/iu.test(action)) return "failed";
+  return null;
+}
+
 // CLI entry point. Reads the manifest, derives the search URL from
-// manifest.pending_bill_source.url, runs the fetcher, writes bills-index.json.
+// manifest.bill_source.url, runs the fetcher, writes bills-index.json.
 async function main(argv: string[]): Promise<number> {
   const parsed = parseArgs(argv);
   if ("help" in parsed) {
@@ -446,9 +598,9 @@ async function main(argv: string[]): Promise<number> {
     process.stderr.write(`manifest invalid: ${(err as Error).message}\n`);
     return 3;
   }
-  if (!manifest.pending_bill_source) {
+  if (!manifest.bill_source) {
     process.stderr.write(
-      `manifest ${args.manifest} does not declare pending_bill_source — nothing to fetch\n`,
+      `manifest ${args.manifest} does not declare bill_source — nothing to fetch\n`,
     );
     return 2;
   }
@@ -456,8 +608,8 @@ async function main(argv: string[]): Promise<number> {
   await mkdir(outputDir, { recursive: true });
   const http = makeHttpClient({ userAgent: args.userAgent });
   try {
-    const index = await fetchPendingBills({
-      searchUrl: manifest.pending_bill_source.url,
+    const index = await fetchSessionBills({
+      searchUrl: manifest.bill_source.url,
       manifest,
       outputDir,
       maxMatters: args.maxMatters,

@@ -31,6 +31,8 @@ function makeMeta(overrides: Partial<BillsIndex["bills"][0]>): BillsIndex["bills
     legistar_status: "Pending Committee Hearing",
     sponsor: "Sup. Walton (District 10)",
     introduced_at: "2026-05-15",
+    enacted_at: null,
+    terminal_at: null,
     legistar_url: "https://sfgov.legistar.com/LegislationDetail.aspx?ID=1&GUID=g",
     title_class: "A",
     touched_code_stubs: ["Administrative Code", "Health Code", "Planning Code"],
@@ -79,7 +81,7 @@ describe("syncBills integration: fetch → parse → write → purge", () => {
     await rm(outputDir, { recursive: true, force: true });
   });
 
-  it("writes one validated Bill per touched module under pending-bills/", {
+  it("writes one validated Bill per touched module under bills/", {
     timeout: 30_000,
   }, async () => {
     const manifest = await readJurisdictionManifest(MANIFEST_PATH);
@@ -98,16 +100,16 @@ describe("syncBills integration: fetch → parse → write → purge", () => {
       "sf-planning",
     ]);
     for (const dir of ["sf-administrative", "sf-health", "sf-planning"]) {
-      const files = await readdir(join(outputDir, dir, "pending-bills"));
+      const files = await readdir(join(outputDir, dir, "bills"));
       expect(files).toEqual(["260217.json"]);
-      const raw = await readFile(join(outputDir, dir, "pending-bills", "260217.json"), "utf8");
+      const raw = await readFile(join(outputDir, dir, "bills", "260217.json"), "utf8");
       const validated = BillSchema.parse(JSON.parse(raw));
       expect(validated.module_id).toBe(dir);
       expect(validated.file_no).toBe("260217");
     }
   });
 
-  it("purges stale pending-bill files no longer in the bills-index", {
+  it("purges stale session-bill files no longer in the bills-index", {
     timeout: 30_000,
   }, async () => {
     const manifest = await readJurisdictionManifest(MANIFEST_PATH);
@@ -132,7 +134,7 @@ describe("syncBills integration: fetch → parse → write → purge", () => {
     expect(result.purged["sf-health"]).toBe(1);
     expect(result.purged["sf-planning"]).toBe(1);
     for (const dir of ["sf-administrative", "sf-health", "sf-planning"]) {
-      const files = await readdir(join(outputDir, dir, "pending-bills"));
+      const files = await readdir(join(outputDir, dir, "bills"));
       expect(files).toEqual([]);
     }
   });
@@ -154,10 +156,10 @@ describe("syncBills integration: fetch → parse → write → purge", () => {
     });
     expect(Array.isArray(result.anchor_outcomes)).toBe(true);
     // Bills are still written even when anchoring didn't fire.
-    const adminFiles = await readdir(join(outputDir, "sf-administrative", "pending-bills"));
+    const adminFiles = await readdir(join(outputDir, "sf-administrative", "bills"));
     expect(adminFiles).toEqual(["260217.json"]);
     const billJson = await readFile(
-      join(outputDir, "sf-administrative", "pending-bills", "260217.json"),
+      join(outputDir, "sf-administrative", "bills", "260217.json"),
       "utf8",
     );
     const billRecord = BillSchema.parse(JSON.parse(billJson));
@@ -191,7 +193,7 @@ describe("syncBills integration: fetch → parse → write → purge", () => {
       "sf-health",
       "sf-planning",
     ]);
-    const adminFiles = await readdir(join(outputDir, "sf-administrative", "pending-bills"));
+    const adminFiles = await readdir(join(outputDir, "sf-administrative", "bills"));
     expect(adminFiles).toEqual(["260217.json"]);
   });
 });

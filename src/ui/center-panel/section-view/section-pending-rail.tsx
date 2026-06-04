@@ -12,21 +12,31 @@
 //      an explainer block below. No separate inline notice, no second
 //      peach-colored chrome saying the same thing.
 //
-// `overlayUnavailable` is set when the active overlay bill exists but
-// can't render an inline diff (parse_status !== "ok", or no spans
-// anchored to this section). The toggle still fires, but the row
-// surfaces a short reason instead of the explainer, and the section
-// body stays in resting state — better to say "we don't know" than
-// to render an unchanged body and claim it's the overlay.
+// The toggle is suppressed per-row when the bill can't render an
+// inline diff for THIS section (parse_status !== "ok" OR no
+// text_diff span anchors to section_id). Affordance promises align
+// with capability — a button labeled "Show changes" should only
+// appear when changes can actually be shown. The row still renders
+// the file_no + status + title so the reader can open the bill and
+// see why the diff isn't available (status pill + bill-view manual-
+// review banner explain the cause).
+//
+// `overlayUnavailable` covers the defensive case where an overlay
+// somehow activated on a row that the per-row gate would now hide
+// (e.g. corpus rebuild after the toggle was clicked). The active
+// row surfaces a short reason and the section body stays resting.
 
 import type { KeyboardEvent, MouseEvent } from "react";
-import type { Bill } from "@/types";
+import type { Bill, SectionId } from "@/types";
 import { STATUS_LABEL, STATUS_TONE } from "@/ui/bill-status";
 
 export interface SectionPendingRailProps {
   /** Pending Bill rows whose `affected_sections` include this section.
    *  Empty array suppresses the rail entirely. */
   bills: ReadonlyArray<Bill>;
+  /** The section currently in view. Used to decide per-row whether
+   *  the bill has a renderable diff for this section. */
+  sectionId: SectionId;
   /** Dispatches the bill open when a row's file-no button fires. */
   onOpenBill: (fileNo: string, mode: "primary" | "background") => void;
   /** When non-null, the matching bill row reads as the active overlay
@@ -41,8 +51,14 @@ export interface SectionPendingRailProps {
   overlayUnavailable?: boolean;
 }
 
+function billHasDiffForSection(bill: Bill, sectionId: SectionId): boolean {
+  if (bill.parse_status !== "ok") return false;
+  return bill.text_diff.some((span) => span.section_id === sectionId);
+}
+
 export function SectionPendingRail({
   bills,
+  sectionId,
   onOpenBill,
   activeOverlayBillId,
   onToggleOverlay,
@@ -73,6 +89,8 @@ export function SectionPendingRail({
       <ul className="lc-section-pending-rail-list">
         {bills.map((bill) => {
           const isActive = activeOverlayBillId === bill.file_no;
+          const hasDiff = billHasDiffForSection(bill, sectionId);
+          const showToggle = hasDiff || isActive;
           const showExplainer = isActive && !overlayUnavailable;
           const showUnavailable = isActive && overlayUnavailable === true;
           return (
@@ -101,19 +119,21 @@ export function SectionPendingRail({
                     VIEWING
                   </span>
                 ) : null}
-                <button
-                  type="button"
-                  className="lc-section-pending-rail-toggle"
-                  aria-pressed={isActive}
-                  aria-label={
-                    isActive
-                      ? `Clear overlay for Ord. ${bill.file_no}`
-                      : `View this section as if Ord. ${bill.file_no} had passed`
-                  }
-                  onClick={() => onToggleOverlay(isActive ? null : bill.file_no)}
-                >
-                  {isActive ? "Clear overlay" : "Show changes"}
-                </button>
+                {showToggle ? (
+                  <button
+                    type="button"
+                    className="lc-section-pending-rail-toggle"
+                    aria-pressed={isActive}
+                    aria-label={
+                      isActive
+                        ? `Clear overlay for Ord. ${bill.file_no}`
+                        : `View this section as if Ord. ${bill.file_no} had passed`
+                    }
+                    onClick={() => onToggleOverlay(isActive ? null : bill.file_no)}
+                  >
+                    {isActive ? "Clear overlay" : "Show changes"}
+                  </button>
+                ) : null}
               </div>
               {showExplainer ? (
                 <div className="lc-section-pending-rail-explainer" role="note">

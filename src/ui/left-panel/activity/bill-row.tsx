@@ -1,5 +1,5 @@
-// Single row in the activity panel. One row per pending bill (deduped
-// by file_no via usePendingBills). Click → open the bill tab; Enter /
+// Single row in the activity panel. One row per session bill (deduped
+// by file_no via useSessionBills). Click → open the bill tab; Enter /
 // Space on a focused row do the same. Cmd/Ctrl-click opens in
 // background (mirrors the file-tree contract).
 //
@@ -7,9 +7,13 @@
 // `tabIndex=0`; the rest are -1. The container drives focus moves on
 // ArrowUp/Down. Per Pass 6 a11y lock #3, this is a real <button> so
 // the implicit role + Enter/Space semantics carry without override.
+//
+// React.memo'd per D8.1: the parent re-renders on every keyboard nav
+// (focusedBillId changes) but most rows' props are identical between
+// renders. Memo prevents N row diff passes per arrow keystroke.
 
-import type { KeyboardEvent, MouseEvent } from "react";
-import type { Bill } from "@/types";
+import { type KeyboardEvent, type MouseEvent, memo } from "react";
+import type { Bill, BillMeta } from "@/types";
 import { STATUS_LABEL, STATUS_TONE } from "@/ui/bill-status";
 
 export interface BillRowProps {
@@ -26,7 +30,7 @@ export interface BillRowProps {
   onFocusRequest: (fileNo: string) => void;
 }
 
-export function BillRow({
+function BillRowImpl({
   bill,
   isActive,
   isFocused,
@@ -92,3 +96,65 @@ export function BillRow({
     </button>
   );
 }
+
+export const BillRow = memo(BillRowImpl);
+BillRow.displayName = "BillRow";
+
+// Class B (non-code) bill row — backed by BillMeta only (no parsed
+// body, no affected_sections, no module_id). Click opens Legistar in
+// the platform browser; there's no per-bill detail tab to render
+// because the renderer has no parsed text to show. Per the v1.0
+// deferral, full Class B parsing is a follow-up (TODOS.md).
+export interface ClassBBillRowProps {
+  meta: BillMeta;
+  isFocused: boolean;
+  onOpenLegistar?: (url: string) => void;
+  onFocusRequest: (fileNo: string) => void;
+}
+
+function ClassBBillRowImpl({
+  meta,
+  isFocused,
+  onOpenLegistar,
+  onFocusRequest,
+}: ClassBBillRowProps) {
+  const onClick = () => onOpenLegistar?.(meta.legistar_url);
+  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onOpenLegistar?.(meta.legistar_url);
+    }
+  };
+  return (
+    <button
+      type="button"
+      className="lc-bill-row is-class-b"
+      data-bill-id={meta.file_no}
+      tabIndex={isFocused ? 0 : -1}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
+      onFocus={() => onFocusRequest(meta.file_no)}
+      title="Non-code ordinance — opens on Legistar"
+    >
+      <span className="lc-bill-row-top">
+        <code className="lc-bill-row-fileno">{meta.file_no}</code>
+        <span className="lc-status-pill" data-s="overlay0">
+          Non-code
+        </span>
+      </span>
+      <span className="lc-bill-row-title">{meta.short_title}</span>
+      <span className="lc-bill-row-meta">
+        {meta.sponsor ? <span>{meta.sponsor}</span> : null}
+        {meta.sponsor && meta.introduced_at ? (
+          <span className="lc-bill-row-meta-sep" aria-hidden>
+            ·
+          </span>
+        ) : null}
+        {meta.introduced_at ? <span>{meta.introduced_at}</span> : null}
+      </span>
+    </button>
+  );
+}
+
+export const ClassBBillRow = memo(ClassBBillRowImpl);
+ClassBBillRow.displayName = "ClassBBillRow";

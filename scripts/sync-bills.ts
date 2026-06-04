@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Lane 2 — hermetic bill sync. Reads build/downloads/bills/bills-index.json,
 // loads each cached PDF, runs the parser, validates each emitted Bill
-// against BillSchema, writes per-module pending-bill files, and purges
-// any stale entries (matters that aged out of the index since the last
-// run).
+// against BillSchema, writes per-module session-bill files under
+// `<module>/bills/`, and purges any stale entries (matters that aged
+// out of the index since the last run, including ones that fell out of
+// the legislative-session window at session turnover).
 //
 // Hermetic by construction: no HTTP, only fs reads against the operator's
 // local cache + the committed corpus tree. CI runs this against
@@ -16,17 +17,18 @@
 // sections, dropping anything that doesn't to the unresolved log
 // rather than emitting affected_sections that point at nothing.
 
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { parseBill } from "@/parser/bills";
-import { anchorTextDiff } from "@/parser/bills/emit-diff";
 import type { AnchorOutcome } from "@/parser/bills/emit-diff";
-import { purgeStalePendingBills, writePendingBill } from "@/storage/writer";
+import { anchorTextDiff } from "@/parser/bills/emit-diff";
+import { purgeStaleSessionBills, writeSessionBill } from "@/storage/writer";
 import {
   type Bill,
   type BillMeta,
   BillSchema,
   type BillsIndex,
+  BILLS_INDEX_SCHEMA_VERSION,
   BillsIndexSchema,
   type JurisdictionManifest,
   type ModuleId,
@@ -39,13 +41,13 @@ const HELP_TEXT = `\
 Usage: tsx scripts/sync-bills.ts --manifest <path> --bills-index <path> [options]
 
 Required:
-  --manifest <path>       Jurisdiction manifest with pending_bill_source declared.
+  --manifest <path>       Jurisdiction manifest with bill_source declared.
   --bills-index <path>    bills-index.json produced by scripts/fetch-bills.ts.
 
 Optional:
   --output <dir>          Corpus root (default: build/modules/). Each module's
-                          pending-bills/ subdirectory gets written under
-                          <output>/<module-id>/pending-bills/.
+                          bills/ subdirectory gets written under
+                          <output>/<module-id>/bills/.
   --max-matters <N>       Cap the number of bills processed (test runs).
   --help                  Show this help.
 
@@ -108,9 +110,9 @@ export function parseArgs(argv: string[]): Args | { help: true } | { error: stri
 }
 
 export type SyncResult = {
-  /** Per-module count of pending-bill files written this run. */
+  /** Per-module count of session-bill files written this run. */
   written: Record<string, number>;
-  /** Per-module count of pending-bill files purged this run. */
+  /** Per-module count of session-bill files purged this run. */
   purged: Record<string, number>;
   /** Section IDs the parser couldn't resolve against the loaded module tree. */
   unresolved: Array<{ file_no: string; module_id: ModuleId; raw_section_id: string }>;
@@ -129,6 +131,16 @@ export type SyncResult = {
    * failure).
    */
   anchor_outcomes: AnchorOutcome[];
+  /**
+   * Per-matter timing telemetry, ms from PDF read → schema-validated
+   * Bill array. Surfaces outlier matters when the session corpus
+   * grows from ~30 (pending-only) to ~500 bills per session window
+   * per D12.9. Don't pre-optimize; let the data say which matter is
+   * worth investigating.
+   */
+  per_matter_ms: Array<{ file_no: string; ms: number }>;
+  /** Aggregate wall-clock for the sync loop, ms. */
+  total_ms: number;
 };
 
 /**
@@ -179,8 +191,11 @@ export async function syncBills(args: {
   const bodyWarnings: SyncResult["body_warnings"] = [];
   const anchorOutcomes: AnchorOutcome[] = [];
   const keepByModule = new Map<ModuleId, Set<string>>();
+  const perMatterMs: SyncResult["per_matter_ms"] = [];
+  const totalStart = Date.now();
 
   for (const meta of bills) {
+    const matterStart = Date.now();
     const pdfPath = resolvePath(meta);
     let bytes: Uint8Array;
     try {
@@ -217,15 +232,16 @@ export async function syncBills(args: {
       if (!installedIds.has(bill.module_id)) continue;
       const validated = BillSchema.parse(bill satisfies Bill);
       const moduleDir = join(args.outputDir, bill.module_id);
-      await writePendingBill({ moduleDir, bill: validated });
+      await writeSessionBill({ moduleDir, bill: validated });
       written[bill.module_id] = (written[bill.module_id] ?? 0) + 1;
       const keep = keepByModule.get(bill.module_id) ?? new Set<string>();
       keep.add(bill.file_no);
       keepByModule.set(bill.module_id, keep);
     }
+    perMatterMs.push({ file_no: meta.file_no, ms: Date.now() - matterStart });
   }
 
-  // Stale-purge: any pending-bill file whose file_no doesn't appear in
+  // Stale-purge: any session-bill file whose file_no doesn't appear in
   // this run's keep set gets deleted. Mirrors the writer's invariant
   // that the on-disk set is a function of the bills-index, not
   // accretive across runs.
@@ -233,9 +249,19 @@ export async function syncBills(args: {
   for (const mod of args.manifest.modules) {
     const keep = keepByModule.get(mod.id) ?? new Set<string>();
     const moduleDir = join(args.outputDir, mod.id);
-    const result = await purgeStalePendingBills({ moduleDir, keepFileNos: keep });
+    const result = await purgeStaleSessionBills({ moduleDir, keepFileNos: keep });
     if (result.deleted.length > 0) purged[mod.id] = result.deleted.length;
   }
+
+  // Copy the bills-index to the corpus root so the loader can surface
+  // Class B (non-code) ordinances in the Activity panel. Class B never
+  // produces a per-module Bill file (no touched_modules), so without
+  // this jurisdiction-level index the panel would silently drop them
+  // (D11 — the codex review caught this).
+  await writeFile(
+    join(args.outputDir, "bills-index.json"),
+    `${JSON.stringify(args.billsIndex, null, 2)}\n`,
+  );
 
   return {
     written,
@@ -243,6 +269,8 @@ export async function syncBills(args: {
     unresolved,
     body_warnings: bodyWarnings,
     anchor_outcomes: anchorOutcomes,
+    per_matter_ms: perMatterMs,
+    total_ms: Date.now() - totalStart,
   };
 }
 
@@ -332,7 +360,26 @@ async function main(argv: string[]): Promise<number> {
   let billsIndex: BillsIndex;
   try {
     const raw = await readFile(indexPath, "utf8");
-    billsIndex = BillsIndexSchema.parse(JSON.parse(raw));
+    const parsed = JSON.parse(raw);
+    // Schema-version preflight: the most common cause of "bills-index
+    // invalid" in practice is a cached file from before a schema bump,
+    // not a structurally broken file. Catch that case explicitly so
+    // the operator sees one actionable line instead of a 70-line Zod
+    // dump that buries the real cause.
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      typeof parsed.schema_version === "number" &&
+      parsed.schema_version !== BILLS_INDEX_SCHEMA_VERSION
+    ) {
+      process.stderr.write(
+        `bills-index schema mismatch: file is schema v${parsed.schema_version}, ` +
+          `parser expects v${BILLS_INDEX_SCHEMA_VERSION}. ` +
+          `Run \`make bills-fetch\` to refresh the cache.\n`,
+      );
+      return 3;
+    }
+    billsIndex = BillsIndexSchema.parse(parsed);
   } catch (err) {
     process.stderr.write(`bills-index invalid: ${(err as Error).message}\n`);
     return 3;
@@ -356,6 +403,19 @@ async function main(argv: string[]): Promise<number> {
     process.stdout.write(
       `sync-bills: wrote ${writtenTotal} files across ${Object.keys(result.written).length} modules; purged ${purgedTotal} stale; unresolved sections: ${result.unresolved.length}; body warnings: ${result.body_warnings.length}\n`,
     );
+    // D12.9: per-matter timing telemetry. Surfaces outlier matters
+    // worth investigating; never gating. Don't pre-optimize until
+    // a real number says we should.
+    if (result.per_matter_ms.length > 0) {
+      const totalSec = (result.total_ms / 1000).toFixed(1);
+      const avgMs = Math.round(result.total_ms / result.per_matter_ms.length);
+      const sorted = [...result.per_matter_ms].sort((a, b) => b.ms - a.ms);
+      const slowest = sorted.slice(0, 3);
+      const slowSummary = slowest.map((s) => `${s.file_no}=${s.ms}ms`).join(", ");
+      process.stdout.write(
+        `sync-bills: timing — ${totalSec}s total over ${result.per_matter_ms.length} matters (avg ${avgMs}ms); slowest 3: ${slowSummary}\n`,
+      );
+    }
     // Per-section anchoring outcomes — invisible from the file
     // tree, so surface a count breakdown for the operator. Empty
     // text_diff on a written bill is meaningful (a no_baseline gap
