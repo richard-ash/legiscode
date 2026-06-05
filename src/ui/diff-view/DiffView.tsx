@@ -22,7 +22,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Bill, ModuleId, RenderBodySegment, SectionId, TextDiffSpan } from "@/types";
 import { splitParagraphs } from "@/types";
-import { reconstructInline } from "@/ui/diff/apply-text-diff";
+import { overlayDiffOnBaseline } from "@/ui/diff/overlay";
 import { PerSectionBanner } from "./banner";
 
 /**
@@ -164,7 +164,7 @@ export function DiffView({
   }
 
   if (state.kind === "loaded") {
-    const paragraphs = splitParagraphs(reconstructInline(spans, state.baseline));
+    const paragraphs = splitParagraphs(overlayDiffOnBaseline(spans, state.baseline));
     if (paragraphs.length === 0) {
       return (
         <div className="lc-diff-view lc-diff-view--empty" data-testid="diff-view-empty">

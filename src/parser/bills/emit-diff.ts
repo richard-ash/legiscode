@@ -9,13 +9,14 @@
 //   • The `anchor` field on TextDiffSpan is required; an anchor of
 //     `(0, 0)` IS a real anchor (insertion at offset 0, length 0),
 //     not a null sentinel.
-//   • diff-against-baseline. The classifier gives us context / insert /
-//     delete / elision spans per source PDF run. We compute the bill's
-//     intended new text by concatenating context + insert spans, then
-//     run a word-level diff against the corpus baseline. Each hunk
-//     becomes a TextDiffSpan with offset/length into the original
-//     baseline. The bill's strike/underline marks inform `newText`;
-//     they don't drive the anchor scan directly.
+//   • The classifier IS the diff. classify-spans already labels every
+//     word as context / insert / delete / elision from font and
+//     decoration. This module's job is positioning, not change-
+//     detection: locate each context span in the baseline by
+//     substring search, then place the surrounding delete and insert
+//     spans relative to those anchors. See `anchor-context.ts` for
+//     the positioning primitive and `emit-inline-spans.ts` for the
+//     emission walk.
 //   • Per-section partition. The parser's `section_partitions` carry
 //     the chrome-text range each target section's body lives in;
 //     `run_offset_map` projects each classified span's source run
@@ -41,14 +42,15 @@
 //        │   chrome_range intersection. For each (bill, partition):
 //        │     • bucket classified_spans into this section's slice
 //        │     • short-circuit on ambiguous → classification_low_confidence
-//        │     • compute newText = ⨁(context + insert spans)
-//        │     • diffWords(baseline, newText) → hunks
-//        │     • emit TextDiffSpan[] mapped to baseline offsets
+//        │     • anchorContextSpansToBaseline → AnchorMap (context only)
+//        │     • when no context anchors → implicit wholesale rewrite
+//        │       (the bill replaced the section entirely; baseline +
+//        │       new body text emit as one delete + one insert)
+//        │     • emitInlineSpans → TextDiffSpan[] in baseline coords
 //        ▼
 //   Bill records mutated in place; section_outcomes carries the per-
 //   section breakdown; parse_status is derived from section_outcomes.
 
-import { diffWords } from "diff";
 import type {
   Bill,
   ModuleId,
@@ -59,7 +61,9 @@ import type {
   TextDiffSpan,
 } from "@/types";
 import { deriveParseStatus } from "@/types";
+import { anchorContextSpansToBaseline } from "./anchor-context";
 import type { ClassifiedSpan } from "./classify-spans";
+import { emitInlineSpans } from "./emit-inline-spans";
 import type { ParseBillResult, SectionPartitionEntry } from "./index";
 import type { RunRange } from "./run-offset-map";
 
@@ -252,7 +256,44 @@ export function anchorTextDiff(
         continue;
       }
 
-      const diffSpans = diffAgainstBaseline(sectionSpans, baseline, sid);
+      const anchors = anchorContextSpansToBaseline(sectionSpans, baseline);
+
+      // Implicit wholesale rewrite: fires only when the bill body has
+      // zero context anchors against the baseline — the lawyer either
+      // drew the section as purely-additive new content (all
+      // underlined, no struck baseline text to anchor against) or the
+      // bill text drifted so far from baseline that no substring
+      // search hits. Either way, the inline path would stack every
+      // insert at offset 0 and look broken; route to a full delete +
+      // new-body insert pair instead.
+      //
+      // Sections with even one anchored context span go through the
+      // inline path: the (b)-style redlines (where the bill marks
+      // specific baseline words for strike + adds new ones inline) are
+      // common and must render with the marks visible. The renderer's
+      // gap-fill from baseline keeps the rest of the section readable
+      // when most spans didn't anchor.
+      if (sectionSpans.length > 0 && anchors.size === 0) {
+        const rewrite = buildImplicitRewriteSpans(bill, partition.raw_section_id, sid, baseline);
+        if (rewrite !== null) {
+          for (const span of rewrite) inlineSpans.push(span);
+          inlineOutcomes.push({
+            section_id: sid,
+            status: "anchored",
+            detail: "implicit wholesale rewrite",
+          });
+          outcomes.push({
+            file_no: bill.file_no,
+            module_id: bill.module_id,
+            section_id: sid,
+            status: "anchored",
+            detail: "implicit wholesale rewrite",
+          });
+          continue;
+        }
+      }
+
+      const diffSpans = emitInlineSpans(sectionSpans, anchors, baseline, sid);
       for (const span of diffSpans) inlineSpans.push(span);
       inlineOutcomes.push({ section_id: sid, status: "anchored", detail: null });
       outcomes.push({
@@ -334,72 +375,37 @@ function dedupeOutcomes(outcomes: readonly SectionOutcome[]): SectionOutcome[] {
 }
 
 /**
- * Diff the bill's intended new text against the baseline.
- *
- * Strategy: the classifier already separated context (unchanged
- * baseline text the bill reprints), insert (underlined new text), and
- * delete (struck baseline text the bill drops). The bill's intended
- * new section text is the concatenation of context + insert spans in
- * source order. We word-diff that against the baseline; each hunk
- * maps directly to a TextDiffSpan.
- *
- * Why not walk tokens against baseline? Inline alignment requires the
- * bill body to track baseline token-for-token; PDF redline drawings
- * regularly break that assumption (run merges, decoration boundaries,
- * substantial rewrites). Diffing the *result* against the source is
- * robust to the drawing's shape: jsdiff figures out the edits, we
- * just translate them into our TextDiffSpan vocabulary.
- *
- * Elision: the "* * * *" sentinel marks "unchanged baseline omitted
- * from the bill body." We skip it when building newText so it doesn't
- * appear in the diff output. The renderer pre-overlays the baseline
- * elsewhere, so any baseline region the bill omits naturally surfaces
- * as a delete hunk in the diff. Future work could lift elision into a
- * dedicated wildcard hunk; for now, treating it as "not in newText"
- * is the conservative call.
+ * Build the delete + insert pair for an implicit wholesale rewrite —
+ * the section's bill spans never anchored as context, so the entire
+ * baseline is being replaced. Returns null when no amendment body
+ * carries this section's header (the section is referenced in the
+ * partition but has no replacement text in the bill).
  */
-function diffAgainstBaseline(
-  spans: readonly ClassifiedSpan[],
+function buildImplicitRewriteSpans(
+  bill: Bill,
+  rawSectionId: string,
+  resolvedSectionId: SectionId,
   baseline: string,
-  sectionId: SectionId,
-): TextDiffSpan[] {
-  const newText = spans
-    .filter((s) => s.kind === "context" || s.kind === "insert")
-    .map((s) => s.text)
-    .join("");
-
-  const hunks = diffWords(baseline, newText);
-  const out: TextDiffSpan[] = [];
-  let baselineOffset = 0;
-
-  for (const hunk of hunks) {
-    if (hunk.added) {
-      out.push({
-        op: "insert",
-        text: hunk.value,
-        section_id: sectionId,
-        anchor: { baseline_offset: baselineOffset, baseline_length: 0 },
-      });
-    } else if (hunk.removed) {
-      out.push({
+): TextDiffSpan[] | null {
+  for (const amendment of bill.body.amendments) {
+    const insertText = extractAddedSectionText(amendment.body, rawSectionId);
+    if (insertText.length === 0) continue;
+    return [
+      {
         op: "delete",
-        text: hunk.value,
-        section_id: sectionId,
-        anchor: { baseline_offset: baselineOffset, baseline_length: hunk.value.length },
-      });
-      baselineOffset += hunk.value.length;
-    } else {
-      out.push({
-        op: "context",
-        text: hunk.value,
-        section_id: sectionId,
-        anchor: { baseline_offset: baselineOffset, baseline_length: hunk.value.length },
-      });
-      baselineOffset += hunk.value.length;
-    }
+        text: baseline,
+        section_id: resolvedSectionId,
+        anchor: { baseline_offset: 0, baseline_length: baseline.length },
+      },
+      {
+        op: "insert",
+        text: insertText,
+        section_id: resolvedSectionId,
+        anchor: { baseline_offset: baseline.length, baseline_length: 0 },
+      },
+    ];
   }
-
-  return out;
+  return null;
 }
 
 // ── Wholesale-action classifier ───────────────────────────────────────
@@ -655,7 +661,9 @@ function ordinanceBlocksToText(blocks: readonly OrdinanceBlock[]): string {
         parts.push(b.text);
         break;
       case "subsection":
-        parts.push(`(${b.marker})`);
+        // body-parser stores the marker with its parens intact ("(a)"),
+        // so we use it verbatim — wrapping would produce "((a))".
+        parts.push(b.marker);
         parts.push(ordinanceBlocksToText(b.body));
         break;
     }

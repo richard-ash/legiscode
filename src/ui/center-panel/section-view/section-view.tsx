@@ -54,8 +54,8 @@ import {
   splitParagraphs,
   walkBody,
 } from "@/types";
-import { reconstructInline } from "@/ui/diff/apply-text-diff";
 import { billHasDiffForSection } from "@/ui/diff/bill-section-diff";
+import { overlayDiffOnBaseline } from "@/ui/diff/overlay";
 import type { OpenItem } from "@/workbench";
 import type { NavigationIntent } from "@/workbench/navigate";
 import { CitationLink } from "./citation-link";
@@ -357,7 +357,7 @@ export function SectionView({
     overlayBill !== null && !billHasDiffForSection(overlayBill, section.id);
   const overlayParagraphs: RenderBodySegment[][] =
     overlayBill !== null && !overlayUnavailable
-      ? splitParagraphs(reconstructInline(overlaySpansForSection, section.text))
+      ? splitParagraphs(overlayDiffOnBaseline(overlaySpansForSection, section.text))
       : [];
 
   return (

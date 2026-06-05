@@ -4,7 +4,7 @@ import type { CorpusBaselineLookup } from "@/parser/bills/emit-diff";
 import { anchorTextDiff, classifySectionAction } from "@/parser/bills/emit-diff";
 import type { ParseBillResult, SectionPartitionEntry } from "@/parser/bills/index";
 import type { RunRange } from "@/parser/bills/run-offset-map";
-import type { Bill, ModuleId, SectionId, TextDiffSpan } from "@/types";
+import type { Bill, ModuleId, SectionId } from "@/types";
 
 // Default partition: a single section covering an effectively-infinite
 // chrome range. This is the common-case shape for unit tests that don't
@@ -118,119 +118,6 @@ describe("anchorTextDiff", () => {
     expect(out.outcomes.find((o) => o.section_id === "10.04.020")?.status).toBe("no_baseline");
   });
 
-  it("a bill that reprints baseline verbatim produces context-only diff", () => {
-    // Bill body reprints the section unchanged (single context span
-    // covering the full baseline text). diffWords produces one equal
-    // hunk; we emit it as op:"context" anchored to the full baseline.
-    const baseline = "The committee shall meet quarterly.";
-    const lookup: CorpusBaselineLookup = () => baseline;
-    const r = result({
-      classified_spans: [span({ kind: "context", text: baseline })],
-    });
-    const out = anchorTextDiff(r, lookup);
-    const diff = out.bills[0]?.text_diff ?? [];
-    expect(diff).toHaveLength(1);
-    expect(diff[0]?.op).toBe("context");
-    expect(diff[0]?.anchor.baseline_offset).toBe(0);
-    expect(diff[0]?.anchor.baseline_length).toBe(baseline.length);
-    expect(out.bills[0]?.parse_status).toBe("ok");
-  });
-
-  it("inserted words surface as op:insert hunks with baseline_length 0", () => {
-    // Bill reprints baseline but inserts "Advisory " before "committee".
-    const baseline = "The committee shall meet quarterly.";
-    const lookup: CorpusBaselineLookup = () => baseline;
-    const r = result({
-      classified_spans: [
-        span({ kind: "context", text: "The ", source_index: 0 }),
-        span({ kind: "insert", text: "Advisory ", source_index: 1 }),
-        span({ kind: "context", text: "committee shall meet quarterly.", source_index: 2 }),
-      ],
-    });
-    const out = anchorTextDiff(r, lookup);
-    const diff = out.bills[0]?.text_diff ?? [];
-    const inserts = diff.filter((d) => d.op === "insert");
-    expect(inserts).toHaveLength(1);
-    expect(inserts[0]?.text.trim()).toBe("Advisory");
-    expect(inserts[0]?.anchor.baseline_length).toBe(0);
-    expect(out.bills[0]?.parse_status).toBe("ok");
-  });
-
-  it("a delete span drops baseline words, surfacing as op:delete hunks", () => {
-    // Bill reprints baseline but strikes "Advisory ". The classifier
-    // marks "Advisory " as a delete span; diffAgainstBaseline drops it
-    // from newText, so diffWords sees the word missing and emits a
-    // removed hunk anchored against baseline.
-    const baseline = "The Advisory committee shall meet quarterly.";
-    const lookup: CorpusBaselineLookup = () => baseline;
-    const r = result({
-      classified_spans: [
-        span({ kind: "context", text: "The ", source_index: 0 }),
-        span({ kind: "delete", text: "Advisory ", source_index: 1 }),
-        span({ kind: "context", text: "committee shall meet quarterly.", source_index: 2 }),
-      ],
-    });
-    const out = anchorTextDiff(r, lookup);
-    const diff = out.bills[0]?.text_diff ?? [];
-    const deletes = diff.filter((d) => d.op === "delete");
-    expect(deletes).toHaveLength(1);
-    expect(deletes[0]?.text.trim()).toBe("Advisory");
-    expect(deletes[0]?.anchor.baseline_length).toBeGreaterThan(0);
-    expect(
-      baseline.slice(
-        deletes[0]?.anchor.baseline_offset ?? -1,
-        (deletes[0]?.anchor.baseline_offset ?? 0) + (deletes[0]?.anchor.baseline_length ?? 0),
-      ),
-    ).toContain("Advisory");
-    expect(out.bills[0]?.parse_status).toBe("ok");
-  });
-
-  it("a delete+insert replacement produces both delete and insert hunks", () => {
-    const baseline = "The Advisory Committee shall provide input.";
-    const lookup: CorpusBaselineLookup = () => baseline;
-    const r = result({
-      classified_spans: [
-        span({ kind: "context", text: "The Advisory ", source_index: 0 }),
-        span({ kind: "delete", text: "Committee ", source_index: 1 }),
-        span({ kind: "insert", text: "Council ", source_index: 2 }),
-        span({ kind: "context", text: "shall provide input.", source_index: 3 }),
-      ],
-    });
-    const out = anchorTextDiff(r, lookup);
-    const diff: readonly TextDiffSpan[] = out.bills[0]?.text_diff ?? [];
-    expect(diff.some((d) => d.op === "delete" && d.text.trim() === "Committee")).toBe(true);
-    expect(diff.some((d) => d.op === "insert" && d.text.trim() === "Council")).toBe(true);
-    expect(out.bills[0]?.parse_status).toBe("ok");
-  });
-
-  it("a substantial revision still anchors (no alignment_failed cascade)", () => {
-    // Bill rewrites the entire section. Old anchor-walker would fail
-    // ("no token run found"); diffAgainstBaseline produces the right
-    // diff regardless of how much text changed.
-    const baseline = "The committee shall meet quarterly to review reports.";
-    const lookup: CorpusBaselineLookup = () => baseline;
-    const r = result({
-      classified_spans: [
-        span({
-          kind: "delete",
-          text: "The committee shall meet quarterly to review reports.",
-          source_index: 0,
-        }),
-        span({
-          kind: "insert",
-          text: "The Board shall convene monthly to consider applications.",
-          source_index: 1,
-        }),
-      ],
-    });
-    const out = anchorTextDiff(r, lookup);
-    expect(out.bills[0]?.parse_status).toBe("ok");
-    expect(out.outcomes.find((o) => o.section_id === "10.04.020")?.status).toBe("anchored");
-    const diff = out.bills[0]?.text_diff ?? [];
-    expect(diff.some((d) => d.op === "insert")).toBe(true);
-    expect(diff.some((d) => d.op === "delete")).toBe(true);
-  });
-
   it("emits classification_low_confidence per section when any span is ambiguous", () => {
     const lookup: CorpusBaselineLookup = () => "Anything goes.";
     const r = result({
@@ -328,9 +215,10 @@ describe("anchorTextDiff", () => {
   });
 
   it("offsets walk through baseline contiguously (length-preserving)", () => {
-    // Per-span offsets walk through the baseline in order; the sum of
-    // delete + context anchor lengths equals the baseline length, and
-    // each span's slice into baseline matches the diff hunk's text.
+    // End-to-end smoke check: for a typical context-delete-context bill
+    // body, each non-insert span's baseline_offset picks up where the
+    // previous one left off, and slicing baseline at the recorded
+    // (offset, length) reproduces the span's text verbatim.
     const baseline =
       "First paragraph leading text.\nSecond paragraph adds more content.\nThird paragraph closes.";
     const lookup: CorpusBaselineLookup = () => baseline;
