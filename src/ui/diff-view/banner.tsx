@@ -71,6 +71,12 @@ export function bannerCopyFor(
         title: `Codified by AmLegal`,
         detail: `Ord. ${fileNo}'s changes are already reflected in the corpus tree.`,
       };
+    case "no_changes":
+      return {
+        title: `No changes in § ${sectionId}`,
+        detail:
+          detailOverride ?? `Ord. ${fileNo} references this section but does not change its text.`,
+      };
     case "anchored":
       // Anchored outcomes render the diff itself, not this banner;
       // reaching this branch means a caller asked for banner copy on

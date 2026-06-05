@@ -279,6 +279,18 @@ export type OrdinanceBody = z.infer<typeof OrdinanceBodySchema>;
 // causes surface):
 //   anchored                      — diff_chunks for this section is
 //                                   populated and renderable.
+//   no_changes                    — bill body cites this section
+//                                   (structural pass picked it up as
+//                                   a target) but the reconstructed
+//                                   newText matched the baseline
+//                                   exactly. Common when a bill's
+//                                   amendment block lists a parent
+//                                   section header but only modifies
+//                                   sub-sections (e.g. cites §413 in
+//                                   the header but only changes
+//                                   §413.6). Surfaces in the renderer
+//                                   as "this bill references the
+//                                   section but doesn't change it."
 //   classification_low_confidence — typography classifier emitted ≥1
 //                                   ambiguous decoration span for this
 //                                   section, OR the bill body asserts
@@ -307,6 +319,7 @@ export type OrdinanceBody = z.infer<typeof OrdinanceBodySchema>;
 //                                   inline diff.
 export const SectionOutcomeStatusSchema = z.enum([
   "anchored",
+  "no_changes",
   "classification_low_confidence",
   "no_baseline",
   "structural",
@@ -384,8 +397,15 @@ export function deriveParseStatus(
   let renderable = 0;
   let absorbed = 0;
   for (const o of outcomes) {
-    if (o.status === "anchored" || o.status === "added_section") renderable++;
-    else if (o.status === "absorbed_external") absorbed++;
+    // no_changes counts as renderable: the parser positively
+    // determined this section is unchanged. The renderer surfaces
+    // it as a "no changes here" banner; it's a successful outcome,
+    // not a failure.
+    if (o.status === "anchored" || o.status === "added_section" || o.status === "no_changes") {
+      renderable++;
+    } else if (o.status === "absorbed_external") {
+      absorbed++;
+    }
   }
   if (absorbed === outcomes.length) return "absorbed_external";
   if (renderable === outcomes.length) return "ok";

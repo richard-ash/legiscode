@@ -151,6 +151,7 @@ export type GateVerdict = {
 
 const ACCEPTABLE_STATUSES = new Set<string>([
   "anchored",
+  "no_changes",
   "added_section",
   "structural",
   "absorbed_external",

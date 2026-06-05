@@ -239,6 +239,28 @@ export function anchorTextDiff(
       // The v2 inline path: reconstruct → diff → emit chunks.
       const newText = reconstructNewText(parseResult.runs, sectionSpans, baseline);
       const chunks = diffWords(baseline, newText);
+      const hasChange = chunks.some((c) => c.added === true || c.removed === true);
+      if (!hasChange) {
+        // The bill's amendment block cites this section header but
+        // reconstruction matched baseline exactly — common when a
+        // parent section's header appears in the body (e.g. "Sec.
+        // 413") while only sub-sections (§413.6) carry edits. Mark
+        // as no_changes so the renderer can banner this without
+        // claiming a non-existent diff.
+        inlineOutcomes.push({
+          section_id: sid,
+          status: "no_changes",
+          detail: "bill references this section but does not change it",
+        });
+        outcomes.push({
+          file_no: bill.file_no,
+          module_id: bill.module_id,
+          section_id: sid,
+          status: "no_changes",
+          detail: "bill references this section but does not change it",
+        });
+        continue;
+      }
       for (const c of chunks) {
         const op = c.added === true ? "insert" : c.removed === true ? "delete" : "equal";
         inlineChunks.push({ op, text: c.value, section_id: sid });

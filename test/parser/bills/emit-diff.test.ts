@@ -187,8 +187,13 @@ describe("anchorTextDiff", () => {
     });
     const out = anchorTextDiff(r, lookup);
     const statusBySection = new Map(out.outcomes.map((o) => [o.section_id, o.status]));
-    expect(statusBySection.get("10.04.020")).toBe("anchored");
-    expect(statusBySection.get("10.04.030")).toBe("anchored");
+    // Each section's only span is a context span whose text matches
+    // baseline exactly — reconstruction produces a newText identical
+    // to baseline, so diffWords emits no insert/delete chunks and
+    // the outcome downgrades to no_changes. Both sections still
+    // count as renderable, so parse_status derives to "ok".
+    expect(statusBySection.get("10.04.020")).toBe("no_changes");
+    expect(statusBySection.get("10.04.030")).toBe("no_changes");
     expect(out.bills[0]?.parse_status).toBe("ok");
   });
 
@@ -247,7 +252,10 @@ describe("anchorTextDiff — partition behavior", () => {
     const statusBySection = new Map(
       out.bills[0]?.section_outcomes.map((o) => [o.section_id, o.status]),
     );
-    expect(statusBySection.get("A" as SectionId)).toBe("anchored");
+    // Section A's only span matches baseline exactly → no_changes
+    // (still renderable). Section B has no baseline → no_baseline.
+    // Mix yields partial.
+    expect(statusBySection.get("A" as SectionId)).toBe("no_changes");
     expect(statusBySection.get("B" as SectionId)).toBe("no_baseline");
   });
 
