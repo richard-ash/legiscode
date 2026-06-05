@@ -111,12 +111,11 @@ export function parseArgs(argv: string[]): Args | { help: true } | { error: stri
 }
 
 // computeOkRateGate — the corpus-wide 100% ok-rate gate per
-// project_legal_corpus_zero_skip. Scope: bills with non-empty
-// section_outcomes (body_only and absorbed_external bills don't
-// participate). Every outcome must be an ACCEPTED status. Any other
-// outcome breaks the gate.
+// project_legal_corpus_zero_skip. Scope: every outcome surfaced this
+// run. Every outcome must be an ACCEPTED status; any other outcome
+// breaks the gate.
 //
-// What counts as "accepted" (post-v2 architecture):
+// What counts as "accepted":
 //
 //   anchored / added_section / structural / absorbed_external
 //     — the four renderable / intentional categories; the parser
@@ -125,14 +124,13 @@ export function parseArgs(argv: string[]): Args | { help: true } | { error: stri
 //   classification_low_confidence
 //     — the typography classifier flagged decoration ambiguity in
 //       the source PDF. NOT a parser regression; it's a data-quality
-//       signal surfaced for operator audit (per the v2 D14 surface
-//       decision). The bill's PDF still renders below the banner.
+//       signal surfaced for operator audit. The bill's PDF still
+//       renders below the banner.
 //
 //   unresolved
 //     — the bill cites a section that isn't in the loaded corpus
 //       index. Caused by corpus staleness (bills introduced after
-//       the corpus snapshot), tracked under the corpus-refresh work
-//       (project_amlegal_hostile_to_programmatic_access).
+//       the corpus snapshot), tracked under the corpus-refresh work.
 //
 // The gate is DESIGNED GENERAL — new SectionOutcomeStatus values
 // added to the schema in the future need an explicit verdict here
@@ -184,6 +182,67 @@ export function computeOkRateGate(outcomes: readonly AnchorOutcome[]): GateVerdi
   };
 }
 
+// computeDecorationCompletenessGate — verifies that every section
+// claiming an "anchored" outcome actually produced a renderable diff.
+//
+// v1's ok-rate gate measured "anchoring succeeded": the parser bound
+// some span to some baseline position, and the section_outcome got
+// stamped `anchored`. But §901 of bill 260177 proved that "anchored"
+// could lie — the section reported anchored while six new definition
+// labels silently disappeared (classifier demoted them to context,
+// and the anchoring step happily produced an empty inline-spans
+// list). The bill rendered §901 as plain baseline text and the gate
+// reported 221/221 ok.
+//
+// v2's reconstruct-then-diff pipeline makes this much harder to hide,
+// but the gate codifies it explicitly: for every (bill, section)
+// pair whose outcome is `anchored`, diff_chunks for that section
+// must include at least one `insert` or `delete` chunk. An all-equal
+// chunk stream means the bill's reconstructed newText was identical
+// to the baseline — which, for an anchored section, means we
+// silently dropped the bill's edits.
+//
+// Out of scope:
+//   added_section / structural / absorbed_external — these statuses
+//     don't claim "I rendered the change"; they make different
+//     promises the renderer surfaces directly.
+//   classification_low_confidence / unresolved / no_baseline — these
+//     are explicit non-renderable outcomes the renderer banners.
+//
+// Per project_legal_corpus_zero_skip: completeness gates are
+// non-negotiable. If this gate would fail today, fix the root cause
+// (classifier, reconstructor, or upstream); don't add a threshold.
+export function computeDecorationCompletenessGate(bills: readonly Bill[]): GateVerdict {
+  let okCount = 0;
+  let totalOutcomes = 0;
+  const failures: GateVerdict["failures"] = [];
+  for (const bill of bills) {
+    for (const outcome of bill.section_outcomes) {
+      if (outcome.status !== "anchored") continue;
+      totalOutcomes++;
+      const sectionChunks = bill.diff_chunks.filter((c) => c.section_id === outcome.section_id);
+      const hasChange = sectionChunks.some((c) => c.op === "insert" || c.op === "delete");
+      if (hasChange) {
+        okCount++;
+      } else {
+        failures.push({
+          file_no: bill.file_no,
+          module_id: bill.module_id,
+          section_id: outcome.section_id,
+          status: "anchored",
+          detail: "anchored but diff_chunks contains no insert or delete chunks for this section",
+        });
+      }
+    }
+  }
+  return {
+    pass: failures.length === 0,
+    total_outcomes: totalOutcomes,
+    ok_outcomes: okCount,
+    failures,
+  };
+}
+
 export type SyncResult = {
   /** Per-module count of session-bill files written this run. */
   written: Record<string, number>;
@@ -206,6 +265,13 @@ export type SyncResult = {
    * failure).
    */
   anchor_outcomes: AnchorOutcome[];
+  /**
+   * Validated Bill records written to disk this run. Surfaced so
+   * the corpus-completeness gate can verify each anchored section
+   * actually produced a renderable diff. Empty when no bills
+   * touched an installed module.
+   */
+  bills: Bill[];
   /**
    * Per-matter timing telemetry, ms from PDF read → schema-validated
    * Bill array. Surfaces outlier matters when the session corpus
@@ -276,6 +342,7 @@ export async function syncBills(args: {
   const unresolved: SyncResult["unresolved"] = [];
   const bodyWarnings: SyncResult["body_warnings"] = [];
   const anchorOutcomes: AnchorOutcome[] = [];
+  const writtenBills: Bill[] = [];
   const keepByModule = new Map<ModuleId, Set<string>>();
   const perMatterMs: SyncResult["per_matter_ms"] = [];
   const totalStart = Date.now();
@@ -326,6 +393,7 @@ export async function syncBills(args: {
       const moduleDir = join(args.outputDir, bill.module_id);
       await writeSessionBill({ moduleDir, bill: validated });
       written[bill.module_id] = (written[bill.module_id] ?? 0) + 1;
+      writtenBills.push(validated);
       const keep = keepByModule.get(bill.module_id) ?? new Set<string>();
       keep.add(bill.file_no);
       keepByModule.set(bill.module_id, keep);
@@ -361,6 +429,7 @@ export async function syncBills(args: {
     unresolved,
     body_warnings: bodyWarnings,
     anchor_outcomes: anchorOutcomes,
+    bills: writtenBills,
     per_matter_ms: perMatterMs,
     total_ms: Date.now() - totalStart,
   };
@@ -545,8 +614,9 @@ async function main(argv: string[]): Promise<number> {
 
     // Corpus-wide 100% ok-rate gate (T9 / project_legal_corpus_zero_skip).
     // Scope: every outcome surfaced this run. Acceptable statuses are
-    // anchored / added_section / structural / absorbed_external; any
-    // other outcome is a parser regression that fails the run.
+    // anchored / added_section / structural / absorbed_external /
+    // classification_low_confidence / unresolved; any other outcome is
+    // a parser regression that fails the run.
     const gate = computeOkRateGate(result.anchor_outcomes);
     if (!gate.pass) {
       process.stderr.write(
@@ -557,6 +627,29 @@ async function main(argv: string[]): Promise<number> {
     if (gate.total_outcomes > 0) {
       process.stdout.write(
         `sync-bills: zero-skip gate passed — ${gate.ok_outcomes}/${gate.total_outcomes} outcomes renderable (100%).\n`,
+      );
+    }
+
+    // Decoration-completeness gate: every section claiming "anchored"
+    // must actually produce a renderable diff (≥1 insert/delete chunk).
+    // Replaces v1's misleading "anchoring succeeded" check with v2's
+    // "decorations captured" check — the §901 silent-drop class can
+    // no longer pass.
+    const completeness = computeDecorationCompletenessGate(result.bills);
+    if (!completeness.pass) {
+      process.stderr.write(
+        `sync-bills: decoration-completeness gate FAILED — ${completeness.failures.length} anchored section(s) of ${completeness.total_outcomes} emitted no insert/delete chunks. The parser claimed to render the change while emitting zero changes; investigate the upstream classifier/reconstructor before retrying.\n`,
+      );
+      for (const f of completeness.failures.slice(0, 20)) {
+        process.stderr.write(
+          `  ${f.file_no} §${f.section_id} (${f.module_id})${f.detail ? ` — ${f.detail}` : ""}\n`,
+        );
+      }
+      return 6;
+    }
+    if (completeness.total_outcomes > 0) {
+      process.stdout.write(
+        `sync-bills: decoration-completeness gate passed — ${completeness.ok_outcomes}/${completeness.total_outcomes} anchored sections actually rendered changes (100%).\n`,
       );
     }
     return 0;

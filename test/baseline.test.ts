@@ -2,8 +2,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AnchorOutcome } from "@/parser/bills/emit-diff";
-import { KNOWN_SCHEMA_VERSION } from "@/types";
-import { computeOkRateGate } from "../scripts/sync-bills";
+import { type Bill, KNOWN_SCHEMA_VERSION } from "@/types";
+import { computeDecorationCompletenessGate, computeOkRateGate } from "../scripts/sync-bills";
 
 const REPO_ROOT = resolve(__dirname, "..");
 
@@ -229,6 +229,100 @@ describe("baseline grep gates", () => {
 
   it("computeOkRateGate passes a zero-outcome corpus (no bills with section_outcomes)", () => {
     const v = computeOkRateGate([]);
+    expect(v.pass).toBe(true);
+    expect(v.total_outcomes).toBe(0);
+  });
+
+  it("computeDecorationCompletenessGate fails when an anchored section has no changes", () => {
+    // The §901-class failure: outcome reports anchored but diff_chunks
+    // contains only equal chunks (or is empty) for that section. v2's
+    // reconstruct path shouldn't reach this state under normal
+    // operation; the gate guards against a future regression.
+    const bills: Bill[] = [
+      {
+        file_no: "260001",
+        module_id: "sf-test",
+        short_title: "T",
+        long_title: "T",
+        sponsor: null,
+        introduced_at: null,
+        legistar_url: "https://e/d?ID=1&GUID=g",
+        legistar_status: "Pending",
+        bill_status: "committee",
+        section_outcomes: [{ section_id: "901", status: "anchored", detail: null }],
+        diff_chunks: [{ op: "equal", text: "unchanged baseline content", section_id: "901" }],
+        parse_status: "ok",
+        structural_change_scope: null,
+        body: { preamble: "", amendments: [], closing: "" },
+      },
+    ];
+    const v = computeDecorationCompletenessGate(bills);
+    expect(v.pass).toBe(false);
+    expect(v.total_outcomes).toBe(1);
+    expect(v.ok_outcomes).toBe(0);
+    expect(v.failures).toHaveLength(1);
+    expect(v.failures[0]?.section_id).toBe("901");
+  });
+
+  it("computeDecorationCompletenessGate passes when anchored sections emit insert/delete chunks", () => {
+    const bills: Bill[] = [
+      {
+        file_no: "260002",
+        module_id: "sf-test",
+        short_title: "T",
+        long_title: "T",
+        sponsor: null,
+        introduced_at: null,
+        legistar_url: "https://e/d?ID=1&GUID=g",
+        legistar_status: "Pending",
+        bill_status: "committee",
+        section_outcomes: [
+          { section_id: "1.1", status: "anchored", detail: null },
+          { section_id: "1.2", status: "anchored", detail: null },
+        ],
+        diff_chunks: [
+          { op: "equal", text: "Old prefix. ", section_id: "1.1" },
+          { op: "insert", text: "New clause. ", section_id: "1.1" },
+          { op: "delete", text: "Whole section text.", section_id: "1.2" },
+        ],
+        parse_status: "ok",
+        structural_change_scope: null,
+        body: { preamble: "", amendments: [], closing: "" },
+      },
+    ];
+    const v = computeDecorationCompletenessGate(bills);
+    expect(v.pass).toBe(true);
+    expect(v.total_outcomes).toBe(2);
+    expect(v.ok_outcomes).toBe(2);
+    expect(v.failures).toEqual([]);
+  });
+
+  it("computeDecorationCompletenessGate ignores non-anchored statuses", () => {
+    // added_section, structural, absorbed_external, etc. make different
+    // promises the renderer surfaces directly; they're out of scope
+    // for the decoration-completeness check.
+    const bills: Bill[] = [
+      {
+        file_no: "260003",
+        module_id: "sf-test",
+        short_title: "T",
+        long_title: "T",
+        sponsor: null,
+        introduced_at: null,
+        legistar_url: "https://e/d?ID=1&GUID=g",
+        legistar_status: "Pending",
+        bill_status: "committee",
+        section_outcomes: [
+          { section_id: "1.1", status: "classification_low_confidence", detail: null },
+          { section_id: "1.2", status: "no_baseline", detail: null },
+        ],
+        diff_chunks: [],
+        parse_status: "manual_review",
+        structural_change_scope: null,
+        body: { preamble: "", amendments: [], closing: "" },
+      },
+    ];
+    const v = computeDecorationCompletenessGate(bills);
     expect(v.pass).toBe(true);
     expect(v.total_outcomes).toBe(0);
   });
