@@ -108,7 +108,7 @@ export interface CorpusModuleSummary {
    * the activity panel and bill-view aggregate by file_no for display.
    *
    * `classBMeta` carries Class B (non-code) ordinances as bare BillMeta
-   * rows — no parsed body, no affected_sections, no module_id. They
+   * rows — no parsed body, no section_outcomes, no module_id. They
    * surface in the Activity panel as minimal entries that click through
    * to a Legistar link, per D11 of the design review. Always empty when
    * the jurisdiction-level bills-index.json wasn't shipped (legacy

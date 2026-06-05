@@ -1,6 +1,10 @@
 {
-  "affected_sections": [
-    "1.1"
+  "section_outcomes": [
+    {
+      "section_id": "1.1",
+      "status": "anchored",
+      "detail": null
+    }
   ],
   "bill_status": "committee",
   "file_no": "990001",

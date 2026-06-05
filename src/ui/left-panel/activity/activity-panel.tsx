@@ -206,7 +206,7 @@ export function ActivityPanel({
                 isActive={activeBillId === bill.file_no}
                 isFocused={focusedBillId === bill.file_no}
                 codeLabel={lookupCodeLabel?.(bill.module_id) ?? null}
-                touches={bill.affected_sections}
+                touches={bill.section_outcomes.map((o) => o.section_id)}
                 onOpen={onOpenBill}
                 onFocusRequest={onFocusRequest}
               />
@@ -232,7 +232,7 @@ export function ActivityPanel({
                 isActive={activeBillId === bill.file_no}
                 isFocused={focusedBillId === bill.file_no}
                 codeLabel={lookupCodeLabel?.(bill.module_id) ?? null}
-                touches={bill.affected_sections}
+                touches={bill.section_outcomes.map((o) => o.section_id)}
                 onOpen={onOpenBill}
                 onFocusRequest={onFocusRequest}
               />

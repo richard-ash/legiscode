@@ -161,9 +161,12 @@ function OrdinanceBlockView({ block }: { block: OrdinanceBlock }) {
 }
 
 function ParseStatusNotice({ bills }: { bills: ReadonlyArray<Bill> }) {
-  // Surface the worst-case parse_status across the bill's modules so the
-  // reader knows whether the section list represents a clean structural
-  // pass, a manual-review fallback, or a full structural change.
+  // Surface the worst-case parse_status across the bill's modules so
+  // the reader knows whether the inline diff renders cleanly, partly,
+  // or not at all, and why. Priority order matches user severity: a
+  // bill that's BOTH structural in one module and manual-review in
+  // another shows the structural notice (the more consequential
+  // signal).
   const statuses = new Set(bills.map((b) => b.parse_status));
   if (statuses.has("structural_change")) {
     const scope = bills.find(
@@ -176,6 +179,22 @@ function ParseStatusNotice({ bills }: { bills: ReadonlyArray<Bill> }) {
       </p>
     );
   }
+  if (statuses.has("absorbed_external")) {
+    return (
+      <p className="lc-billparse-notice is-absorbed">
+        Codified externally. AmLegal has already absorbed this ordinance's changes into the corpus —
+        the inline diff isn't applicable.
+      </p>
+    );
+  }
+  if (statuses.has("partial")) {
+    return (
+      <p className="lc-billparse-notice is-partial">
+        The inline diff renders for some affected sections; others fell back to manual review. Open
+        a section to see its per-section status.
+      </p>
+    );
+  }
   if (statuses.has("manual_review")) {
     return (
       <p className="lc-billparse-notice">
@@ -183,6 +202,13 @@ function ParseStatusNotice({ bills }: { bills: ReadonlyArray<Bill> }) {
         styled yet — the raw ordinance text from the source PDF follows.
       </p>
     );
+  }
+  if (statuses.has("body_only")) {
+    // body_only is a quiet state — the bill has a parseable body but
+    // the structural pass didn't bind to any existing section
+    // headers. The ordinance text below carries the change; no
+    // banner needed.
+    return null;
   }
   return null;
 }

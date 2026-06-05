@@ -2,92 +2,77 @@
 // after `parseBill` finishes; takes the classified spans the parser
 // surfaced and binds each one to a (`baseline_offset`,
 // `baseline_length`) pair inside the corpus section's baseline text.
+//
 // Invariants:
 //
 //   • Lives in sync-bills, not parseBill. parseBill stays pure-PDF.
 //   • The `anchor` field on TextDiffSpan is required; an anchor of
 //     `(0, 0)` IS a real anchor (insertion at offset 0, length 0),
 //     not a null sentinel.
-//   • Paragraph-anchored token scan. O(N) over normalized tokens,
-//     paragraph boundaries the natural anchors. Elision spans are
-//     treated as wildcard gaps (any length of baseline matches).
-//   • Per-section failure: a bill amending §A + §B can ship §A fully
-//     anchored AND §B absent from `text_diff[]`. Renderer falls back
-//     to manual_review for the absent section.
+//   • diff-against-baseline. The classifier gives us context / insert /
+//     delete / elision spans per source PDF run. We compute the bill's
+//     intended new text by concatenating context + insert spans, then
+//     run a word-level diff against the corpus baseline. Each hunk
+//     becomes a TextDiffSpan with offset/length into the original
+//     baseline. The bill's strike/underline marks inform `newText`;
+//     they don't drive the anchor scan directly.
+//   • Per-section partition. The parser's `section_partitions` carry
+//     the chrome-text range each target section's body lives in;
+//     `run_offset_map` projects each classified span's source run
+//     into the same chrome-text. A span belongs to a section if any
+//     of its ranges intersects that section's range. Spans whose
+//     ranges fall outside every section's range are unattributed
+//     (typically pre-amble or boilerplate prose between AMEND groups).
+//   • Per-section failure is local. A bill amending §A + §B can ship
+//     §A fully anchored AND §B as classification_low_confidence /
+//     no_baseline. The bill's parse_status is derived from the
+//     per-section breakdown.
 //
 // ## Pipeline (ASCII)
 //
 //   ParseBillResult.classified_spans         (in source order)
 //   ParseBillResult.runs                     (TextRun[] for page lookup)
-//   bill.affected_sections                   (per-Bill, per-module)
+//   ParseBillResult.run_offset_map           (run idx → ranges in chrome text)
+//   ParseBillResult.section_partitions       (per-target chrome ranges)
 //        │
 //        ▼
 //   anchorTextDiff(parseResult, baselineLookup)
-//        │   for each (bill, section_id):
-//        │     • partition spans into this section's slice
-//        │     • normalize stated_before (context + delete) + baseline
-//        │     • token-scan: every non-insert span must find its place
-//        │       in the baseline at or after the running cursor
-//        │     • elision spans → cursor jumps to next exact-match
-//        │     • on success → emit TextDiffSpan[] with anchors
-//        │     • on failure → section omitted from text_diff[]; cause
-//        │       logged in outcomes[]
+//        │   build per-section span buckets via run_offset_map +
+//        │   chrome_range intersection. For each (bill, partition):
+//        │     • bucket classified_spans into this section's slice
+//        │     • short-circuit on ambiguous → classification_low_confidence
+//        │     • compute newText = ⨁(context + insert spans)
+//        │     • diffWords(baseline, newText) → hunks
+//        │     • emit TextDiffSpan[] mapped to baseline offsets
 //        ▼
-//   Bill records mutated in place; outcomes[] reports per-section status.
-//
-// ## v1 scope: single-section attribution
-//
-// SF Legistar PDFs encode each bill's redline content but don't expose
-// a clean "this run belongs to that target section" mapping — the
-// structural pass identifies AMEND groups by text offsets in
-// chrome-stripped text, and re-correlating that back to TextRun
-// indices through reflow + chrome-strip is non-trivial. For v1, this
-// module attributes ALL classified spans to the FIRST affected section
-// in `bill.affected_sections` and falls through every other section to
-// manual_review. Multi-section bills are common but the renderer's
-// manual_review fallback gracefully handles them.
-//
-// Per-section attribution is tracked in TODOS.md "Inline diff
-// follow-ups" alongside the existing L504 lead_in deferral.
-//
-// ## Whole-section repeal / add
-//
-// In addition to inline-amendment bills (typography decoder + token
-// scan above), SF Legistar produces two simpler shapes the renderer
-// must handle:
-//
-//   • whole-section delete — `is hereby amended by deleting
-//     Section[s] X[, Y]`. The diff is "every char of section X gets
-//     struck through." One delete span per section_id, anchored
-//     against the FULL baseline range.
-//   • whole-section add — `is hereby amended by adding Section X, to
-//     read as follows: [body]`. The diff is "this whole section
-//     appears." One insert span per added section_id, baseline empty,
-//     anchored at (0, 0). Insert text comes from the bill body.
-//
-// These shapes don't use PDF underline/strikethrough decoration at
-// all, so the typography decoder produces zero amendment spans. The
-// wholesale classifier runs BEFORE the inline path and short-circuits
-// it when any body.amendments[i].action matches the delete/add verbs.
-// Bills that mix wholesale + inline actions fall back to the inline
-// path for the inline subset; the wholesale spans still ship.
+//   Bill records mutated in place; section_outcomes carries the per-
+//   section breakdown; parse_status is derived from section_outcomes.
 
-import type { Bill, ModuleId, OrdinanceBlock, SectionId, TextDiffSpan } from "@/types";
-import type { ParseBillResult } from "./index";
+import { diffWords } from "diff";
+import type {
+  Bill,
+  ModuleId,
+  OrdinanceBlock,
+  SectionId,
+  SectionOutcome,
+  SectionOutcomeStatus,
+  TextDiffSpan,
+} from "@/types";
+import { deriveParseStatus } from "@/types";
 import type { ClassifiedSpan } from "./classify-spans";
-import { normalize, tokenize } from "./normalize";
+import type { ParseBillResult, SectionPartitionEntry } from "./index";
+import type { RunRange } from "./run-offset-map";
 
 export type CorpusBaselineLookup = (
   moduleId: ModuleId,
   sectionId: SectionId,
 ) => string | null | undefined;
 
-export type AnchorOutcomeStatus =
-  | "anchored"
-  | "alignment_failed"
-  | "classification_low_confidence"
-  | "no_baseline"
-  | "fallthrough";
+// AnchorOutcome — operator log row per (bill, section). The
+// status set MATCHES SectionOutcomeStatus exactly so the same value
+// can flow into both the on-disk Bill.section_outcomes and the
+// operator-facing log stream.
+export type AnchorOutcomeStatus = SectionOutcomeStatus;
 
 export type AnchorOutcome = {
   file_no: string;
@@ -101,7 +86,7 @@ export type AnchorOutcome = {
 export type AnchorTextDiffResult = {
   /** Mutated bills with `text_diff[]` populated for anchored sections. */
   bills: Bill[];
-  /** One entry per (bill, affected_section) pair. */
+  /** One entry per (bill, target_section) pair. */
   outcomes: AnchorOutcome[];
 };
 
@@ -115,66 +100,123 @@ export function anchorTextDiff(
   baselineLookup: CorpusBaselineLookup,
 ): AnchorTextDiffResult {
   const outcomes: AnchorOutcome[] = [];
-  const bills = parseResult.bills.map((b) => ({ ...b, text_diff: [] as TextDiffSpan[] }));
+  const bills = parseResult.bills.map((b) => ({
+    ...b,
+    section_outcomes: [...b.section_outcomes],
+    text_diff: [] as TextDiffSpan[],
+  }));
+
+  // Pre-bucket section partitions by module so we don't quadratic-scan
+  // for each bill.
+  const partitionsByModule = new Map<ModuleId, SectionPartitionEntry[]>();
+  for (const p of parseResult.section_partitions) {
+    const list = partitionsByModule.get(p.module_id) ?? [];
+    list.push(p);
+    partitionsByModule.set(p.module_id, list);
+  }
 
   for (const bill of bills) {
+    // Structural-action bills: no inline diff is meaningful. Emit one
+    // "structural" outcome per identified section so the renderer can
+    // surface "this bill restructures the chapter and touches §A, §B."
     if (bill.parse_status === "structural_change") {
-      // No inline diff for structural changes — the renderer shows
-      // structural_change_scope instead.
-      for (const sid of bill.affected_sections) {
+      const partitions = partitionsByModule.get(bill.module_id) ?? [];
+      const newOutcomes: SectionOutcome[] = [];
+      for (const p of partitions) {
+        if (p.section_id === null) continue;
+        newOutcomes.push({ section_id: p.section_id, status: "structural", detail: null });
         outcomes.push({
           file_no: bill.file_no,
           module_id: bill.module_id,
-          section_id: sid,
-          status: "fallthrough",
+          section_id: p.section_id,
+          status: "structural",
           detail: "structural change — no inline diff",
         });
       }
+      bill.section_outcomes = dedupeOutcomes(newOutcomes);
+      bill.parse_status = deriveParseStatus(bill.section_outcomes, true);
       continue;
     }
 
-    if (bill.affected_sections.length === 0) {
-      continue;
-    }
+    const partitions = partitionsByModule.get(bill.module_id) ?? [];
 
     // Wholesale-action path (whole-section delete or add). Runs before
-    // the inline anchorer because delete/add bills have no PDF
-    // underline/strikethrough decoration — the typography decoder
-    // produces zero amendment spans, which would falsely look like
-    // alignment_failed below. Each body.amendments[i].action is matched
-    // against the SF Legistar verb patterns; matches synthesize a
-    // single delete or insert span per section_id.
-    const wholesale = synthesizeWholesaleSpans(bill, baselineLookup);
-    if (wholesale.spans.length > 0) {
-      bill.text_diff = wholesale.spans;
-      bill.parse_status = "ok";
-      for (const o of wholesale.outcomes) outcomes.push(o);
-      // Any affected_section not covered by a wholesale span (e.g. a
-      // section the inline path would have handled) falls through.
-      const covered = new Set(wholesale.spans.map((s) => s.section_id));
-      for (const sid of bill.affected_sections) {
-        if (!covered.has(sid)) {
-          outcomes.push({
-            file_no: bill.file_no,
-            module_id: bill.module_id,
-            section_id: sid,
-            status: "fallthrough",
-            detail: "wholesale action handled siblings; this section not matched",
-          });
-        }
-      }
-      continue;
+    // the inline path AND before the body_only short-circuit because
+    // T4 added_section detection runs through this path: a bill with
+    // an `add` action on a raw_section_id that didn't resolve produces
+    // an `added_section` outcome HERE, not in any partition loop.
+    // Each body.amendments[i].action is matched against the SF Legistar
+    // verb patterns; matches synthesize a single delete or insert span
+    // per section_id.
+    const wholesaleOutcomes: SectionOutcome[] = [];
+    const wholesaleSpans: TextDiffSpan[] = [];
+    const wholesale = synthesizeWholesale(bill, partitions, baselineLookup, parseResult);
+    for (const span of wholesale.spans) wholesaleSpans.push(span);
+    for (const o of wholesale.outcomes) {
+      wholesaleOutcomes.push({
+        section_id: o.section_id,
+        status: o.status,
+        detail: o.detail ?? null,
+      });
+      outcomes.push({ ...o, file_no: bill.file_no, module_id: bill.module_id });
     }
-    for (const o of wholesale.outcomes) outcomes.push(o);
 
-    // v1: anchor all classified spans against the FIRST affected
-    // section. Secondary sections fall through to manual_review.
-    const primarySection = bill.affected_sections[0];
-    if (primarySection === undefined) continue;
+    // For the inline path, exclude partitions that the wholesale path
+    // already produced an outcome for. Null-section_id partitions
+    // (unresolved raw_ids) get an unresolved outcome here UNLESS T4's
+    // wholesale path already classified them as added_section.
+    const wholesaleCovered = new Set<string>(wholesaleOutcomes.map((o) => o.section_id));
+    const inlinePartitions = partitions.filter((p) => {
+      const probeKey = p.section_id ?? p.raw_section_id;
+      return !wholesaleCovered.has(probeKey);
+    });
 
-    const baseline = baselineLookup(bill.module_id, primarySection);
-    if (baseline === null || baseline === undefined || baseline.length === 0) {
-      for (const sid of bill.affected_sections) {
+    const inlineOutcomes: SectionOutcome[] = [];
+    const inlineSpans: TextDiffSpan[] = [];
+
+    // Per-section partition of classified spans via the run-offset map.
+    const spansBySection = partitionSpansBySection(
+      parseResult.classified_spans,
+      parseResult.run_offset_map,
+      inlinePartitions,
+    );
+
+    for (const partition of inlinePartitions) {
+      if (partition.section_id === null) {
+        const baseDetail = `raw section id "${partition.raw_section_id}" did not resolve against the module's section index`;
+        // When the same candidates resolve in a different installed
+        // module, the structural pass mis-routed this header. The
+        // operator log distinguishes routing failures from genuine
+        // corpus gaps so we don't chase ghosts when the real bug is
+        // an unmatched `Section N. <Code> Code is hereby amended…` line
+        // upstream.
+        const detail = partition.orphan_in_module
+          ? `${baseDetail} — but candidate(s) [${partition.candidates.join(", ")}] resolve in module "${partition.orphan_in_module}"; structural pass likely missed an ord-section boundary`
+          : baseDetail;
+        const unresolvedOutcome: SectionOutcome = {
+          section_id: (partition.candidates[0] ?? partition.raw_section_id) as SectionId,
+          status: "unresolved",
+          detail,
+        };
+        inlineOutcomes.push(unresolvedOutcome);
+        outcomes.push({
+          file_no: bill.file_no,
+          module_id: bill.module_id,
+          section_id: unresolvedOutcome.section_id,
+          status: "unresolved",
+          detail: unresolvedOutcome.detail ?? undefined,
+        });
+        continue;
+      }
+      const sid = partition.section_id;
+      const sectionSpans = spansBySection.get(sid) ?? [];
+      const baseline = baselineLookup(bill.module_id, sid);
+      if (baseline === null || baseline === undefined || baseline.length === 0) {
+        inlineOutcomes.push({
+          section_id: sid,
+          status: "no_baseline",
+          detail: "corpus baseline not found for section",
+        });
         outcomes.push({
           file_no: bill.file_no,
           module_id: bill.module_id,
@@ -182,264 +224,182 @@ export function anchorTextDiff(
           status: "no_baseline",
           detail: "corpus baseline not found for section",
         });
+        continue;
       }
-      continue;
-    }
 
-    // Pull only the amendment-class + context + elision spans.
-    // Context spans aren't strictly needed for the diff but they
-    // provide anchor checkpoints during alignment.
-    const sectionSpans = filterToAmendmentSpans(parseResult.classified_spans);
-
-    // Reject early if any amendment span came through as "ambiguous".
-    // classify-spans treats ambiguous decoration as a section-level
-    // failure cause.
-    const ambiguousCount = sectionSpans.filter((s) => s.kind === "ambiguous").length;
-    if (ambiguousCount > 0) {
-      outcomes.push({
-        file_no: bill.file_no,
-        module_id: bill.module_id,
-        section_id: primarySection,
-        status: "classification_low_confidence",
-        detail: `${ambiguousCount} ambiguous-decoration span(s)`,
-      });
-      for (const sid of bill.affected_sections.slice(1)) {
+      // Reject ambiguous-decoration amendment spans early. Per D9 truth
+      // table, ambiguous spans get treated as classification_low_confidence
+      // for the WHOLE section (the diff would be wrong if we forced
+      // a decision); ambiguous spans on context (no decoration on a
+      // non-italic-Times run, which classify-spans pegs as ambiguous
+      // for the false-context board-amendment pattern at :143) are
+      // intentionally still rejected — we'd rather show the manual-
+      // review banner than a wrong diff.
+      const ambiguousCount = sectionSpans.filter((s) => s.kind === "ambiguous").length;
+      if (ambiguousCount > 0) {
+        inlineOutcomes.push({
+          section_id: sid,
+          status: "classification_low_confidence",
+          detail: `${ambiguousCount} ambiguous-decoration span(s)`,
+        });
         outcomes.push({
           file_no: bill.file_no,
           module_id: bill.module_id,
           section_id: sid,
-          status: "fallthrough",
-          detail: "secondary section in multi-section bill (v1 scope)",
+          status: "classification_low_confidence",
+          detail: `${ambiguousCount} ambiguous-decoration span(s)`,
         });
+        continue;
       }
-      continue;
-    }
 
-    const anchored = anchorAgainstBaseline(sectionSpans, baseline, primarySection);
-    if (anchored.ok) {
-      bill.text_diff = anchored.spans;
-      outcomes.push({
-        file_no: bill.file_no,
-        module_id: bill.module_id,
-        section_id: primarySection,
-        status: "anchored",
-      });
-      // Flip parse_status to "ok" since text_diff is now non-empty.
-      bill.parse_status = "ok";
-    } else {
-      outcomes.push({
-        file_no: bill.file_no,
-        module_id: bill.module_id,
-        section_id: primarySection,
-        status: "alignment_failed",
-        detail: anchored.reason,
-      });
-    }
-
-    for (const sid of bill.affected_sections.slice(1)) {
+      const diffSpans = diffAgainstBaseline(sectionSpans, baseline, sid);
+      for (const span of diffSpans) inlineSpans.push(span);
+      inlineOutcomes.push({ section_id: sid, status: "anchored", detail: null });
       outcomes.push({
         file_no: bill.file_no,
         module_id: bill.module_id,
         section_id: sid,
-        status: "fallthrough",
-        detail: "secondary section in multi-section bill (v1 scope)",
+        status: "anchored",
       });
     }
+
+    bill.section_outcomes = dedupeOutcomes([...wholesaleOutcomes, ...inlineOutcomes]);
+    bill.text_diff = [...wholesaleSpans, ...inlineSpans];
+    bill.parse_status = deriveParseStatus(bill.section_outcomes, false);
   }
 
   return { bills, outcomes };
 }
 
-function filterToAmendmentSpans(spans: readonly ClassifiedSpan[]): ClassifiedSpan[] {
-  // Keep insert + delete + elision (the diff content) and context spans
-  // whose text is non-empty after normalization (they're our anchor
-  // points in the baseline scan).
-  const out: ClassifiedSpan[] = [];
-  for (const s of spans) {
-    if (s.kind === "ambiguous") {
-      out.push(s);
-      continue;
+/**
+ * Bucket classified spans into per-section slices via the run-offset
+ * map. A span's source run can produce multiple ranges in the
+ * chrome-stripped text (when stripChrome bisects a run); a section
+ * "owns" the span when the span's first surviving range starts inside
+ * the section's `chrome_range`. Spans whose ranges fall outside every
+ * section's range are dropped.
+ *
+ * Deterministic single-owner rule: a span lands in EXACTLY ONE
+ * partition (the one whose chrome_range contains the start of the
+ * span's first range). Spans that straddle a section header are rare;
+ * when they happen, they land in the section that owns the start of
+ * the span. Section B's diff is built from the spans attributed to B,
+ * so a stray span from A's prose only pollutes B's newText (not the
+ * whole-section anchor cascade the previous token walker had).
+ */
+export function partitionSpansBySection(
+  classifiedSpans: readonly ClassifiedSpan[],
+  runOffsetMap: ReadonlyArray<ReadonlyArray<RunRange>>,
+  partitions: readonly SectionPartitionEntry[],
+): Map<SectionId, ClassifiedSpan[]> {
+  const out = new Map<SectionId, ClassifiedSpan[]>();
+  for (const span of classifiedSpans) {
+    const ranges = runOffsetMap[span.source_index] ?? [];
+    if (ranges.length === 0) continue;
+    const firstRange = ranges[0];
+    if (firstRange === undefined) continue;
+    const probe = firstRange.chrome_start;
+    // Find the partition whose chrome_range contains the span's
+    // starting char. Walking partitions in declared order means the
+    // FIRST match wins on a tie — partitions are emitted by the
+    // structural pass in document order so "first" is "earlier
+    // section header in the bill body."
+    for (const partition of partitions) {
+      if (partition.section_id === null) continue;
+      const r = partition.chrome_range;
+      if (probe < r.start || probe >= r.end) continue;
+      const sid = partition.section_id;
+      const list = out.get(sid) ?? [];
+      list.push(span);
+      out.set(sid, list);
+      break;
     }
-    if (s.kind === "context" && normalize(s.text).length === 0) {
-      // Pure whitespace context — don't bother anchoring.
-      continue;
-    }
-    out.push(s);
   }
   return out;
 }
 
-type AnchorResult = { ok: true; spans: TextDiffSpan[] } | { ok: false; reason: string };
+function dedupeOutcomes(outcomes: readonly SectionOutcome[]): SectionOutcome[] {
+  // Two passes may emit outcomes for the same section_id (wholesale +
+  // inline). Keep the FIRST occurrence — the wholesale pass is
+  // authoritative because it runs first and short-circuits the inline
+  // path for sections it covers.
+  const seen = new Set<SectionId>();
+  const out: SectionOutcome[] = [];
+  for (const o of outcomes) {
+    if (seen.has(o.section_id)) continue;
+    seen.add(o.section_id);
+    out.push(o);
+  }
+  return out;
+}
 
 /**
- * Paragraph-anchored token scan. Walks classified spans in source
- * order, advancing a cursor through the baseline as context + delete
- * spans match. Insert spans don't consume baseline. Elision spans
- * jump the cursor forward to the next matching anchor span.
+ * Diff the bill's intended new text against the baseline.
  *
- * Match logic uses normalized tokens (whitespace-collapsed, NFC); the
- * baseline_offset / baseline_length pair on each output span captures
- * a char-level range in the (un-normalized) baseline.
+ * Strategy: the classifier already separated context (unchanged
+ * baseline text the bill reprints), insert (underlined new text), and
+ * delete (struck baseline text the bill drops). The bill's intended
+ * new section text is the concatenation of context + insert spans in
+ * source order. We word-diff that against the baseline; each hunk
+ * maps directly to a TextDiffSpan.
+ *
+ * Why not walk tokens against baseline? Inline alignment requires the
+ * bill body to track baseline token-for-token; PDF redline drawings
+ * regularly break that assumption (run merges, decoration boundaries,
+ * substantial rewrites). Diffing the *result* against the source is
+ * robust to the drawing's shape: jsdiff figures out the edits, we
+ * just translate them into our TextDiffSpan vocabulary.
+ *
+ * Elision: the "* * * *" sentinel marks "unchanged baseline omitted
+ * from the bill body." We skip it when building newText so it doesn't
+ * appear in the diff output. The renderer pre-overlays the baseline
+ * elsewhere, so any baseline region the bill omits naturally surfaces
+ * as a delete hunk in the diff. Future work could lift elision into a
+ * dedicated wildcard hunk; for now, treating it as "not in newText"
+ * is the conservative call.
  */
-function anchorAgainstBaseline(
+function diffAgainstBaseline(
   spans: readonly ClassifiedSpan[],
   baseline: string,
   sectionId: SectionId,
-): AnchorResult {
-  const baselineNorm = normalize(baseline);
-  if (baselineNorm.length === 0) {
-    return { ok: false, reason: "baseline normalized to empty string" };
-  }
+): TextDiffSpan[] {
+  const newText = spans
+    .filter((s) => s.kind === "context" || s.kind === "insert")
+    .map((s) => s.text)
+    .join("");
 
-  // Build a char-offset map: tokenStarts[k] = start char offset of the
-  // k-th normalized token in the ORIGINAL `baseline` (not the normalized
-  // form). The renderer + applyToBaseline slice the original baseline,
-  // so offsets must index into it directly — every paragraph `\n` or
-  // doubled whitespace run in the baseline would otherwise shift the
-  // anchors by one char per gap (corpus section text from `bodyToText`
-  // embeds paragraph `\n`s, so this is the common case, not the edge).
-  const baselineTokens = tokenize(baseline);
-  const tokenStarts: number[] = [];
-  let walk = 0;
-  for (const tok of baselineTokens) {
-    // Skip any whitespace in the original baseline (newline, tab, NBSP,
-    // doubled space — anything `\s` matches) so the next token's
-    // position is found in original-string coordinates.
-    while (walk < baseline.length && /\s/u.test(baseline[walk] ?? "")) walk++;
-    // Each baseline token's first char must be a non-whitespace char in
-    // the original; if not (e.g. the baseline starts with punctuation
-    // that NFC normalization dropped), fall through but the anchor will
-    // still point at the correct *position* because tokenize() is total
-    // and normalize() preserves all non-whitespace chars.
-    tokenStarts.push(walk);
-    walk += tok.length;
-  }
-
+  const hunks = diffWords(baseline, newText);
   const out: TextDiffSpan[] = [];
-  let cursor = 0; // index into baselineTokens
-  let pendingElision = false;
+  let baselineOffset = 0;
 
-  for (const span of spans) {
-    const text = span.text;
-    const tokens = tokenize(text);
-    if (tokens.length === 0) continue;
-
-    if (span.kind === "elision") {
-      // Wildcard gap. Cursor will jump to wherever the next anchor
-      // span matches.
-      pendingElision = true;
-      const offset = cursorToOffset(cursor, tokenStarts, baseline.length);
-      out.push({
-        op: "elision",
-        text,
-        section_id: sectionId,
-        anchor: { baseline_offset: offset, baseline_length: 0 },
-      });
-      continue;
-    }
-
-    if (span.kind === "insert") {
-      // No baseline consumption.
-      const offset = cursorToOffset(cursor, tokenStarts, baseline.length);
+  for (const hunk of hunks) {
+    if (hunk.added) {
       out.push({
         op: "insert",
-        text,
+        text: hunk.value,
         section_id: sectionId,
-        anchor: { baseline_offset: offset, baseline_length: 0 },
+        anchor: { baseline_offset: baselineOffset, baseline_length: 0 },
       });
-      pendingElision = false;
-      continue;
+    } else if (hunk.removed) {
+      out.push({
+        op: "delete",
+        text: hunk.value,
+        section_id: sectionId,
+        anchor: { baseline_offset: baselineOffset, baseline_length: hunk.value.length },
+      });
+      baselineOffset += hunk.value.length;
+    } else {
+      out.push({
+        op: "context",
+        text: hunk.value,
+        section_id: sectionId,
+        anchor: { baseline_offset: baselineOffset, baseline_length: hunk.value.length },
+      });
+      baselineOffset += hunk.value.length;
     }
-
-    // delete or context — must match baseline tokens starting at or
-    // after `cursor`. An elision earlier in the run means we accept
-    // the FIRST match >= cursor (the elision swallowed the gap).
-    const minCursor = cursor;
-    const matchIdx = findTokenRun(baselineTokens, tokens, minCursor, pendingElision);
-    if (matchIdx < 0) {
-      return {
-        ok: false,
-        reason: `token run "${tokens.slice(0, 5).join(" ")}…" not found in baseline (cursor ${cursor})`,
-      };
-    }
-    const matchStart = tokenStarts[matchIdx];
-    const lastTokenIdx = matchIdx + tokens.length - 1;
-    const lastTokenStart = tokenStarts[lastTokenIdx];
-    const lastToken = baselineTokens[lastTokenIdx];
-    if (matchStart === undefined || lastTokenStart === undefined || lastToken === undefined) {
-      return {
-        ok: false,
-        reason: `token-offset map missing entry at idx ${matchIdx}`,
-      };
-    }
-    const matchEnd = lastTokenStart + lastToken.length;
-    out.push({
-      op: span.kind === "delete" ? "delete" : "context",
-      text,
-      section_id: sectionId,
-      anchor: { baseline_offset: matchStart, baseline_length: matchEnd - matchStart },
-    });
-    cursor = matchIdx + tokens.length;
-    pendingElision = false;
   }
 
-  if (out.length === 0) {
-    return { ok: false, reason: "no classified spans for this section" };
-  }
-
-  return { ok: true, spans: out };
-}
-
-function cursorToOffset(
-  cursor: number,
-  tokenStarts: readonly number[],
-  baselineLength: number,
-): number {
-  if (cursor >= tokenStarts.length) return baselineLength;
-  const v = tokenStarts[cursor];
-  return v ?? 0;
-}
-
-/**
- * Find the first index in `haystack` (>= minIdx) where `needle` tokens
- * appear consecutively, comparing via `tokenEq` (case- and edge-
- * punctuation-insensitive). Returns -1 if absent.
- */
-function findTokenRun(
-  haystack: readonly string[],
-  needle: readonly string[],
-  minIdx: number,
-  // wildcardOk is true when an elision span just made the gap-before-this
-  // span an "any number of tokens may intervene" jump. The bound is the
-  // same in both modes; the flag is reserved for future logic that
-  // tightens the constraint when wildcardOk is false (e.g. limiting to
-  // "this span is the very next anchor"). Today both modes behave the
-  // same way — first hit at or after minIdx wins.
-  _wildcardOk: boolean,
-): number {
-  if (needle.length === 0) return -1;
-  const first = needle[0];
-  if (first === undefined) return -1;
-  outer: for (let i = minIdx; i <= haystack.length - needle.length; i++) {
-    if (!tokenEq(haystack[i], first)) continue;
-    for (let j = 1; j < needle.length; j++) {
-      if (!tokenEq(haystack[i + j], needle[j])) continue outer;
-    }
-    return i;
-  }
-  return -1;
-}
-
-// Word-edge punctuation: the corpus's baseline text often carries
-// trailing periods, commas, colons, parens, etc., while the PDF text-
-// run boundary that produced a classified span may not. Two-step
-// compare: strip leading + trailing non-alphanumeric, lowercase, then
-// equality.
-const WORD_EDGE = /^[^\p{L}\p{N}$§]+|[^\p{L}\p{N}$§]+$/gu;
-
-function tokenEq(a: string | undefined, b: string | undefined): boolean {
-  if (a === undefined || b === undefined) return false;
-  return a.replace(WORD_EDGE, "").toLowerCase() === b.replace(WORD_EDGE, "").toLowerCase();
+  return out;
 }
 
 // ── Wholesale-action classifier ───────────────────────────────────────
@@ -447,47 +407,72 @@ function tokenEq(a: string | undefined, b: string | undefined): boolean {
 type WholesaleAction =
   | { kind: "delete"; section_ids: string[] }
   | { kind: "add"; section_ids: string[] }
+  | {
+      /**
+       * Multi-clause action that contains BOTH delete and add clauses
+       * (and may also revise other sections inline). The synthesizer
+       * processes delete_ids and add_ids; sections in their intersection
+       * are wholesale rewrites (delete baseline + insert new body).
+       */
+      kind: "composite";
+      delete_ids: string[];
+      add_ids: string[];
+    }
   | { kind: "inline" }
   | { kind: "unknown" };
 
-const SECTION_LIST = "([\\w.,\\s-]+?)";
+// Clause-level patterns that find delete/add clauses ANYWHERE in the
+// action text (not just immediately after "amended by"). Earlier bills
+// always opened delete/add with `amended by`, but Transportation Code
+// rewrites (260449) emit composite actions like `… amended by revising
+// Sections 6.1 … and by adding Section 6.18 deleting Sections 6.2-6.18,
+// and by adding Sections 6.2-6.10 to read as follows: …` where the
+// delete clause has no `amended by` prefix and several add clauses are
+// chained. Loose matching catches every clause; the boundary lookahead
+// stops at the next clause delimiter (`and by`, `deleting`, the
+// closing `to read as follows`, or `of the <Code>` tail).
+const CLAUSE_BOUNDARY =
+  "(?=\\s+and\\s+by\\s+|\\s+deleting\\s+|\\s*,?\\s*to\\s+read\\s+as\\s+follows|\\s*,?\\s+of\\s+the\\b|\\.(?=\\s|$)|$)";
 
-// "amended by deleting Section X" / "deleting Sections X and Y" /
-// "deleting Sections X, Y, and Z". Stops at the next clause boundary
-// ("to read", "of the", period, end of string).
-const DELETE_RE = new RegExp(
-  `\\bamended\\s+by\\s+deleting\\s+Sections?\\s+${SECTION_LIST}(?:\\s*,?\\s*to\\s+read\\s+as\\s+follows|\\s*,?\\s*of\\s+the\\b|\\.(?=\\s|$)|$)`,
-  "i",
+const DELETE_CLAUSE_RE = new RegExp(
+  `\\bdeleting\\s+Sections?\\s+([\\w.,\\s-]+?)${CLAUSE_BOUNDARY}`,
+  "gi",
 );
 
-// "amended by adding Section X" / "adding a new Section X" / list form.
-const ADD_RE = new RegExp(
-  `\\bamended\\s+by\\s+adding\\s+(?:a\\s+new\\s+)?Sections?\\s+${SECTION_LIST}(?:\\s*,?\\s*to\\s+read\\s+as\\s+follows|\\s*,?\\s*of\\s+the\\b|\\.(?=\\s|$)|$)`,
-  "i",
+const ADD_CLAUSE_RE = new RegExp(
+  `\\b(?:by\\s+)?adding\\s+(?:a\\s+new\\s+)?Sections?\\s+([\\w.,\\s-]+?)${CLAUSE_BOUNDARY}`,
+  "gi",
 );
 
-// "amended to read as follows" / "amended by revising Section X" —
-// the standard inline-amendment phrasing. Don't match wholesale here.
 const INLINE_RE = /\b(?:amended\s+to\s+read|by\s+revising\s+Sections?\s+)/i;
 
+function collectClauseIds(re: RegExp, action: string): string[] {
+  re.lastIndex = 0;
+  const ids: string[] = [];
+  let m: RegExpExecArray | null = re.exec(action);
+  while (m !== null) {
+    if (m[1] !== undefined) {
+      for (const id of parseSectionList(m[1])) {
+        if (!ids.includes(id)) ids.push(id);
+      }
+    }
+    m = re.exec(action);
+  }
+  return ids;
+}
+
 export function classifySectionAction(action: string): WholesaleAction {
-  const del = action.match(DELETE_RE);
-  if (del && del[1] !== undefined) {
-    const ids = parseSectionList(del[1]);
-    if (ids.length > 0) return { kind: "delete", section_ids: ids };
+  const deleteIds = collectClauseIds(DELETE_CLAUSE_RE, action);
+  const addIds = collectClauseIds(ADD_CLAUSE_RE, action);
+  if (deleteIds.length > 0 && addIds.length > 0) {
+    return { kind: "composite", delete_ids: deleteIds, add_ids: addIds };
   }
-  const add = action.match(ADD_RE);
-  if (add && add[1] !== undefined) {
-    const ids = parseSectionList(add[1]);
-    if (ids.length > 0) return { kind: "add", section_ids: ids };
-  }
+  if (deleteIds.length > 0) return { kind: "delete", section_ids: deleteIds };
+  if (addIds.length > 0) return { kind: "add", section_ids: addIds };
   if (INLINE_RE.test(action)) return { kind: "inline" };
   return { kind: "unknown" };
 }
 
-// "515 and 516" → ["515", "516"]
-// "515, 516, and 517" → ["515", "516", "517"]
-// "10.04.020" → ["10.04.020"]
 function parseSectionList(raw: string): string[] {
   return raw
     .replace(/\band\b/gi, ",")
@@ -498,78 +483,140 @@ function parseSectionList(raw: string): string[] {
 
 type WholesaleResult = {
   spans: TextDiffSpan[];
-  outcomes: AnchorOutcome[];
+  outcomes: Array<{
+    section_id: SectionId;
+    status: AnchorOutcomeStatus;
+    detail?: string;
+  }>;
 };
 
-function synthesizeWholesaleSpans(
+function synthesizeWholesale(
   bill: Bill,
+  partitions: readonly SectionPartitionEntry[],
   baselineLookup: CorpusBaselineLookup,
+  parseResult: ParseBillResult,
 ): WholesaleResult {
   const spans: TextDiffSpan[] = [];
-  const outcomes: AnchorOutcome[] = [];
-  const affectedSet = new Set<string>(bill.affected_sections);
+  const outcomes: WholesaleResult["outcomes"] = [];
+
+  // Build a quick lookup: raw_section_id (from bill body) → resolved
+  // SectionId (from the partition, only for THIS bill's module).
+  const resolvedByRaw = new Map<string, SectionId>();
+  for (const p of partitions) {
+    if (p.section_id !== null) {
+      resolvedByRaw.set(p.raw_section_id, p.section_id);
+      // Also accept the resolved id verbatim (some bills cite the
+      // corpus-tree form directly).
+      resolvedByRaw.set(p.section_id, p.section_id);
+    }
+  }
+
+  // T4: bill-body add actions on raw_ids that didn't resolve get the
+  // `added_section` outcome. Walk amendments first.
+  const unresolvedRaws = new Set<string>();
+  for (const u of parseResult.unresolved_sections) {
+    if (u.module_id === bill.module_id) unresolvedRaws.add(u.raw_section_id);
+  }
 
   for (const amendment of bill.body.amendments) {
     const cls = classifySectionAction(amendment.action);
-    if (cls.kind !== "delete" && cls.kind !== "add") continue;
+    if (cls.kind === "inline" || cls.kind === "unknown") continue;
 
-    for (const rawSid of cls.section_ids) {
-      // Only emit for sections the structural pass already flagged as
-      // affected; anything else is a parser/regex mismatch we don't
-      // want to silently invent text_diff for.
-      if (!affectedSet.has(rawSid)) continue;
-      const sid = rawSid as SectionId;
+    // Normalize to (deleteIds, addIds) — composite mode carries both
+    // populated; plain delete/add modes carry exactly one.
+    const deleteIds =
+      cls.kind === "delete" ? cls.section_ids : cls.kind === "composite" ? cls.delete_ids : [];
+    const addIds =
+      cls.kind === "add" ? cls.section_ids : cls.kind === "composite" ? cls.add_ids : [];
+    // Sections appearing in BOTH lists are wholesale rewrites — the
+    // bill deletes the old text and inserts replacement text under
+    // the same section id. Two spans + a single "rewrite" outcome.
+    const rewriteIds = new Set<string>(deleteIds.filter((id) => addIds.includes(id)));
 
-      if (cls.kind === "delete") {
-        const baseline = baselineLookup(bill.module_id, sid);
-        if (baseline === null || baseline === undefined || baseline.length === 0) {
-          outcomes.push({
-            file_no: bill.file_no,
-            module_id: bill.module_id,
-            section_id: sid,
-            status: "no_baseline",
-            detail: "wholesale delete — corpus baseline missing",
-          });
-          continue;
-        }
-        spans.push({
-          op: "delete",
-          text: baseline,
-          section_id: sid,
-          anchor: { baseline_offset: 0, baseline_length: baseline.length },
-        });
+    for (const rawSid of deleteIds) {
+      const resolved = resolvedByRaw.get(rawSid);
+      if (resolved === undefined) continue;
+      const baseline = baselineLookup(bill.module_id, resolved);
+      if (baseline === null || baseline === undefined || baseline.length === 0) {
         outcomes.push({
-          file_no: bill.file_no,
-          module_id: bill.module_id,
-          section_id: sid,
+          section_id: resolved,
+          status: "no_baseline",
+          detail: "wholesale delete — corpus baseline missing",
+        });
+        continue;
+      }
+      spans.push({
+        op: "delete",
+        text: baseline,
+        section_id: resolved,
+        anchor: { baseline_offset: 0, baseline_length: baseline.length },
+      });
+      if (rewriteIds.has(rawSid)) {
+        // Pair with an insert span below; emit a single combined outcome.
+        const insertText = extractAddedSectionText(amendment.body, rawSid);
+        if (insertText.length > 0) {
+          spans.push({
+            op: "insert",
+            text: insertText,
+            section_id: resolved,
+            anchor: { baseline_offset: baseline.length, baseline_length: 0 },
+          });
+        }
+        outcomes.push({
+          section_id: resolved,
+          status: "anchored",
+          detail: "whole-section rewrite",
+        });
+      } else {
+        outcomes.push({
+          section_id: resolved,
           status: "anchored",
           detail: "whole-section delete",
         });
-      } else {
-        // add
+      }
+    }
+
+    for (const rawSid of addIds) {
+      if (rewriteIds.has(rawSid)) continue; // handled in the delete loop
+      const resolved = resolvedByRaw.get(rawSid);
+      if (resolved !== undefined) {
+        // add against a section that ALREADY exists in the corpus
+        // (and isn't part of a paired delete) is pathological — the
+        // bill is creating something that already exists. Either a
+        // data inconsistency or a parser miss on the paired delete
+        // clause. Surface as classification_low_confidence so the
+        // operator audits; we don't synthesize spans here because a
+        // length-0 insert at offset 0 would silently prepend the new
+        // text in front of the existing baseline.
+        outcomes.push({
+          section_id: resolved,
+          status: "classification_low_confidence",
+          detail: "wholesale add targets a section that already exists in the corpus",
+        });
+        continue;
+      }
+
+      // Not resolved against any installed section. If the bill is an
+      // ADD and the raw id was unresolved, this is the added_section
+      // case (T4): the bill creates the section.
+      if (unresolvedRaws.has(rawSid)) {
         const insertText = extractAddedSectionText(amendment.body, rawSid);
         if (insertText.length === 0) {
-          outcomes.push({
-            file_no: bill.file_no,
-            module_id: bill.module_id,
-            section_id: sid,
-            status: "alignment_failed",
-            detail: "wholesale add — bill body for this section is empty",
-          });
+          // The bill body parser produced no text for this section.
+          // Leave the outcome unemitted; the inline loop will surface
+          // it as `unresolved` via the null-section_id partition path.
           continue;
         }
         spans.push({
           op: "insert",
           text: insertText,
-          section_id: sid,
+          section_id: rawSid as SectionId,
           anchor: { baseline_offset: 0, baseline_length: 0 },
         });
         outcomes.push({
-          file_no: bill.file_no,
-          module_id: bill.module_id,
-          section_id: sid,
-          status: "anchored",
-          detail: "whole-section add",
+          section_id: rawSid as SectionId,
+          status: "added_section",
+          detail: "bill adds a new section",
         });
       }
     }
@@ -579,10 +626,7 @@ function synthesizeWholesaleSpans(
 }
 
 // Slice the OrdinanceBlock subtree belonging to a single section out
-// of the AMEND group's body. body.amendments[i].body is a flat list
-// that may interleave multiple code_section_header blocks when one
-// AMEND group adds several sections — walk until the next
-// code_section_header or end.
+// of the AMEND group's body.
 function extractAddedSectionText(blocks: readonly OrdinanceBlock[], sectionNumber: string): string {
   const collected: OrdinanceBlock[] = [];
   let inside = false;

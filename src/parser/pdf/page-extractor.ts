@@ -37,9 +37,29 @@ export type TextRun = {
   height: number;
 };
 
+export type ExtractTextRunsOptions = {
+  /**
+   * Drop runs whose baseline y is at or below this user-space value.
+   * SF Legistar's PDF template paints the page-bottom signature footer
+   * (sponsor block + `BOARD OF SUPERVISORS` + `Page N` + iManage doc id)
+   * at y ≤ 56 with body content at y ≥ 88, so a threshold around 70
+   * filters every footer run while leaving body untouched. Layout-aware
+   * filtering here is upstream of every chrome-handling regex: it kills
+   * a whole class of "footer interleaves into body" bugs that
+   * document-order extraction would otherwise create on every page
+   * boundary. Default is `undefined` (no filtering) — callers opt in
+   * with a jurisdiction-specific value.
+   */
+  footer_y_max?: number;
+};
+
 /** Walk all pages and yield every text run in document order. */
-export async function extractTextRuns(doc: PDFDocumentProxy): Promise<TextRun[]> {
+export async function extractTextRuns(
+  doc: PDFDocumentProxy,
+  options: ExtractTextRunsOptions = {},
+): Promise<TextRun[]> {
   const out: TextRun[] = [];
+  const footerY = options.footer_y_max;
   for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
     const page = await doc.getPage(pageNum);
     try {
@@ -54,6 +74,7 @@ export async function extractTextRuns(doc: PDFDocumentProxy): Promise<TextRun[]>
         const transform = item.transform;
         const tx = Array.isArray(transform) && typeof transform[4] === "number" ? transform[4] : 0;
         const ty = Array.isArray(transform) && typeof transform[5] === "number" ? transform[5] : 0;
+        if (footerY !== undefined && ty <= footerY) continue;
         out.push({
           page: pageNum,
           text: item.str,
@@ -77,6 +98,13 @@ export async function extractTextRuns(doc: PDFDocumentProxy): Promise<TextRun[]>
  * end an EOL marker, otherwise just spaces. Lossy but enough for the
  * structural-pass regex matcher (which cares about line anchors and
  * Code/Charter words, not exact spacing).
+ *
+ * NOTE: the offset-aware variant lives in
+ * `src/parser/bills/run-offset-map.ts` as `runsToTextWithOffsets` and
+ * implements the same algorithm. Callers that need the per-run offset
+ * map (the build-time anchorer) use that variant; the structural pass
+ * and body parser stay on this text-only entry point. Both functions
+ * must remain in sync — change one, change the other.
  */
 export function runsToText(runs: readonly TextRun[]): string {
   const out: string[] = [];

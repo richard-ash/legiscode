@@ -210,4 +210,51 @@ describe("cleanupOrdinanceText — paragraph reflow", () => {
     expect(out).not.toContain("Sherrill");
     expect(out).toContain("In case such minor has no regularly appointed legal guardian");
   });
+
+  it("strips a co-sponsor sponsor block led by the Mayor (260538 regression)", () => {
+    // Files 260538 / 260449 are co-introduced by the Mayor; their
+    // footer signature reads `Mayor Lurie; Supervisors Melgar, …`.
+    // The original `INLINE_SPONSOR_REPRINT` only anchored on
+    // `Supervisors` and left `Mayor Lurie;` behind, which then bled
+    // into amendment intros and section bodies as spurious tokens.
+    const input =
+      "Section 4. Article 4 of the Planning Code is hereby amended by revising Sections Mayor Lurie; Supervisors Melgar, Dorsey, Sherrill, Sauter 413.6, to read as follows:";
+    const out = cleanupOrdinanceText(input);
+    expect(out).not.toContain("Mayor Lurie");
+    expect(out).not.toContain("Supervisors");
+    expect(out).not.toContain("Melgar");
+    expect(out).toContain(
+      "Section 4. Article 4 of the Planning Code is hereby amended by revising Sections 413.6, to read as follows:",
+    );
+  });
+
+  it("strips a trailing Mayor signature that drifted to end-of-line (260538 §6.16 shape)", () => {
+    // When the page-bottom signature footer's content-stream slot
+    // precedes the body of the NEXT page, the trailing `Mayor <Name>`
+    // ends up appended to whatever line preceded the page boundary.
+    // No `Supervisors` follows because that token lands on a
+    // separate line. Strip the standalone `Mayor <Name>` trailer.
+    const input = [
+      "SEC. 6.16. TEMPORARY STREET CLOSURES FOR ROADWAY SHARED SPACE Mayor Lurie",
+      "BOARD OF SUPERVISORS  Page 28",
+      "ACTIVITIES.",
+    ].join("\n");
+    const out = cleanupOrdinanceText(input);
+    expect(out).not.toContain("Mayor Lurie");
+    expect(out).not.toContain("BOARD OF SUPERVISORS");
+    expect(out).toContain("SEC. 6.16. TEMPORARY STREET CLOSURES FOR ROADWAY SHARED SPACE");
+  });
+
+  it("does not eat the phrase 'Mayor Lurie' from body prose ending with a period", () => {
+    // The trailing-Mayor strip is anchored on end-of-line; body
+    // sentences like "introduced by Mayor Lurie." (period before
+    // newline) must survive to avoid clobbering legitimate ordinance
+    // language that names the Mayor.
+    const input = [
+      "This ordinance was introduced by Mayor Lurie.",
+      "Further amendments follow.",
+    ].join("\n");
+    const out = cleanupOrdinanceText(input);
+    expect(out).toContain("introduced by Mayor Lurie.");
+  });
 });

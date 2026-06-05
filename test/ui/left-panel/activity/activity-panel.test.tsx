@@ -7,10 +7,21 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CorpusModuleSummary } from "@/corpus/wire";
-import { type Bill, BillSchema } from "@/types";
+import { type Bill, BillSchema, deriveParseStatus, type SectionId } from "@/types";
 import { ActivityPanel } from "@/ui/left-panel/activity/activity-panel";
+import { outcomesFromAffectedSections } from "../../../helpers/section-outcomes";
 
-function makeBill(over: Partial<Bill> = {}): Bill {
+function makeBill(over: Partial<Bill> & { affected_sections?: SectionId[] } = {}): Bill {
+  const { affected_sections, ...rest } = over;
+  const explicitParseStatus = rest.parse_status;
+  const sectionOutcomes =
+    rest.section_outcomes ??
+    outcomesFromAffectedSections(
+      affected_sections ?? (["1.1", "1.2"] as SectionId[]),
+      explicitParseStatus ?? "manual_review",
+    );
+  const hasStructural = explicitParseStatus === "structural_change";
+  const derivedStatus = deriveParseStatus(sectionOutcomes, hasStructural);
   return BillSchema.parse({
     file_no: "260217",
     module_id: "sf-port",
@@ -21,12 +32,12 @@ function makeBill(over: Partial<Bill> = {}): Bill {
     legistar_url: "https://e/d?ID=1&GUID=g",
     legistar_status: "Pending",
     bill_status: "committee",
-    affected_sections: ["1.1", "1.2"],
     text_diff: [],
-    parse_status: "manual_review",
-    structural_change_scope: null,
+    structural_change_scope: hasStructural ? (rest.structural_change_scope ?? "structural") : null,
     body: { preamble: "", amendments: [], closing: "" },
-    ...over,
+    ...rest,
+    section_outcomes: sectionOutcomes,
+    parse_status: derivedStatus,
   } as Bill);
 }
 

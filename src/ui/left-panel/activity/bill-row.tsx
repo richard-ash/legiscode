@@ -24,7 +24,7 @@ export interface BillRowProps {
   codeLabel: string | null;
   /** The list of section ids this bill touches across modules, in
    *  display order. Rendered as a horizontal strip of chips at the
-   *  bottom of the row. Empty when no module has affected_sections. */
+   *  bottom of the row. Empty when no module has touched sections. */
   touches: ReadonlyArray<string>;
   onOpen: (fileNo: string, mode: "primary" | "background") => void;
   onFocusRequest: (fileNo: string) => void;
@@ -101,7 +101,7 @@ export const BillRow = memo(BillRowImpl);
 BillRow.displayName = "BillRow";
 
 // Class B (non-code) bill row — backed by BillMeta only (no parsed
-// body, no affected_sections, no module_id). Click opens Legistar in
+// body, no section_outcomes, no module_id). Click opens Legistar in
 // the platform browser; there's no per-bill detail tab to render
 // because the renderer has no parsed text to show. Per the v1.0
 // deferral, full Class B parsing is a follow-up (TODOS.md).

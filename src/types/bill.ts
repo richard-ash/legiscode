@@ -266,27 +266,145 @@ export const OrdinanceBodySchema = z
 
 export type OrdinanceBody = z.infer<typeof OrdinanceBodySchema>;
 
-// Bill — one per (matter, module). A multi-code bill emits N Bills, one
-// per module it touches. text_diff[] is the inline-diff content (empty
-// in v1; the inline-diff PR — see commit-plan footnote 11 of the locked
-// design — populates it). affected_sections lists the section_ids the
-// bill touches inside this module, derived from the structural pass;
-// it's separate from text_diff so the renderer can show "this bill
-// touches §A and §B" without depending on inline diff content. The
-// renderer in this PR consumes affected_sections + parse_status; the
-// inline-diff renderer consumes text_diff[].
+// SectionOutcome — per-section diff status. One entry for every
+// (corpus, target_section) pair the structural pass identified inside
+// this Bill's module. Replaces the legacy flat `affected_sections`
+// array: where the old shape said "this bill touches §A and §B," the
+// new shape says "this bill touches §A (anchored), §B (added_section)."
+// The renderer reads .map(o => o.section_id) when it just needs the
+// touched-set (chip list, activity panel touches strip) and reads
+// .status when it needs to know whether a per-section diff renders.
 //
-// parse_status semantics (3 buckets):
-//   ok                — full inline diff was parsed cleanly
-//                       (text_diff[] non-empty, no manual review needed)
-//   manual_review     — structural pass succeeded but the typography
-//                       decoder couldn't produce a clean diff
-//                       (text_diff[] may be empty; renderer shows
-//                       "see original PDF" affordance)
-//   structural_change — full-chapter repeal / chapter creation; no
-//                       per-section diff is meaningful
-//                       (text_diff[] empty; structural_change_scope
-//                       describes what changes)
+// Status enum (designed general; new outcomes append here as new
+// causes surface):
+//   anchored                      — text_diff for this section is
+//                                   populated and renderable.
+//   classification_low_confidence — typography classifier emitted ≥1
+//                                   ambiguous decoration span for this
+//                                   section, OR the bill body asserts
+//                                   a structural action (wholesale add
+//                                   on a section that already exists)
+//                                   that needs operator audit. Either
+//                                   way the diff was suppressed to
+//                                   avoid lying.
+//   no_baseline                   — corpus baseline lookup miss; the
+//                                   section_id didn't exist in the
+//                                   loaded module's section index.
+//   structural                    — full-chapter / -article action;
+//                                   per-section diff is not meaningful.
+//   added_section                 — bill body adds this section
+//                                   wholesale. text_diff for this
+//                                   section is the whole inserted text.
+//   unresolved                    — raw_section_id from the bill body
+//                                   didn't resolve against any
+//                                   installed module's section index
+//                                   AND the bill body didn't classify
+//                                   it as added_section.
+//   absorbed_external             — AmLegal codifies the change and
+//                                   surfaces it under the corpus tree;
+//                                   the renderer points the reader at
+//                                   the codified text instead of an
+//                                   inline diff.
+export const SectionOutcomeStatusSchema = z.enum([
+  "anchored",
+  "classification_low_confidence",
+  "no_baseline",
+  "structural",
+  "added_section",
+  "unresolved",
+  "absorbed_external",
+]);
+
+export type SectionOutcomeStatus = z.infer<typeof SectionOutcomeStatusSchema>;
+
+export const SectionOutcomeSchema = z
+  .object({
+    section_id: SectionIdSchema,
+    status: SectionOutcomeStatusSchema,
+    /** Human-readable cause for operator logs. Optional — present when
+     *  the cause is non-obvious (e.g. "3 ambiguous-decoration span(s)"
+     *  for `classification_low_confidence`). */
+    detail: z.string().min(1).nullable().default(null),
+  })
+  .strict();
+
+export type SectionOutcome = z.infer<typeof SectionOutcomeSchema>;
+
+// parse_status — derived 6-value summary computed from section_outcomes
+// + structural-pass discriminator. Designed general; new values append
+// when new SectionOutcomeStatus values surface:
+//
+//   ok                 — every outcome is `anchored` or `added_section`.
+//                        text_diff covers every touched section.
+//   partial            — at least one outcome is anchored/added_section
+//                        AND at least one outcome is not. Renderer
+//                        shows the inline diff on the anchored sections,
+//                        a per-section banner on the non-anchored ones.
+//   manual_review      — every outcome is a non-rendering failure
+//                        (classification_low_confidence, no_baseline,
+//                        unresolved). Renderer shows the existing
+//                        manual-review affordance.
+//   structural_change  — bill performs a whole-chapter / -article
+//                        action; per-section diff isn't meaningful.
+//                        structural_change_scope is set.
+//   absorbed_external  — every outcome is absorbed_external. AmLegal
+//                        owns the codification; renderer points the
+//                        reader at the corpus tree instead of a diff.
+//   body_only          — section_outcomes is empty (no section targets
+//                        identified). Common shape: a bill that adds a
+//                        new section in a module whose structural
+//                        pattern doesn't bind to any section header
+//                        (260300, 260570 patterns). Renderer shows the
+//                        ordinance body; no diff and no manual-review
+//                        banner.
+export const ParseStatusSchema = z.enum([
+  "ok",
+  "partial",
+  "manual_review",
+  "structural_change",
+  "absorbed_external",
+  "body_only",
+]);
+
+export type ParseStatus = z.infer<typeof ParseStatusSchema>;
+
+/**
+ * Derive parse_status from section_outcomes + the structural-action
+ * discriminator. Pure, deterministic; canonical computation used by
+ * both the build-time anchorer and consumers that re-derive after
+ * mutating outcomes (no consumer mutates outcomes today, but the rule
+ * is one-way: outcomes → status, never the other direction).
+ */
+export function deriveParseStatus(
+  outcomes: readonly SectionOutcome[],
+  hasStructuralAction: boolean,
+): ParseStatus {
+  if (hasStructuralAction) return "structural_change";
+  if (outcomes.length === 0) return "body_only";
+  let renderable = 0;
+  let absorbed = 0;
+  for (const o of outcomes) {
+    if (o.status === "anchored" || o.status === "added_section") renderable++;
+    else if (o.status === "absorbed_external") absorbed++;
+  }
+  if (absorbed === outcomes.length) return "absorbed_external";
+  if (renderable === outcomes.length) return "ok";
+  if (renderable > 0) return "partial";
+  return "manual_review";
+}
+
+// Bill — one per (matter, module). A multi-code bill emits N Bills, one
+// per module it touches. text_diff[] is the inline-diff content
+// (populated per-anchored-section by the build-time anchorer);
+// section_outcomes lists every section the structural pass identified
+// inside this module with its per-section diff status. The renderer
+// reads section_outcomes for both the touched-set (chip list, activity
+// panel touches strip) and the per-section diff visibility decision.
+//
+// parse_status is DERIVED from section_outcomes (see deriveParseStatus
+// above). It still ships on disk so consumers don't have to recompute,
+// but a refine() invariant guarantees it matches the per-section
+// breakdown.
 export const BillSchema = z
   .object({
     file_no: z.string().min(1),
@@ -298,27 +416,46 @@ export const BillSchema = z
     legistar_url: z.url(),
     legistar_status: z.string().min(1),
     bill_status: BillStatusSchema,
-    affected_sections: z.array(SectionIdSchema),
+    /** One entry per (target_section) inside this module. Replaces the
+     *  legacy flat `affected_sections` array; consumers that want the
+     *  flat touched-set read `.map(o => o.section_id)`. */
+    section_outcomes: z.array(SectionOutcomeSchema),
     text_diff: TextDiffSchema,
-    parse_status: z.enum(["ok", "manual_review", "structural_change"]),
+    parse_status: ParseStatusSchema,
     /** Free-text scope description; only set when parse_status === "structural_change". */
     structural_change_scope: z.string().min(1).nullable(),
-    /** Structured document body produced by the body parser. Replaces
-     *  the pre-Layer-2 `proposed_text` string with preamble + per-AMEND
-     *  amendments + closing. Always present and always renderable — the
-     *  fallback shape `{ preamble: <all cleaned text>, amendments: [],
-     *  closing: "" }` is emitted when the structural pass found no
-     *  groups (rare; non-AMEND ordinance), so the renderer never has
-     *  to branch on null. Layer 3 typography colorization will sit
-     *  on top by replacing paragraph/subsection prose with text_diff
-     *  spans. */
+    /** Structured document body produced by the body parser. Always
+     *  present and always renderable — fallback shape is `{ preamble:
+     *  <all cleaned text>, amendments: [], closing: "" }`. */
     body: OrdinanceBodySchema,
   })
   .strict()
-  .refine((b) => b.parse_status !== "ok" || b.text_diff.length > 0, {
-    message: "text_diff must be non-empty when parse_status is 'ok'",
-    path: ["text_diff"],
-  })
+  .refine(
+    (b) =>
+      b.parse_status ===
+      deriveParseStatus(b.section_outcomes, b.parse_status === "structural_change"),
+    {
+      message: "parse_status must match deriveParseStatus(section_outcomes, hasStructuralAction)",
+      path: ["parse_status"],
+    },
+  )
+  .refine(
+    (b) => {
+      // text_diff is non-empty for every renderable outcome
+      // (anchored / added_section). The TEXT_DIFF presence test
+      // covers the parse_status=ok and parse_status=partial cases
+      // uniformly.
+      const renderable = b.section_outcomes.filter(
+        (o) => o.status === "anchored" || o.status === "added_section",
+      ).length;
+      if (renderable === 0) return true; // no claim of renderable content
+      return b.text_diff.length > 0;
+    },
+    {
+      message: "text_diff must be non-empty when any outcome is anchored or added_section",
+      path: ["text_diff"],
+    },
+  )
   .refine(
     (b) =>
       b.parse_status === "structural_change"

@@ -1,7 +1,9 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { AnchorOutcome } from "@/parser/bills/emit-diff";
 import { KNOWN_SCHEMA_VERSION } from "@/types";
+import { computeOkRateGate } from "../scripts/sync-bills";
 
 const REPO_ROOT = resolve(__dirname, "..");
 
@@ -181,6 +183,91 @@ describe("baseline grep gates", () => {
       .split("\n")
       .filter((line) => /^\s*import\b/.test(line) && !/^\s*\/\//.test(line));
     const offenders = importLines.filter((line) => !/^\s*import\s+type\b/.test(line));
+    expect(offenders).toEqual([]);
+  });
+
+  it("computeOkRateGate accepts the six known data-quality statuses", () => {
+    // anchored / added_section / structural / absorbed_external — the
+    // four renderable / intentional categories. classification_low_
+    // confidence and unresolved are surfaced data-quality signals
+    // (operator-audited or corpus-staleness), not parser regressions.
+    const outcomes: AnchorOutcome[] = [
+      { file_no: "1", module_id: "m", section_id: "s1", status: "anchored" },
+      { file_no: "1", module_id: "m", section_id: "s2", status: "added_section" },
+      { file_no: "2", module_id: "m", section_id: "s3", status: "structural" },
+      { file_no: "3", module_id: "m", section_id: "s4", status: "absorbed_external" },
+      {
+        file_no: "4",
+        module_id: "m",
+        section_id: "s5",
+        status: "classification_low_confidence",
+      },
+      { file_no: "5", module_id: "m", section_id: "s6", status: "unresolved" },
+    ];
+    const v = computeOkRateGate(outcomes);
+    expect(v.pass).toBe(true);
+    expect(v.ok_outcomes).toBe(6);
+    expect(v.total_outcomes).toBe(6);
+    expect(v.failures).toEqual([]);
+  });
+
+  it("computeOkRateGate fails on no_baseline (true parser/corpus regression)", () => {
+    // no_baseline means the parser knew the section_id but the corpus
+    // had no text for it — a true regression that warrants gate
+    // failure per project_legal_corpus_zero_skip.
+    const outcomes: AnchorOutcome[] = [
+      { file_no: "1", module_id: "m", section_id: "s1", status: "anchored" },
+      { file_no: "3", module_id: "m", section_id: "s4", status: "no_baseline" },
+    ];
+    const v = computeOkRateGate(outcomes);
+    expect(v.pass).toBe(false);
+    expect(v.ok_outcomes).toBe(1);
+    expect(v.total_outcomes).toBe(2);
+    expect(v.failures).toHaveLength(1);
+    expect(v.failures[0]?.status).toBe("no_baseline");
+  });
+
+  it("computeOkRateGate passes a zero-outcome corpus (no bills with section_outcomes)", () => {
+    const v = computeOkRateGate([]);
+    expect(v.pass).toBe(true);
+    expect(v.total_outcomes).toBe(0);
+  });
+
+  it("no Bill consumer reads `bill.affected_sections` (replaced by section_outcomes)", () => {
+    // Bill.affected_sections was removed in feat/diff-completeness; the
+    // touched-set is now sourced from `Bill.section_outcomes.map(o =>
+    // o.section_id)`. LegalInstrumentEntry.affected_sections is a
+    // separate field on a separate schema and is intentionally kept.
+    //
+    // The gate matches the literal field name in src/ + electron/ +
+    // scripts/, with explicit allow-list entries for schemas whose
+    // `affected_sections` is unrelated to Bill.
+    const sourceFiles = [
+      ...walk(join(REPO_ROOT, "src"), [".ts", ".tsx"]),
+      ...walk(join(REPO_ROOT, "electron"), [".ts", ".tsx"]),
+      ...walk(join(REPO_ROOT, "scripts"), [".ts", ".tsx"]),
+    ];
+    const ALLOW = new Set([
+      // LegalInstrumentEntry / ordinance-history schemas legitimately
+      // carry an `affected_sections` field for the corpus ordinance log.
+      "src/types/legal-instrument-entry.ts",
+      "src/types/ordinance-history.ts",
+    ]);
+    const offenders: Array<{ file: string; line: string }> = [];
+    for (const f of sourceFiles) {
+      const rel = relative(REPO_ROOT, f);
+      if (ALLOW.has(rel)) continue;
+      const text = read(f);
+      const lines = text.split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i] ?? "";
+        // Skip line comments + jsdoc bodies (mid-block `*` lines).
+        if (/^\s*(\/\/|\*|\/\*)/.test(line)) continue;
+        if (/\baffected_sections\b/.test(line)) {
+          offenders.push({ file: rel, line: line.trim() });
+        }
+      }
+    }
     expect(offenders).toEqual([]);
   });
 });

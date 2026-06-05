@@ -29,9 +29,11 @@
 import type { KeyboardEvent, MouseEvent } from "react";
 import type { Bill, SectionId } from "@/types";
 import { STATUS_LABEL, STATUS_TONE } from "@/ui/bill-status";
+import { billHasDiffForSection } from "@/ui/diff/bill-section-diff";
+import { PerSectionBanner } from "@/ui/diff-view/banner";
 
 export interface SectionPendingRailProps {
-  /** Pending Bill rows whose `affected_sections` include this section.
+  /** Pending Bill rows whose `section_outcomes` include this section.
    *  Empty array suppresses the rail entirely. */
   bills: ReadonlyArray<Bill>;
   /** The section currently in view. Used to decide per-row whether
@@ -49,11 +51,6 @@ export interface SectionPendingRailProps {
    *  Used when the bill's parse_status isn't `ok` or no text_diff spans
    *  anchor to this section. */
   overlayUnavailable?: boolean;
-}
-
-function billHasDiffForSection(bill: Bill, sectionId: SectionId): boolean {
-  if (bill.parse_status !== "ok") return false;
-  return bill.text_diff.some((span) => span.section_id === sectionId);
 }
 
 export function SectionPendingRail({
@@ -142,8 +139,31 @@ export function SectionPendingRail({
                 </div>
               ) : null}
               {showUnavailable ? (
-                <div className="lc-section-pending-rail-unavailable" role="note">
-                  We couldn't compute changes for this section under Ord. {bill.file_no}.
+                <div className="lc-section-pending-rail-unavailable">
+                  {(() => {
+                    const outcome = bill.section_outcomes.find((o) => o.section_id === sectionId);
+                    // For non-renderable outcomes, surface the
+                    // specific per-section banner copy. For absent
+                    // outcomes or the defensive case where the
+                    // outcome reads "anchored" but overlayUnavailable
+                    // is still true (corpus rebuild after overlay
+                    // activated), fall back to the generic message.
+                    if (!outcome || outcome.status === "anchored") {
+                      return (
+                        <span role="note">
+                          We couldn't compute changes for this section under Ord. {bill.file_no}.
+                        </span>
+                      );
+                    }
+                    return (
+                      <PerSectionBanner
+                        status={outcome.status}
+                        fileNo={bill.file_no}
+                        sectionId={sectionId}
+                        detailOverride={outcome.detail ?? undefined}
+                      />
+                    );
+                  })()}
                 </div>
               ) : null}
             </li>

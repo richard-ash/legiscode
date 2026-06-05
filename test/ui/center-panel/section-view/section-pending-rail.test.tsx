@@ -3,12 +3,23 @@
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { type Bill, BillSchema, type SectionId } from "@/types";
+import { type Bill, BillSchema, deriveParseStatus, type SectionId } from "@/types";
 import { SectionPendingRail } from "@/ui/center-panel/section-view/section-pending-rail";
+import { outcomesFromAffectedSections } from "../../../helpers/section-outcomes";
 
 const SECTION_ID = "1.1" as SectionId;
 
-function makeBill(over: Partial<Bill> = {}): Bill {
+function makeBill(over: Partial<Bill> & { affected_sections?: SectionId[] } = {}): Bill {
+  const { affected_sections, ...rest } = over;
+  const explicitParseStatus = rest.parse_status;
+  const sectionOutcomes =
+    rest.section_outcomes ??
+    outcomesFromAffectedSections(
+      affected_sections ?? (["1.1"] as SectionId[]),
+      explicitParseStatus ?? "ok",
+    );
+  const hasStructural = explicitParseStatus === "structural_change";
+  const derivedStatus = deriveParseStatus(sectionOutcomes, hasStructural);
   return BillSchema.parse({
     file_no: "260217",
     module_id: "sf-port",
@@ -19,7 +30,6 @@ function makeBill(over: Partial<Bill> = {}): Bill {
     legistar_url: "https://e/d?ID=1&GUID=g",
     legistar_status: "Pending",
     bill_status: "committee",
-    affected_sections: ["1.1"],
     text_diff: [
       {
         section_id: "1.1",
@@ -28,10 +38,11 @@ function makeBill(over: Partial<Bill> = {}): Bill {
         anchor: { baseline_offset: 0, baseline_length: 0 },
       },
     ],
-    parse_status: "ok",
-    structural_change_scope: null,
+    structural_change_scope: hasStructural ? (rest.structural_change_scope ?? "structural") : null,
     body: { preamble: "", amendments: [], closing: "" },
-    ...over,
+    ...rest,
+    section_outcomes: sectionOutcomes,
+    parse_status: derivedStatus,
   } as Bill);
 }
 
@@ -208,6 +219,37 @@ describe("SectionPendingRail — overlay toggle (variant B)", () => {
     expect(screen.getByText(/as if Ord\. 260200 had passed/i)).toBeInTheDocument();
   });
 
+  it("when overlayUnavailable AND the section has a specific non-renderable outcome, the banner surfaces that reason", () => {
+    // Partial bill: section 1.1 isn't anchored — outcome is
+    // `classification_low_confidence`. The rail surfaces the SPECIFIC
+    // banner copy instead of the generic "couldn't compute changes"
+    // string.
+    render(
+      <SectionPendingRail
+        bills={[
+          makeBill({
+            section_outcomes: [
+              {
+                section_id: "1.1" as SectionId,
+                status: "classification_low_confidence",
+                detail: null,
+              },
+            ],
+            // text_diff must be empty when no renderable outcomes
+            // (the schema refine requires it).
+            text_diff: [],
+          }),
+        ]}
+        sectionId={SECTION_ID}
+        activeOverlayBillId={"260217"}
+        onToggleOverlay={vi.fn()}
+        onOpenBill={vi.fn()}
+        overlayUnavailable
+      />,
+    );
+    expect(screen.getByTestId("diff-banner-classification_low_confidence")).toBeInTheDocument();
+  });
+
   it("when overlayUnavailable is true, the row shows the unavailable reason in place of the explainer", () => {
     render(
       <SectionPendingRail
@@ -282,6 +324,63 @@ describe("SectionPendingRail — toggle gating (parse_status + diff coverage)", 
   it("renders the toggle when parse_status is ok AND a diff span anchors to this section", () => {
     render(<SectionPendingRail bills={[makeBill()]} {...RESTING} onOpenBill={vi.fn()} />);
     expect(screen.getByRole("button", { name: /view this section as if/i })).toBeInTheDocument();
+  });
+
+  it("partial bill: shows the toggle when THIS section is anchored even though another section fell back", () => {
+    // Bill is `partial` — section A anchored, section B failed.
+    // When the rail renders for section A, the toggle shows; section
+    // B's outcome doesn't suppress the rail for A.
+    render(
+      <SectionPendingRail
+        bills={[
+          makeBill({
+            section_outcomes: [
+              { section_id: "1.1", status: "anchored", detail: null },
+              { section_id: "1.2", status: "classification_low_confidence", detail: null },
+            ],
+            text_diff: [
+              {
+                section_id: "1.1",
+                op: "insert",
+                text: "new",
+                anchor: { baseline_offset: 0, baseline_length: 0 },
+              },
+            ],
+          }),
+        ]}
+        {...RESTING}
+        onOpenBill={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /view this section as if/i })).toBeInTheDocument();
+  });
+
+  it("partial bill, rail on a failed section: toggle is suppressed (anchored elsewhere doesn't count)", () => {
+    render(
+      <SectionPendingRail
+        bills={[
+          makeBill({
+            section_outcomes: [
+              { section_id: "1.1", status: "anchored", detail: null },
+              { section_id: "1.2", status: "classification_low_confidence", detail: null },
+            ],
+            text_diff: [
+              {
+                section_id: "1.1",
+                op: "insert",
+                text: "new",
+                anchor: { baseline_offset: 0, baseline_length: 0 },
+              },
+            ],
+          }),
+        ]}
+        sectionId={"1.2" as SectionId}
+        activeOverlayBillId={null}
+        onToggleOverlay={vi.fn()}
+        onOpenBill={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /view this section as if/i })).toBeNull();
   });
 
   it("keeps the toggle visible on the active row even if hasDiff would be false (defensive — lets user clear a stale overlay)", () => {

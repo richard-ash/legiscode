@@ -17,7 +17,9 @@ function makeBill(overrides: Partial<Bill> = {}): Bill {
     legistar_url: "https://sfgov.legistar.com/LegislationDetail.aspx?ID=1&GUID=g",
     legistar_status: "Pending Committee Hearing",
     bill_status: "committee",
-    affected_sections: ["10.04.020"],
+    section_outcomes: [
+      { section_id: "10.04.020", status: "classification_low_confidence", detail: null },
+    ],
     text_diff: [],
     parse_status: "manual_review",
     structural_change_scope: null,

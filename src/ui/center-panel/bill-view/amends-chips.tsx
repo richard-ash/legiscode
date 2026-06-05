@@ -18,8 +18,8 @@ import type { OpenItem } from "@/workbench/open-items";
 
 export interface AmendsChipsProps {
   /** Every per-module Bill row for this file_no — the chips are the
-   *  flat union of every row's affected_sections, deduped by
-   *  (moduleId, sectionId). */
+   *  flat union of every row's touched sections (from section_outcomes),
+   *  deduped by (moduleId, sectionId). */
   bills: ReadonlyArray<Bill>;
   navigate: (item: OpenItem, intent: NavigationIntent) => void;
   /** Synchronous title lookup. Returns null when the ref isn't in the
@@ -28,17 +28,18 @@ export interface AmendsChipsProps {
 }
 
 export function AmendsChips({ bills, navigate, lookupSectionTitle }: AmendsChipsProps) {
-  // Flatten + dedupe like the legacy BillSectionList. The activity
-  // panel ranks chips by their order in `bills` (which is sorted upstream
-  // by (file_no, module_id)); within each module, affected_sections is
-  // already in source order from the parser.
+  // Flatten + dedupe like the legacy BillSectionList. The touched-set
+  // is sourced from section_outcomes — every section the bill touches
+  // gets a chip, regardless of per-section diff outcome (anchored,
+  // partial, manual_review, etc.). The chip's job is navigation, not
+  // diff visibility.
   const refs: CorpusRef[] = [];
   const seen = new Set<string>();
   for (const bill of bills) {
-    for (const sectionId of bill.affected_sections) {
+    for (const outcome of bill.section_outcomes) {
       let ref: CorpusRef;
       try {
-        ref = parseRef({ module: bill.module_id, section: sectionId });
+        ref = parseRef({ module: bill.module_id, section: outcome.section_id });
       } catch {
         continue;
       }

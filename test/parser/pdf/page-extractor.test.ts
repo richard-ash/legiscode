@@ -84,3 +84,47 @@ describe("extractGraphicsOps", () => {
     });
   }, 30_000);
 });
+
+describe("extractTextRuns footer_y_max", () => {
+  it("drops the SF Legistar page-bottom signature footer when footer_y_max is set", async () => {
+    // Every SF Legistar bill paints the same page-bottom footer:
+    // sponsor block, `BOARD OF SUPERVISORS`, `Page N`, and the
+    // iManage document-id line. They sit at y ≤ 56 with body
+    // content at y ≥ 88. Without filtering, document-order
+    // extraction interleaves these into body prose at every page
+    // boundary.
+    await withPdf("260544.pdf", async (bytes) => {
+      const loaded = await loadPdfBuffer(bytes);
+      try {
+        const runs = await extractTextRuns(loaded.doc, { footer_y_max: 70 });
+        // No surviving run should sit at or below the footer threshold.
+        for (const r of runs) {
+          expect(r.y).toBeGreaterThan(70);
+        }
+        // The body text we expect must still be present.
+        const joined = runs.map((r) => r.text).join(" ");
+        expect(joined).toContain("Library");
+        // The footer's stable text strings must NOT be present.
+        expect(joined).not.toContain("BOARD OF SUPERVISORS");
+      } finally {
+        await loaded.destroy();
+      }
+    });
+  }, 30_000);
+
+  it("keeps every run when footer_y_max is not set (backward compat)", async () => {
+    await withPdf("260544.pdf", async (bytes) => {
+      const loaded = await loadPdfBuffer(bytes);
+      try {
+        const all = await extractTextRuns(loaded.doc);
+        const filtered = await extractTextRuns(loaded.doc, { footer_y_max: 70 });
+        expect(all.length).toBeGreaterThan(filtered.length);
+        // Footer content surfaces in the unfiltered pass.
+        const allText = all.map((r) => r.text).join(" ");
+        expect(allText).toContain("BOARD OF SUPERVISORS");
+      } finally {
+        await loaded.destroy();
+      }
+    });
+  }, 30_000);
+});

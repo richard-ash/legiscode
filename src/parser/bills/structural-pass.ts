@@ -20,8 +20,18 @@ import type { InstalledModule } from "./scope-filter";
 // produce phantom matches. The trailing `[^.]{0,80}?` span enforces
 // "stays inside one sentence" — the spike found that letting it cross
 // periods produces false positives that swallow nested section headers.
+//
+// The verb clause accepts three real-world forms:
+//   - `is hereby amended`  — the canonical singular form
+//   - `are hereby amended` — plural subject ("Chapters X and Y of the …")
+//   - `is are hereby amended` — drafter typo (singular kept after switching
+//     to plural). Observed in matter 260449 §3.
+// A miss here is not benign: the structural pass extends the *previous*
+// matched group through the orphaned section's body, attributing nested
+// SEC. headers to the wrong module. See the orphan detection in
+// parseBill (src/parser/bills/index.ts) for the cross-module safety net.
 const ORD_SECTION_RE =
-  /^\s*(?:\d+\s+)?Section\s+\d+[A-Z]?\.\s+[^.]{0,200}?\b(?:of\s+the|The)\s+([A-Z][A-Za-z\s']+?)\s+(Code|Charter)\b[^.]{0,80}?\bis\s+(?:hereby\s+)?amended\b/gm;
+  /^\s*(?:\d+\s+)?Section\s+\d+[A-Z]?\.\s+[^.]{0,200}?\b(?:of\s+the|The)\s+([A-Z][A-Za-z\s']+?)\s+(Code|Charter)\b[^.]{0,80}?\b(?:is|are)(?:\s+are)?\s+(?:hereby\s+)?amended\b/gm;
 
 // Spike Criterion 2: section header inside an AMEND block. Three observed
 // variants (SEC./SECTION/Section) unified into one regex. The section_id
@@ -34,12 +44,25 @@ const ORD_SECTION_RE =
 //   - `,` `;` `:` for separators (`POLICE; TRAFFIC REGULATION.`)
 //   - `&` `'` for compound names (`POLICE & FIRE…`, `MAYOR'S OFFICE`)
 //   - `(` `)` `.` for parenthetical / abbreviated suffixes
-// New title-character variants get appended here as the corpus
-// surfaces them. Per `project_legal_corpus_zero_skip` an undetected
-// SEC. header is a parse-completeness regression, never an acceptable
-// silent skip.
+//   - `/` for compound titles (`BOARDS/COMMISSIONS`, `STREETS/PERMITS`)
+// Long titles wrap onto a second line in the SF Legistar template; the
+// trailing `(?:\n\s*[A-Z]...)*` clause captures additional all-caps
+// continuation lines until a line starting with non-title content
+// (lowercase body, `(a)` subsection, next SEC./Section/ARTICLE header).
+// New title-character variants get appended to the charclass as the
+// corpus surfaces them. Per `project_legal_corpus_zero_skip` an
+// undetected SEC. header is a parse-completeness regression, never an
+// acceptable silent skip.
 const SECTION_HEADER_RE =
-  /^\s*(?:\d+\s+)?(?:SEC\.|SECTION|Section)\s+([0-9][0-9A-Za-z.-]*)\.\s+([A-Z][A-Z0-9\s\-–—,;:&'().]+)$/gm;
+  /^\s*(?:\d+\s+)?(?:SEC\.|SECTION|Section)\s+([0-9][0-9A-Za-z.-]*)\.\s+([A-Z][A-Z0-9\s\-–—,;:&'()./]+(?:\n\s*[A-Z][A-Z0-9\s\-–—,;:&'()./]+)*)$/gm;
+
+// Article headers (`ARTICLE 19A:`, `ARTICLE 7:`, etc.) appear between
+// section groups in long chapters. They aren't sections themselves but
+// they terminate the preceding section's body range — without this
+// boundary the article header text leaks into the prior section's
+// chrome range and pollutes that section's diff input. The body
+// parser doesn't use the title; only the start position matters.
+const ARTICLE_HEADER_RE = /^\s*ARTICLE\s+\d+[A-Z]?:/gm;
 
 // Whole-chapter action patterns that promote the bill to structural_change.
 // The wording is specific enough that false positives are rare in SF's
@@ -193,7 +216,10 @@ function findClosingStart(text: string, groups: readonly CodeGroup[]): number {
     const leadingWs = m[0].length - m[0].trimStart().length;
     const lineStart = absStart + leadingWs;
     const trailing = text.slice(lineStart, lineStart + 300);
-    if (!/\bis\s+(?:hereby\s+)?amended\b/.test(trailing)) {
+    // Must agree with ORD_SECTION_RE's verb clause — any phrasing that the
+    // structural pass treats as an AMEND line (singular, plural, or the
+    // observed `is are` typo) is NOT a closing boundary.
+    if (!/\b(?:is|are)(?:\s+are)?\s+(?:hereby\s+)?amended\b/.test(trailing)) {
       return lineStart;
     }
     m = CLOSING_MARKER_RE.exec(region);
@@ -252,17 +278,40 @@ function findSectionHeaders(text: string, start: number, end: number): CodeGroup
   while (m !== null) {
     starts.push({
       rawId: (m[1] ?? "").trim(),
-      title: (m[2] ?? "").trim(),
+      // Normalize wrapped-line whitespace: when the title regex absorbs
+      // a continuation line, the capture contains the literal `\n` and
+      // the line's leading indent. Collapse those so the renderer sees
+      // a single-space title ("REQUEST … OCCUPANCY OF PUBLIC STREETS.").
+      title: (m[2] ?? "").trim().replace(/\s+/g, " "),
       rel: m.index,
       relAfterHeader: m.index + m[0].length,
     });
     m = SECTION_HEADER_RE.exec(slice);
   }
+  // Article-header positions used to tighten the preceding section's
+  // text_offset_end so the article-label text doesn't bleed into body.
+  // Article headers don't produce their own section entry — they're
+  // chapter boundaries, not amendable sections.
+  const articleStarts: number[] = [];
+  ARTICLE_HEADER_RE.lastIndex = 0;
+  let a: RegExpExecArray | null = ARTICLE_HEADER_RE.exec(slice);
+  while (a !== null) {
+    articleStarts.push(a.index);
+    a = ARTICLE_HEADER_RE.exec(slice);
+  }
   for (let i = 0; i < starts.length; i++) {
     const cur = starts[i];
     if (!cur) continue;
     const next = starts[i + 1];
-    const relEnd = next ? next.rel : slice.length;
+    let relEnd = next ? next.rel : slice.length;
+    // If an ARTICLE header sits between this section and the next, it
+    // becomes the upper bound — the article label is chrome, not body.
+    for (const artRel of articleStarts) {
+      if (artRel > cur.relAfterHeader && artRel < relEnd) {
+        relEnd = artRel;
+        break;
+      }
+    }
     out.push({
       raw_id: cur.rawId,
       title: cur.title,
