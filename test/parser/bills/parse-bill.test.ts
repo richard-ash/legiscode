@@ -156,10 +156,10 @@ describe("parseBill round-trip against committed fixtures (real PDFs)", () => {
     expect(kinds.has("context")).toBe(true);
     expect(kinds.has("insert")).toBe(true);
     expect(kinds.has("delete")).toBe(true);
-    // Bill.text_diff still stays empty here — anchoring happens later
-    // in scripts/sync-bills.ts via emit-diff.
+    // Bill.diff_chunks still stays empty here — reconstruct+diff
+    // happens later in scripts/sync-bills.ts via emit-diff.
     for (const bill of result.bills) {
-      expect(bill.text_diff).toEqual([]);
+      expect(bill.diff_chunks).toEqual([]);
     }
   }, 120_000);
 });

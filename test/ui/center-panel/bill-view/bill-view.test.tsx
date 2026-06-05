@@ -35,7 +35,7 @@ function makeBill(over: Partial<Bill> & { affected_sections?: SectionId[] } = {}
     legistar_url: "https://sfgov.legistar.com/Detail?ID=1&GUID=g",
     legistar_status: "Pending — Land Use Cmte",
     bill_status: "committee",
-    text_diff: [],
+    diff_chunks: [],
     structural_change_scope: hasStructural ? (rest.structural_change_scope ?? "structural") : null,
     body: { preamble: "", amendments: [], closing: "" },
     ...rest,
@@ -147,12 +147,11 @@ describe("BillView — parse-status notices", () => {
               { section_id: "1.1", status: "anchored", detail: null },
               { section_id: "1.2", status: "classification_low_confidence", detail: null },
             ],
-            text_diff: [
+            diff_chunks: [
               {
                 op: "insert",
                 text: "new clause",
                 section_id: "1.1",
-                anchor: { baseline_offset: 0, baseline_length: 0 },
               },
             ],
           }),

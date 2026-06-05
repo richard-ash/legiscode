@@ -34,7 +34,7 @@ function pendingBill(file_no: string): Bill {
     legistar_status: "Pending",
     bill_status: "committee",
     section_outcomes: [],
-    text_diff: [],
+    diff_chunks: [],
     parse_status: "body_only",
     structural_change_scope: null,
     body: { preamble: "", amendments: [], closing: "" },

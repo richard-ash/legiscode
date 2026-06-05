@@ -14,7 +14,7 @@
 //
 // The toggle is suppressed per-row when the bill can't render an
 // inline diff for THIS section (parse_status !== "ok" OR no
-// text_diff span anchors to section_id). Affordance promises align
+// diff chunks attached to section_id). Affordance promises align
 // with capability — a button labeled "Show changes" should only
 // appear when changes can actually be shown. The row still renders
 // the file_no + status + title so the reader can open the bill and
@@ -48,8 +48,8 @@ export interface SectionPendingRailProps {
   onToggleOverlay: (fileNo: string | null) => void;
   /** When true AND `activeOverlayBillId` is non-null, the active row
    *  surfaces an "overlay unavailable" reason instead of the explainer.
-   *  Used when the bill's parse_status isn't `ok` or no text_diff spans
-   *  anchor to this section. */
+   *  Used when the bill's parse_status isn't `ok` or no diff chunks
+   *  attach to this section. */
   overlayUnavailable?: boolean;
 }
 

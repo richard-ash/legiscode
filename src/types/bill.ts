@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ModuleIdSchema, SectionIdSchema } from "./identifiers";
-import { TextDiffSchema } from "./text-diff";
+import { DiffChunksSchema } from "./text-diff";
 
 // BillMeta is the per-matter row emitted by the Lane-1 Legistar scraper
 // (scripts/fetch-bills.ts) into build/downloads/bills/bills-index.json.
@@ -277,7 +277,7 @@ export type OrdinanceBody = z.infer<typeof OrdinanceBodySchema>;
 //
 // Status enum (designed general; new outcomes append here as new
 // causes surface):
-//   anchored                      — text_diff for this section is
+//   anchored                      — diff_chunks for this section is
 //                                   populated and renderable.
 //   classification_low_confidence — typography classifier emitted ≥1
 //                                   ambiguous decoration span for this
@@ -293,7 +293,7 @@ export type OrdinanceBody = z.infer<typeof OrdinanceBodySchema>;
 //   structural                    — full-chapter / -article action;
 //                                   per-section diff is not meaningful.
 //   added_section                 — bill body adds this section
-//                                   wholesale. text_diff for this
+//                                   wholesale. diff_chunks for this
 //                                   section is the whole inserted text.
 //   unresolved                    — raw_section_id from the bill body
 //                                   didn't resolve against any
@@ -335,7 +335,7 @@ export type SectionOutcome = z.infer<typeof SectionOutcomeSchema>;
 // when new SectionOutcomeStatus values surface:
 //
 //   ok                 — every outcome is `anchored` or `added_section`.
-//                        text_diff covers every touched section.
+//                        diff_chunks covers every touched section.
 //   partial            — at least one outcome is anchored/added_section
 //                        AND at least one outcome is not. Renderer
 //                        shows the inline diff on the anchored sections,
@@ -394,7 +394,7 @@ export function deriveParseStatus(
 }
 
 // Bill — one per (matter, module). A multi-code bill emits N Bills, one
-// per module it touches. text_diff[] is the inline-diff content
+// per module it touches. diff_chunks[] is the inline-diff content
 // (populated per-anchored-section by the build-time anchorer);
 // section_outcomes lists every section the structural pass identified
 // inside this module with its per-section diff status. The renderer
@@ -420,7 +420,16 @@ export const BillSchema = z
      *  legacy flat `affected_sections` array; consumers that want the
      *  flat touched-set read `.map(o => o.section_id)`. */
     section_outcomes: z.array(SectionOutcomeSchema),
-    text_diff: TextDiffSchema,
+    /**
+     * Inline-diff chunks per target section. Emitted by v2's
+     * reconstruct-then-diff pipeline: the bill PDF is walked in
+     * source order to produce a `newText` string per section, then
+     * `diffWords(baseline, newText)` produces equal/insert/delete
+     * chunks the renderer iterates sequentially. Replaces the
+     * legacy TextDiffSpan shape (offset-anchored spans), which made
+     * every classifier miss a silent data loss.
+     */
+    diff_chunks: DiffChunksSchema,
     parse_status: ParseStatusSchema,
     /** Free-text scope description; only set when parse_status === "structural_change". */
     structural_change_scope: z.string().min(1).nullable(),
@@ -441,19 +450,18 @@ export const BillSchema = z
   )
   .refine(
     (b) => {
-      // text_diff is non-empty for every renderable outcome
-      // (anchored / added_section). The TEXT_DIFF presence test
-      // covers the parse_status=ok and parse_status=partial cases
-      // uniformly.
+      // diff_chunks is non-empty for every renderable outcome
+      // (anchored / added_section). The presence test covers both
+      // parse_status=ok and parse_status=partial uniformly.
       const renderable = b.section_outcomes.filter(
         (o) => o.status === "anchored" || o.status === "added_section",
       ).length;
-      if (renderable === 0) return true; // no claim of renderable content
-      return b.text_diff.length > 0;
+      if (renderable === 0) return true;
+      return b.diff_chunks.length > 0;
     },
     {
-      message: "text_diff must be non-empty when any outcome is anchored or added_section",
-      path: ["text_diff"],
+      message: "diff_chunks must be non-empty when any outcome is anchored or added_section",
+      path: ["diff_chunks"],
     },
   )
   .refine(

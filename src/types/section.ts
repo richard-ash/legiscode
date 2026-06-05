@@ -366,17 +366,21 @@ export type SectionFile = z.infer<typeof SectionFileSchema>;
 export type { BodySegment };
 
 // RenderBodySegment is the render-time superset BodySegment that overlay
-// rendering uses. Three extra leaf variants (`diff_insert`, `diff_delete`,
-// `diff_elision`) carry inline diff content the overlay mode lays out
-// alongside untouched prose. They live OUTSIDE BodySegment so
-// SectionFileSchema can never silently accept overlay-flavored corpus JSON
-// from disk — the typography rules for "this body[] only contains parser
-// output" stay intact.
+// rendering uses. Two extra leaf variants (`diff_insert`, `diff_delete`)
+// carry inline diff content the overlay mode lays out alongside
+// untouched prose. They live OUTSIDE BodySegment so SectionFileSchema
+// can never silently accept overlay-flavored corpus JSON from disk —
+// the typography rules for "this body[] only contains parser output"
+// stay intact.
+//
+// v2 has no elision variant: the reconstruct pipeline substitutes
+// "* * * *" gaps with their baseline content before diffWords runs,
+// so chunks always carry real text and the renderer never sees an
+// elision sentinel.
 export type RenderBodySegment =
   | BodySegment
   | { kind: "diff_insert"; text: string }
-  | { kind: "diff_delete"; text: string }
-  | { kind: "diff_elision"; text: string };
+  | { kind: "diff_delete"; text: string };
 
 /**
  * Split a flat body[] at top-level `paragraph_break` segments. Returns

@@ -1,70 +1,48 @@
-// Build-time TextDiffSpan anchorer. Runs in `scripts/sync-bills.ts`
-// after `parseBill` finishes; takes the classified spans the parser
-// surfaced and binds each one to a (`baseline_offset`,
-// `baseline_length`) pair inside the corpus section's baseline text.
+// Build-time diff-chunk emitter. Runs in `scripts/sync-bills.ts`
+// after `parseBill` finishes; produces the renderer-facing
+// `diff_chunks` array per bill by walking each touched section
+// through the v2 reconstruct-then-diff pipeline.
 //
-// Invariants:
+// v2 architecture (replaces the v1 anchor-context strategy):
 //
-//   • Lives in sync-bills, not parseBill. parseBill stays pure-PDF.
-//   • The `anchor` field on TextDiffSpan is required; an anchor of
-//     `(0, 0)` IS a real anchor (insertion at offset 0, length 0),
-//     not a null sentinel.
-//   • The classifier IS the diff. classify-spans already labels every
-//     word as context / insert / delete / elision from font and
-//     decoration. This module's job is positioning, not change-
-//     detection: locate each context span in the baseline by
-//     substring search, then place the surrounding delete and insert
-//     spans relative to those anchors. See `anchor-context.ts` for
-//     the positioning primitive and `emit-inline-spans.ts` for the
-//     emission walk.
-//   • Per-section partition. The parser's `section_partitions` carry
-//     the chrome-text range each target section's body lives in;
-//     `run_offset_map` projects each classified span's source run
-//     into the same chrome-text. A span belongs to a section if any
-//     of its ranges intersects that section's range. Spans whose
-//     ranges fall outside every section's range are unattributed
-//     (typically pre-amble or boilerplate prose between AMEND groups).
-//   • Per-section failure is local. A bill amending §A + §B can ship
-//     §A fully anchored AND §B as classification_low_confidence /
-//     no_baseline. The bill's parse_status is derived from the
-//     per-section breakdown.
+//   For each (bill, target_section):
+//     1. Bucket the section's classified spans via run_offset_map +
+//        chrome_range intersection (partitionSpansBySection).
+//     2. Reject early on ambiguous-decoration spans:
+//        classification_low_confidence.
+//     3. Reconstruct the post-amendment newText by walking the
+//        section's runs/spans in source order, including inserts
+//        and contexts, skipping deletes, substituting baseline at
+//        elisions, and emitting structural whitespace from PDF
+//        position deltas.
+//     4. Run `diffWords(baseline, newText)` to align. Map each
+//        chunk to a DiffChunk{op, text, section_id}.
 //
-// ## Pipeline (ASCII)
+// Wholesale-action bills (`amending Section X to read as follows`,
+// `by deleting Section Y`, `by adding Section Z`) still route to
+// `synthesizeWholesale`, which emits delete+insert chunk pairs
+// directly without reconstructing — there's no surviving baseline
+// to align against.
 //
-//   ParseBillResult.classified_spans         (in source order)
-//   ParseBillResult.runs                     (TextRun[] for page lookup)
-//   ParseBillResult.run_offset_map           (run idx → ranges in chrome text)
-//   ParseBillResult.section_partitions       (per-target chrome ranges)
-//        │
-//        ▼
-//   anchorTextDiff(parseResult, baselineLookup)
-//        │   build per-section span buckets via run_offset_map +
-//        │   chrome_range intersection. For each (bill, partition):
-//        │     • bucket classified_spans into this section's slice
-//        │     • short-circuit on ambiguous → classification_low_confidence
-//        │     • anchorContextSpansToBaseline → AnchorMap (context only)
-//        │     • when no context anchors → implicit wholesale rewrite
-//        │       (the bill replaced the section entirely; baseline +
-//        │       new body text emit as one delete + one insert)
-//        │     • emitInlineSpans → TextDiffSpan[] in baseline coords
-//        ▼
-//   Bill records mutated in place; section_outcomes carries the per-
-//   section breakdown; parse_status is derived from section_outcomes.
+// Per-section failure is local. A bill amending §A + §B can ship §A
+// fully chunked AND §B as classification_low_confidence /
+// no_baseline. The bill's parse_status is derived from the
+// per-section breakdown.
 
+import { diffWords } from "diff";
 import type {
   Bill,
+  DiffChunk,
   ModuleId,
   OrdinanceBlock,
   SectionId,
   SectionOutcome,
   SectionOutcomeStatus,
-  TextDiffSpan,
 } from "@/types";
 import { deriveParseStatus } from "@/types";
-import { anchorContextSpansToBaseline } from "./anchor-context";
 import type { ClassifiedSpan } from "./classify-spans";
-import { emitInlineSpans } from "./emit-inline-spans";
 import type { ParseBillResult, SectionPartitionEntry } from "./index";
+import { reconstructNewText } from "./reconstruct";
 import type { RunRange } from "./run-offset-map";
 
 export type CorpusBaselineLookup = (
@@ -72,10 +50,6 @@ export type CorpusBaselineLookup = (
   sectionId: SectionId,
 ) => string | null | undefined;
 
-// AnchorOutcome — operator log row per (bill, section). The
-// status set MATCHES SectionOutcomeStatus exactly so the same value
-// can flow into both the on-disk Bill.section_outcomes and the
-// operator-facing log stream.
 export type AnchorOutcomeStatus = SectionOutcomeStatus;
 
 export type AnchorOutcome = {
@@ -88,16 +62,16 @@ export type AnchorOutcome = {
 };
 
 export type AnchorTextDiffResult = {
-  /** Mutated bills with `text_diff[]` populated for anchored sections. */
+  /** Mutated bills with `diff_chunks[]` populated for anchored sections. */
   bills: Bill[];
   /** One entry per (bill, target_section) pair. */
   outcomes: AnchorOutcome[];
 };
 
 /**
- * Top-level entry point. Drives per-section anchoring across every bill
- * in `parseResult` and returns the updated bill records + an operator
- * log of per-section outcomes.
+ * Top-level entry point. Drives per-section reconstruction + diffing
+ * across every bill in `parseResult` and returns the updated bill
+ * records + an operator log of per-section outcomes.
  */
 export function anchorTextDiff(
   parseResult: ParseBillResult,
@@ -107,11 +81,9 @@ export function anchorTextDiff(
   const bills = parseResult.bills.map((b) => ({
     ...b,
     section_outcomes: [...b.section_outcomes],
-    text_diff: [] as TextDiffSpan[],
+    diff_chunks: [] as DiffChunk[],
   }));
 
-  // Pre-bucket section partitions by module so we don't quadratic-scan
-  // for each bill.
   const partitionsByModule = new Map<ModuleId, SectionPartitionEntry[]>();
   for (const p of parseResult.section_partitions) {
     const list = partitionsByModule.get(p.module_id) ?? [];
@@ -144,18 +116,13 @@ export function anchorTextDiff(
 
     const partitions = partitionsByModule.get(bill.module_id) ?? [];
 
-    // Wholesale-action path (whole-section delete or add). Runs before
-    // the inline path AND before the body_only short-circuit because
-    // T4 added_section detection runs through this path: a bill with
-    // an `add` action on a raw_section_id that didn't resolve produces
-    // an `added_section` outcome HERE, not in any partition loop.
-    // Each body.amendments[i].action is matched against the SF Legistar
-    // verb patterns; matches synthesize a single delete or insert span
-    // per section_id.
+    // Wholesale-action path (whole-section delete or add). Runs
+    // before the inline path because some bills mix wholesale and
+    // inline actions in the same body.
     const wholesaleOutcomes: SectionOutcome[] = [];
-    const wholesaleSpans: TextDiffSpan[] = [];
+    const wholesaleChunks: DiffChunk[] = [];
     const wholesale = synthesizeWholesale(bill, partitions, baselineLookup, parseResult);
-    for (const span of wholesale.spans) wholesaleSpans.push(span);
+    for (const chunk of wholesale.chunks) wholesaleChunks.push(chunk);
     for (const o of wholesale.outcomes) {
       wholesaleOutcomes.push({
         section_id: o.section_id,
@@ -165,10 +132,6 @@ export function anchorTextDiff(
       outcomes.push({ ...o, file_no: bill.file_no, module_id: bill.module_id });
     }
 
-    // For the inline path, exclude partitions that the wholesale path
-    // already produced an outcome for. Null-section_id partitions
-    // (unresolved raw_ids) get an unresolved outcome here UNLESS T4's
-    // wholesale path already classified them as added_section.
     const wholesaleCovered = new Set<string>(wholesaleOutcomes.map((o) => o.section_id));
     const inlinePartitions = partitions.filter((p) => {
       const probeKey = p.section_id ?? p.raw_section_id;
@@ -176,9 +139,8 @@ export function anchorTextDiff(
     });
 
     const inlineOutcomes: SectionOutcome[] = [];
-    const inlineSpans: TextDiffSpan[] = [];
+    const inlineChunks: DiffChunk[] = [];
 
-    // Per-section partition of classified spans via the run-offset map.
     const spansBySection = partitionSpansBySection(
       parseResult.classified_spans,
       parseResult.run_offset_map,
@@ -188,12 +150,6 @@ export function anchorTextDiff(
     for (const partition of inlinePartitions) {
       if (partition.section_id === null) {
         const baseDetail = `raw section id "${partition.raw_section_id}" did not resolve against the module's section index`;
-        // When the same candidates resolve in a different installed
-        // module, the structural pass mis-routed this header. The
-        // operator log distinguishes routing failures from genuine
-        // corpus gaps so we don't chase ghosts when the real bug is
-        // an unmatched `Section N. <Code> Code is hereby amended…` line
-        // upstream.
         const detail = partition.orphan_in_module
           ? `${baseDetail} — but candidate(s) [${partition.candidates.join(", ")}] resolve in module "${partition.orphan_in_module}"; structural pass likely missed an ord-section boundary`
           : baseDetail;
@@ -231,14 +187,9 @@ export function anchorTextDiff(
         continue;
       }
 
-      // Reject ambiguous-decoration amendment spans early. Per D9 truth
-      // table, ambiguous spans get treated as classification_low_confidence
-      // for the WHOLE section (the diff would be wrong if we forced
-      // a decision); ambiguous spans on context (no decoration on a
-      // non-italic-Times run, which classify-spans pegs as ambiguous
-      // for the false-context board-amendment pattern at :143) are
-      // intentionally still rejected — we'd rather show the manual-
-      // review banner than a wrong diff.
+      // Ambiguous-decoration spans short-circuit the whole section.
+      // The diff would be wrong if we guessed at insert-vs-delete;
+      // the manual-review banner is the correct outcome.
       const ambiguousCount = sectionSpans.filter((s) => s.kind === "ambiguous").length;
       if (ambiguousCount > 0) {
         inlineOutcomes.push({
@@ -256,27 +207,19 @@ export function anchorTextDiff(
         continue;
       }
 
-      const anchors = anchorContextSpansToBaseline(sectionSpans, baseline);
-
-      // Implicit wholesale rewrite: fires only when the bill body has
-      // zero context anchors against the baseline — the lawyer either
-      // drew the section as purely-additive new content (all
-      // underlined, no struck baseline text to anchor against) or the
-      // bill text drifted so far from baseline that no substring
-      // search hits. Either way, the inline path would stack every
-      // insert at offset 0 and look broken; route to a full delete +
-      // new-body insert pair instead.
-      //
-      // Sections with even one anchored context span go through the
-      // inline path: the (b)-style redlines (where the bill marks
-      // specific baseline words for strike + adds new ones inline) are
-      // common and must render with the marks visible. The renderer's
-      // gap-fill from baseline keeps the rest of the section readable
-      // when most spans didn't anchor.
-      if (sectionSpans.length > 0 && anchors.size === 0) {
-        const rewrite = buildImplicitRewriteSpans(bill, partition.raw_section_id, sid, baseline);
+      // Implicit wholesale rewrite: the section's bill spans don't
+      // include any context — every run is underlined-insert. The
+      // bill is replacing the section entirely. Route to the same
+      // delete+insert pair the wholesale path would emit; without
+      // this, reconstruct would produce a newText that is just the
+      // concatenated inserts, and diffWords would align against the
+      // entire baseline as a delete — same outcome, but the explicit
+      // pair carries the "whole-section rewrite" detail.
+      const contextCount = sectionSpans.filter((s) => s.kind === "context").length;
+      if (sectionSpans.length > 0 && contextCount === 0) {
+        const rewrite = buildImplicitRewriteChunks(bill, partition.raw_section_id, sid, baseline);
         if (rewrite !== null) {
-          for (const span of rewrite) inlineSpans.push(span);
+          for (const chunk of rewrite) inlineChunks.push(chunk);
           inlineOutcomes.push({
             section_id: sid,
             status: "anchored",
@@ -293,8 +236,13 @@ export function anchorTextDiff(
         }
       }
 
-      const diffSpans = emitInlineSpans(sectionSpans, anchors, baseline, sid);
-      for (const span of diffSpans) inlineSpans.push(span);
+      // The v2 inline path: reconstruct → diff → emit chunks.
+      const newText = reconstructNewText(parseResult.runs, sectionSpans, baseline);
+      const chunks = diffWords(baseline, newText);
+      for (const c of chunks) {
+        const op = c.added === true ? "insert" : c.removed === true ? "delete" : "equal";
+        inlineChunks.push({ op, text: c.value, section_id: sid });
+      }
       inlineOutcomes.push({ section_id: sid, status: "anchored", detail: null });
       outcomes.push({
         file_no: bill.file_no,
@@ -305,7 +253,7 @@ export function anchorTextDiff(
     }
 
     bill.section_outcomes = dedupeOutcomes([...wholesaleOutcomes, ...inlineOutcomes]);
-    bill.text_diff = [...wholesaleSpans, ...inlineSpans];
+    bill.diff_chunks = [...wholesaleChunks, ...inlineChunks];
     bill.parse_status = deriveParseStatus(bill.section_outcomes, false);
   }
 
@@ -314,19 +262,8 @@ export function anchorTextDiff(
 
 /**
  * Bucket classified spans into per-section slices via the run-offset
- * map. A span's source run can produce multiple ranges in the
- * chrome-stripped text (when stripChrome bisects a run); a section
- * "owns" the span when the span's first surviving range starts inside
- * the section's `chrome_range`. Spans whose ranges fall outside every
- * section's range are dropped.
- *
- * Deterministic single-owner rule: a span lands in EXACTLY ONE
- * partition (the one whose chrome_range contains the start of the
- * span's first range). Spans that straddle a section header are rare;
- * when they happen, they land in the section that owns the start of
- * the span. Section B's diff is built from the spans attributed to B,
- * so a stray span from A's prose only pollutes B's newText (not the
- * whole-section anchor cascade the previous token walker had).
+ * map. A span belongs to a section when its first surviving range's
+ * `chrome_start` falls inside the partition's `chrome_range`.
  */
 export function partitionSpansBySection(
   classifiedSpans: readonly ClassifiedSpan[],
@@ -340,11 +277,6 @@ export function partitionSpansBySection(
     const firstRange = ranges[0];
     if (firstRange === undefined) continue;
     const probe = firstRange.chrome_start;
-    // Find the partition whose chrome_range contains the span's
-    // starting char. Walking partitions in declared order means the
-    // FIRST match wins on a tie — partitions are emitted by the
-    // structural pass in document order so "first" is "earlier
-    // section header in the bill body."
     for (const partition of partitions) {
       if (partition.section_id === null) continue;
       const r = partition.chrome_range;
@@ -361,9 +293,8 @@ export function partitionSpansBySection(
 
 function dedupeOutcomes(outcomes: readonly SectionOutcome[]): SectionOutcome[] {
   // Two passes may emit outcomes for the same section_id (wholesale +
-  // inline). Keep the FIRST occurrence — the wholesale pass is
-  // authoritative because it runs first and short-circuits the inline
-  // path for sections it covers.
+  // inline). Keep the FIRST occurrence — the wholesale pass runs first
+  // and short-circuits the inline path for sections it covers.
   const seen = new Set<SectionId>();
   const out: SectionOutcome[] = [];
   for (const o of outcomes) {
@@ -375,34 +306,25 @@ function dedupeOutcomes(outcomes: readonly SectionOutcome[]): SectionOutcome[] {
 }
 
 /**
- * Build the delete + insert pair for an implicit wholesale rewrite —
- * the section's bill spans never anchored as context, so the entire
- * baseline is being replaced. Returns null when no amendment body
- * carries this section's header (the section is referenced in the
- * partition but has no replacement text in the bill).
+ * Build the delete + insert chunk pair for an implicit wholesale
+ * rewrite — the section's bill spans never anchored as context, so
+ * the entire baseline is being replaced. Returns null when no
+ * amendment body carries this section's header (the section is
+ * referenced in the partition but has no replacement text in the
+ * bill).
  */
-function buildImplicitRewriteSpans(
+function buildImplicitRewriteChunks(
   bill: Bill,
   rawSectionId: string,
   resolvedSectionId: SectionId,
   baseline: string,
-): TextDiffSpan[] | null {
+): DiffChunk[] | null {
   for (const amendment of bill.body.amendments) {
     const insertText = extractAddedSectionText(amendment.body, rawSectionId);
     if (insertText.length === 0) continue;
     return [
-      {
-        op: "delete",
-        text: baseline,
-        section_id: resolvedSectionId,
-        anchor: { baseline_offset: 0, baseline_length: baseline.length },
-      },
-      {
-        op: "insert",
-        text: insertText,
-        section_id: resolvedSectionId,
-        anchor: { baseline_offset: baseline.length, baseline_length: 0 },
-      },
+      { op: "delete", text: baseline, section_id: resolvedSectionId },
+      { op: "insert", text: insertText, section_id: resolvedSectionId },
     ];
   }
   return null;
@@ -414,12 +336,6 @@ type WholesaleAction =
   | { kind: "delete"; section_ids: string[] }
   | { kind: "add"; section_ids: string[] }
   | {
-      /**
-       * Multi-clause action that contains BOTH delete and add clauses
-       * (and may also revise other sections inline). The synthesizer
-       * processes delete_ids and add_ids; sections in their intersection
-       * are wholesale rewrites (delete baseline + insert new body).
-       */
       kind: "composite";
       delete_ids: string[];
       add_ids: string[];
@@ -427,16 +343,6 @@ type WholesaleAction =
   | { kind: "inline" }
   | { kind: "unknown" };
 
-// Clause-level patterns that find delete/add clauses ANYWHERE in the
-// action text (not just immediately after "amended by"). Earlier bills
-// always opened delete/add with `amended by`, but Transportation Code
-// rewrites (260449) emit composite actions like `… amended by revising
-// Sections 6.1 … and by adding Section 6.18 deleting Sections 6.2-6.18,
-// and by adding Sections 6.2-6.10 to read as follows: …` where the
-// delete clause has no `amended by` prefix and several add clauses are
-// chained. Loose matching catches every clause; the boundary lookahead
-// stops at the next clause delimiter (`and by`, `deleting`, the
-// closing `to read as follows`, or `of the <Code>` tail).
 const CLAUSE_BOUNDARY =
   "(?=\\s+and\\s+by\\s+|\\s+deleting\\s+|\\s*,?\\s*to\\s+read\\s+as\\s+follows|\\s*,?\\s+of\\s+the\\b|\\.(?=\\s|$)|$)";
 
@@ -488,7 +394,7 @@ function parseSectionList(raw: string): string[] {
 }
 
 type WholesaleResult = {
-  spans: TextDiffSpan[];
+  chunks: DiffChunk[];
   outcomes: Array<{
     section_id: SectionId;
     status: AnchorOutcomeStatus;
@@ -502,23 +408,17 @@ function synthesizeWholesale(
   baselineLookup: CorpusBaselineLookup,
   parseResult: ParseBillResult,
 ): WholesaleResult {
-  const spans: TextDiffSpan[] = [];
+  const chunks: DiffChunk[] = [];
   const outcomes: WholesaleResult["outcomes"] = [];
 
-  // Build a quick lookup: raw_section_id (from bill body) → resolved
-  // SectionId (from the partition, only for THIS bill's module).
   const resolvedByRaw = new Map<string, SectionId>();
   for (const p of partitions) {
     if (p.section_id !== null) {
       resolvedByRaw.set(p.raw_section_id, p.section_id);
-      // Also accept the resolved id verbatim (some bills cite the
-      // corpus-tree form directly).
       resolvedByRaw.set(p.section_id, p.section_id);
     }
   }
 
-  // T4: bill-body add actions on raw_ids that didn't resolve get the
-  // `added_section` outcome. Walk amendments first.
   const unresolvedRaws = new Set<string>();
   for (const u of parseResult.unresolved_sections) {
     if (u.module_id === bill.module_id) unresolvedRaws.add(u.raw_section_id);
@@ -528,15 +428,10 @@ function synthesizeWholesale(
     const cls = classifySectionAction(amendment.action);
     if (cls.kind === "inline" || cls.kind === "unknown") continue;
 
-    // Normalize to (deleteIds, addIds) — composite mode carries both
-    // populated; plain delete/add modes carry exactly one.
     const deleteIds =
       cls.kind === "delete" ? cls.section_ids : cls.kind === "composite" ? cls.delete_ids : [];
     const addIds =
       cls.kind === "add" ? cls.section_ids : cls.kind === "composite" ? cls.add_ids : [];
-    // Sections appearing in BOTH lists are wholesale rewrites — the
-    // bill deletes the old text and inserts replacement text under
-    // the same section id. Two spans + a single "rewrite" outcome.
     const rewriteIds = new Set<string>(deleteIds.filter((id) => addIds.includes(id)));
 
     for (const rawSid of deleteIds) {
@@ -551,22 +446,11 @@ function synthesizeWholesale(
         });
         continue;
       }
-      spans.push({
-        op: "delete",
-        text: baseline,
-        section_id: resolved,
-        anchor: { baseline_offset: 0, baseline_length: baseline.length },
-      });
+      chunks.push({ op: "delete", text: baseline, section_id: resolved });
       if (rewriteIds.has(rawSid)) {
-        // Pair with an insert span below; emit a single combined outcome.
         const insertText = extractAddedSectionText(amendment.body, rawSid);
         if (insertText.length > 0) {
-          spans.push({
-            op: "insert",
-            text: insertText,
-            section_id: resolved,
-            anchor: { baseline_offset: baseline.length, baseline_length: 0 },
-          });
+          chunks.push({ op: "insert", text: insertText, section_id: resolved });
         }
         outcomes.push({
           section_id: resolved,
@@ -583,17 +467,9 @@ function synthesizeWholesale(
     }
 
     for (const rawSid of addIds) {
-      if (rewriteIds.has(rawSid)) continue; // handled in the delete loop
+      if (rewriteIds.has(rawSid)) continue;
       const resolved = resolvedByRaw.get(rawSid);
       if (resolved !== undefined) {
-        // add against a section that ALREADY exists in the corpus
-        // (and isn't part of a paired delete) is pathological — the
-        // bill is creating something that already exists. Either a
-        // data inconsistency or a parser miss on the paired delete
-        // clause. Surface as classification_low_confidence so the
-        // operator audits; we don't synthesize spans here because a
-        // length-0 insert at offset 0 would silently prepend the new
-        // text in front of the existing baseline.
         outcomes.push({
           section_id: resolved,
           status: "classification_low_confidence",
@@ -602,23 +478,10 @@ function synthesizeWholesale(
         continue;
       }
 
-      // Not resolved against any installed section. If the bill is an
-      // ADD and the raw id was unresolved, this is the added_section
-      // case (T4): the bill creates the section.
       if (unresolvedRaws.has(rawSid)) {
         const insertText = extractAddedSectionText(amendment.body, rawSid);
-        if (insertText.length === 0) {
-          // The bill body parser produced no text for this section.
-          // Leave the outcome unemitted; the inline loop will surface
-          // it as `unresolved` via the null-section_id partition path.
-          continue;
-        }
-        spans.push({
-          op: "insert",
-          text: insertText,
-          section_id: rawSid as SectionId,
-          anchor: { baseline_offset: 0, baseline_length: 0 },
-        });
+        if (insertText.length === 0) continue;
+        chunks.push({ op: "insert", text: insertText, section_id: rawSid as SectionId });
         outcomes.push({
           section_id: rawSid as SectionId,
           status: "added_section",
@@ -628,11 +491,9 @@ function synthesizeWholesale(
     }
   }
 
-  return { spans, outcomes };
+  return { chunks, outcomes };
 }
 
-// Slice the OrdinanceBlock subtree belonging to a single section out
-// of the AMEND group's body.
 function extractAddedSectionText(blocks: readonly OrdinanceBlock[], sectionNumber: string): string {
   const collected: OrdinanceBlock[] = [];
   let inside = false;
@@ -661,8 +522,6 @@ function ordinanceBlocksToText(blocks: readonly OrdinanceBlock[]): string {
         parts.push(b.text);
         break;
       case "subsection":
-        // body-parser stores the marker with its parens intact ("(a)"),
-        // so we use it verbatim — wrapping would produce "((a))".
         parts.push(b.marker);
         parts.push(ordinanceBlocksToText(b.body));
         break;

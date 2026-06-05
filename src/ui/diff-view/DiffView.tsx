@@ -20,7 +20,7 @@
 //     installed module.
 
 import { useEffect, useMemo, useState } from "react";
-import type { Bill, ModuleId, RenderBodySegment, SectionId, TextDiffSpan } from "@/types";
+import type { Bill, DiffChunk, ModuleId, RenderBodySegment, SectionId } from "@/types";
 import { splitParagraphs } from "@/types";
 import { overlayDiffOnBaseline } from "@/ui/diff/overlay";
 import { PerSectionBanner } from "./banner";
@@ -38,7 +38,7 @@ import { PerSectionBanner } from "./banner";
 export type BaselineLoader = (moduleId: ModuleId, sectionId: SectionId) => Promise<string | null>;
 
 export interface DiffViewProps {
-  /** Bill whose text_diff drives the overlay rendering. */
+  /** Bill whose diff_chunks drive the overlay rendering. */
   bill: Bill;
   /** Section the diff is being rendered for. The component looks up
    *  the outcome in bill.section_outcomes for this section id. */
@@ -77,9 +77,9 @@ export function DiffView({
     () => bill.section_outcomes.find((o) => o.section_id === sectionId) ?? null,
     [bill.section_outcomes, sectionId],
   );
-  const spans = useMemo<TextDiffSpan[]>(
-    () => bill.text_diff.filter((s) => s.section_id === sectionId),
-    [bill.text_diff, sectionId],
+  const chunks = useMemo<DiffChunk[]>(
+    () => bill.diff_chunks.filter((c) => c.section_id === sectionId),
+    [bill.diff_chunks, sectionId],
   );
 
   const renderable =
@@ -164,7 +164,7 @@ export function DiffView({
   }
 
   if (state.kind === "loaded") {
-    const paragraphs = splitParagraphs(overlayDiffOnBaseline(spans, state.baseline));
+    const paragraphs = splitParagraphs(overlayDiffOnBaseline(chunks, state.baseline));
     if (paragraphs.length === 0) {
       return (
         <div className="lc-diff-view lc-diff-view--empty" data-testid="diff-view-empty">
@@ -206,8 +206,6 @@ function DiffSegmentView({ segment }: { segment: RenderBodySegment }) {
           {segment.text}
         </span>
       );
-    case "diff_elision":
-      return <span className="lc-diff-elision">[…]</span>;
     case "citation":
     case "defined_term":
       // Citations and defined terms inside an overlay render as their

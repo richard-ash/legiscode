@@ -31,7 +31,7 @@ const MODULE_ID = "sf-test" as ModuleId;
 const SECTION_ID = "1.1" as SectionId;
 const BASELINE = "The committee shall meet quarterly to review reports.";
 
-function makeBill(outcomes: SectionOutcome[], textDiff: Bill["text_diff"] = []): Bill {
+function makeBill(outcomes: SectionOutcome[], diffChunks: Bill["diff_chunks"] = []): Bill {
   const hasStructural = outcomes.some((o) => o.status === "structural");
   return BillSchema.parse({
     file_no: "260217",
@@ -44,7 +44,7 @@ function makeBill(outcomes: SectionOutcome[], textDiff: Bill["text_diff"] = []):
     legistar_status: "Pending",
     bill_status: "committee",
     section_outcomes: outcomes,
-    text_diff: textDiff,
+    diff_chunks: diffChunks,
     parse_status: deriveParseStatus(outcomes, hasStructural),
     structural_change_scope: hasStructural ? "Repeals Chapter 10" : null,
     body: { preamble: "", amendments: [], closing: "" },
@@ -67,7 +67,6 @@ describe("DiffView — anchored path (renderable)", () => {
           op: "insert",
           text: "new clause",
           section_id: SECTION_ID,
-          anchor: { baseline_offset: 0, baseline_length: 0 },
         },
       ],
     );
@@ -91,7 +90,6 @@ describe("DiffView — anchored path (renderable)", () => {
           op: "insert",
           text: "added text",
           section_id: SECTION_ID,
-          anchor: { baseline_offset: 0, baseline_length: 0 },
         },
       ],
     );
@@ -118,7 +116,6 @@ describe("DiffView — anchored path (renderable)", () => {
           op: "delete",
           text: BASELINE,
           section_id: SECTION_ID,
-          anchor: { baseline_offset: 0, baseline_length: BASELINE.length },
         },
       ],
     );
@@ -142,7 +139,6 @@ describe("DiffView — anchored path (renderable)", () => {
           op: "insert",
           text: "x",
           section_id: SECTION_ID,
-          anchor: { baseline_offset: 0, baseline_length: 0 },
         },
       ],
     );
@@ -161,7 +157,6 @@ describe("DiffView — anchored path (renderable)", () => {
           op: "insert",
           text: "x",
           section_id: SECTION_ID,
-          anchor: { baseline_offset: 0, baseline_length: 0 },
         },
       ],
     );
@@ -204,7 +199,6 @@ describe("DiffView — added_section variant", () => {
           op: "insert",
           text: "§1.1 New section body.",
           section_id: SECTION_ID,
-          anchor: { baseline_offset: 0, baseline_length: 0 },
         },
       ],
     );
@@ -215,7 +209,7 @@ describe("DiffView — added_section variant", () => {
     expect(screen.getByText("§1.1 New section body.")).toBeInTheDocument();
   });
 
-  it("renders the added_section diff (full new text via text_diff insert)", async () => {
+  it("renders the added_section diff (full new text via diff_chunks insert)", async () => {
     const loader = vi.fn().mockResolvedValue(""); // baseline is empty for added sections
     const bill = makeBill(
       [{ section_id: SECTION_ID, status: "added_section", detail: null }],
@@ -224,7 +218,6 @@ describe("DiffView — added_section variant", () => {
           op: "insert",
           text: "§1.1 Brand new section. Every department shall do X.",
           section_id: SECTION_ID,
-          anchor: { baseline_offset: 0, baseline_length: 0 },
         },
       ],
     );
@@ -243,7 +236,7 @@ describe("DiffView — no outcome for the section", () => {
   it("renders nothing when the bill doesn't list this section in section_outcomes", () => {
     const loader = vi.fn();
     // Use a non-renderable outcome on the OTHER section so the schema
-    // refine doesn't demand text_diff content.
+    // refine doesn't demand diff_chunks content.
     const bill = makeBill([
       { section_id: "9.9" as SectionId, status: "classification_low_confidence", detail: null },
     ]);
@@ -270,7 +263,6 @@ describe("DiffView — cancellation guard", () => {
           op: "insert",
           text: "x",
           section_id: SECTION_ID,
-          anchor: { baseline_offset: 0, baseline_length: 0 },
         },
       ],
     );
@@ -306,7 +298,6 @@ describe("DiffView — cancellation guard", () => {
           op: "insert",
           text: "x",
           section_id: SECTION_ID,
-          anchor: { baseline_offset: 0, baseline_length: 0 },
         },
       ],
     );

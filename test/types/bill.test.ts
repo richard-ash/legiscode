@@ -84,7 +84,7 @@ function validBill(overrides: Partial<Record<string, unknown>> = {}) {
       { section_id: "10.04.020", status: "classification_low_confidence", detail: null },
       { section_id: "10.04.030", status: "classification_low_confidence", detail: null },
     ],
-    text_diff: [],
+    diff_chunks: [],
     parse_status: "manual_review",
     structural_change_scope: null,
     body: { preamble: "", amendments: [], closing: "" },
@@ -93,11 +93,11 @@ function validBill(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 describe("BillSchema", () => {
-  it("accepts a manual_review bill with empty text_diff and per-section outcomes", () => {
+  it("accepts a manual_review bill with empty diff_chunks and per-section outcomes", () => {
     expect(() => BillSchema.parse(validBill())).not.toThrow();
   });
 
-  it("accepts an ok bill with non-empty text_diff (the invariant honored)", () => {
+  it("accepts an ok bill with non-empty diff_chunks (the invariant honored)", () => {
     expect(() =>
       BillSchema.parse(
         validBill({
@@ -106,12 +106,11 @@ describe("BillSchema", () => {
             { section_id: "10.04.020", status: "anchored", detail: null },
             { section_id: "10.04.030", status: "anchored", detail: null },
           ],
-          text_diff: [
+          diff_chunks: [
             {
               op: "insert",
               text: "new text",
               section_id: "10.04.020",
-              anchor: { baseline_offset: 0, baseline_length: 0 },
             },
           ],
         }),
@@ -126,7 +125,7 @@ describe("BillSchema", () => {
     const result = BillSchema.safeParse(
       validBill({
         parse_status: "ok",
-        text_diff: [],
+        diff_chunks: [],
         section_outcomes: [
           { section_id: "10.04.020", status: "classification_low_confidence", detail: null },
         ],

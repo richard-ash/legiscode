@@ -163,7 +163,7 @@ describe("syncBills integration: fetch → parse → write → purge", () => {
       "utf8",
     );
     const billRecord = BillSchema.parse(JSON.parse(billJson));
-    expect(billRecord.text_diff).toEqual([]);
+    expect(billRecord.diff_chunks).toEqual([]);
     expect(billRecord.parse_status).toBe("manual_review");
   });
 

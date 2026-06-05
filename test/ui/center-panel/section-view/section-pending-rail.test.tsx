@@ -30,12 +30,11 @@ function makeBill(over: Partial<Bill> & { affected_sections?: SectionId[] } = {}
     legistar_url: "https://e/d?ID=1&GUID=g",
     legistar_status: "Pending",
     bill_status: "committee",
-    text_diff: [
+    diff_chunks: [
       {
         section_id: "1.1",
         op: "insert",
         text: "new",
-        anchor: { baseline_offset: 0, baseline_length: 0 },
       },
     ],
     structural_change_scope: hasStructural ? (rest.structural_change_scope ?? "structural") : null,
@@ -237,7 +236,7 @@ describe("SectionPendingRail — overlay toggle (variant B)", () => {
             ],
             // text_diff must be empty when no renderable outcomes
             // (the schema refine requires it).
-            text_diff: [],
+            diff_chunks: [],
           }),
         ]}
         sectionId={SECTION_ID}
@@ -272,7 +271,7 @@ describe("SectionPendingRail — toggle gating (parse_status + diff coverage)", 
   it("suppresses the Show changes toggle when bill.parse_status is not 'ok'", () => {
     render(
       <SectionPendingRail
-        bills={[makeBill({ parse_status: "manual_review", text_diff: [] })]}
+        bills={[makeBill({ parse_status: "manual_review", diff_chunks: [] })]}
         {...RESTING}
         onOpenBill={vi.fn()}
       />,
@@ -288,7 +287,7 @@ describe("SectionPendingRail — toggle gating (parse_status + diff coverage)", 
         bills={[
           makeBill({
             parse_status: "structural_change",
-            text_diff: [],
+            diff_chunks: [],
             structural_change_scope: "Section 1. Article 4 is hereby repealed.",
           }),
         ]}
@@ -304,12 +303,11 @@ describe("SectionPendingRail — toggle gating (parse_status + diff coverage)", 
       <SectionPendingRail
         bills={[
           makeBill({
-            text_diff: [
+            diff_chunks: [
               {
                 section_id: "9.9",
                 op: "insert",
                 text: "other section",
-                anchor: { baseline_offset: 0, baseline_length: 0 },
               },
             ],
           }),
@@ -338,12 +336,11 @@ describe("SectionPendingRail — toggle gating (parse_status + diff coverage)", 
               { section_id: "1.1", status: "anchored", detail: null },
               { section_id: "1.2", status: "classification_low_confidence", detail: null },
             ],
-            text_diff: [
+            diff_chunks: [
               {
                 section_id: "1.1",
                 op: "insert",
                 text: "new",
-                anchor: { baseline_offset: 0, baseline_length: 0 },
               },
             ],
           }),
@@ -364,12 +361,11 @@ describe("SectionPendingRail — toggle gating (parse_status + diff coverage)", 
               { section_id: "1.1", status: "anchored", detail: null },
               { section_id: "1.2", status: "classification_low_confidence", detail: null },
             ],
-            text_diff: [
+            diff_chunks: [
               {
                 section_id: "1.1",
                 op: "insert",
                 text: "new",
-                anchor: { baseline_offset: 0, baseline_length: 0 },
               },
             ],
           }),
@@ -386,7 +382,7 @@ describe("SectionPendingRail — toggle gating (parse_status + diff coverage)", 
   it("keeps the toggle visible on the active row even if hasDiff would be false (defensive — lets user clear a stale overlay)", () => {
     render(
       <SectionPendingRail
-        bills={[makeBill({ parse_status: "manual_review", text_diff: [] })]}
+        bills={[makeBill({ parse_status: "manual_review", diff_chunks: [] })]}
         sectionId={SECTION_ID}
         activeOverlayBillId={"260217"}
         onToggleOverlay={vi.fn()}

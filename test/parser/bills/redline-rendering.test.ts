@@ -1,14 +1,11 @@
 // End-to-end regression set for the diff-completeness redesign. Each
-// real-bill fixture below was a known failure mode under the old
-// diffAgainstBaseline + reconstructInline pipeline. They now anchor
-// cleanly via anchorContextSpansToBaseline + emitInlineSpans (or, for
-// wholesale-replace bodies, the implicit-rewrite fallback in
-// anchorTextDiff).
+// real-bill fixture below was a known failure mode under the v1
+// anchor-context pipeline. v2 produces DiffChunk[] from
+// `diffWords(baseline, reconstructedNewText)` — the three failure
+// modes translate to v2 invariants the chunk stream must satisfy.
 //
-// Tests are hermetic per repo guidance: committed PDF + committed
-// baseline JSON in, asserted (offset, length, op) shape out. The
-// baselines were extracted from the local corpus at commit time and
-// live next to the bill PDFs.
+// Tests are hermetic: committed PDF + committed baseline JSON in,
+// asserted chunk shape out.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -68,13 +65,13 @@ function buildIndex(
 }
 
 describe("redline rendering — three formerly-failing real bills", () => {
-  it("260539 CEQA: every amended §31.x section emits at least one delete or insert span", async () => {
-    // Old failure (Cause C): diffWords drove a global cursor that
+  it("260539 CEQA: every amended §31.x section emits at least one insert or delete chunk", async () => {
+    // Old failure (Cause C, v1): diffWords drove a global cursor that
     // walked off the baseline mid-section, after which every later
     // hunk's anchor was discarded by the bounds gate and the section
-    // rendered with zero highlights. New path positions each span via
-    // substring-search of its surrounding context, so no global cursor
-    // exists to drift.
+    // rendered with zero highlights. v2 invariant: each section's
+    // reconstructed newText differs from baseline at the amended
+    // points, so diffWords emits at least one non-equal chunk.
     const manifest = await loadManifest();
     const bytes = await readFile(join(BILLS_FIXTURE, "260539.pdf"));
     const meta = buildMeta({
@@ -98,27 +95,20 @@ describe("redline rendering — three formerly-failing real bills", () => {
     expect(bill).toBeDefined();
 
     for (const sid of ["31.02", "31.05", "31.09", "31.10", "31.14", "31.19"] as SectionId[]) {
-      const sectionSpans = bill!.text_diff.filter((s) => s.section_id === sid);
-      const hasEdit = sectionSpans.some((s) => s.op === "delete" || s.op === "insert");
-      expect(hasEdit, `${sid} must emit at least one delete or insert span`).toBe(true);
-      for (const s of sectionSpans) {
-        const baseline = baselines.get(`sf-administrative::${sid}`)!;
-        expect(s.anchor.baseline_offset + s.anchor.baseline_length).toBeLessThanOrEqual(
-          baseline.length,
-        );
-      }
+      const sectionChunks = bill!.diff_chunks.filter((c) => c.section_id === sid);
+      const hasEdit = sectionChunks.some((c) => c.op === "insert" || c.op === "delete");
+      expect(hasEdit, `${sid} must emit at least one insert or delete chunk`).toBe(true);
     }
   }, 60_000);
 
   it("260542 Housing Choice §206.10: 'Francisco Program' does not surface as a fake amendment pair", async () => {
-    // Old failure (Cause D): pdfjs splits "Francisco" + " " + "Program"
-    // into separate TextRuns; the old diff path concatenated span text
-    // without the synthetic-space glue that runsToText injected for the
-    // render path. The two pipelines disagreed, so diffWords saw
-    // "FranciscoProgram" (joined) vs "Francisco Program" (baseline) and
-    // emitted a phantom delete/insert pair. Under the new path,
-    // classify-spans labels each run as context and substring-anchoring
-    // is whitespace-tolerant — no fake pair gets emitted.
+    // Old failure (Cause D, v1): pdfjs splits "Francisco" + " " +
+    // "Program" into separate TextRuns; the old diff path emitted a
+    // phantom delete/insert pair when concatenated runs disagreed
+    // with the baseline's spacing. v2 invariant: the reconstructed
+    // newText keeps "Francisco Program" verbatim because every run
+    // is context-classified, so diffWords aligns it as equal — no
+    // insert with whitespace-stripped content matching a delete.
     const manifest = await loadManifest();
     const bytes = await readFile(join(BILLS_FIXTURE, "260542.pdf"));
     const meta = buildMeta({
@@ -135,66 +125,47 @@ describe("redline rendering — three formerly-failing real bills", () => {
     );
     const bill = anchored.bills[0];
     expect(bill).toBeDefined();
-    const sectionSpans = bill!.text_diff.filter((s) => s.section_id === ("206.10" as SectionId));
+    const sectionChunks = bill!.diff_chunks.filter((c) => c.section_id === ("206.10" as SectionId));
 
-    // No delete + insert pair at the SAME baseline offset whose
-    // whitespace-stripped text is identical. The Cause-D bug emitted
-    // both spans at the same anchor (the joined-vs-spaced "Francisco
-    // Program" comparison produced delete "Francisco Program" + insert
-    // "FranciscoProgram" anchored to the same baseline position).
-    // Same-text deletes and inserts at DIFFERENT offsets are legitimate
-    // — e.g., two unrelated renumbers on the same page can both involve
-    // the digit "1" without that being a false amendment.
-    const dels = sectionSpans.filter((s) => s.op === "delete");
-    const inserts = sectionSpans.filter((s) => s.op === "insert");
+    // The Cause-D smoking gun: a delete whose whitespace-stripped text
+    // matches an insert's whitespace-stripped text. Under v1 this
+    // appeared as delete "Francisco Program" + insert "FranciscoProgram"
+    // at the same anchor offset. Under v2 the runs reconstruct as
+    // equal text, so no such substantive pair is emitted.
+    //
+    // Filter to compact matches ≥ 5 chars: single-char or short matches
+    // (renumbered subsection digits, punctuation tokens like "(c)")
+    // legitimately appear on both sides of the diff and aren't the
+    // FranciscoProgram-class regression.
+    const MIN_CHARS = 5;
+    const dels = sectionChunks.filter((c) => c.op === "delete");
+    const inserts = sectionChunks.filter((c) => c.op === "insert");
     for (const d of dels) {
       const compact = d.text.replace(/\s+/g, "");
-      const matchingFakePair = inserts.find(
-        (i) =>
-          i.text.replace(/\s+/g, "") === compact &&
-          i.anchor.baseline_offset === d.anchor.baseline_offset,
-      );
+      if (compact.length < MIN_CHARS) continue;
+      const fakePair = inserts.find((i) => i.text.replace(/\s+/g, "") === compact);
       expect(
-        matchingFakePair,
-        `delete ${JSON.stringify(d.text)} has a matching insert with the same compact text at the same baseline offset — this is the Cause-D false-amendment pattern`,
+        fakePair,
+        `delete ${JSON.stringify(d.text)} has an insert sibling with the same compact text — Cause-D false-amendment pattern`,
       ).toBeUndefined();
     }
 
-    // Cause-D-adjacent: short "(c)" context spans must anchor at the
-    // subsection-heading "(c)" in the baseline (just before
-    // "Inclusionary Housing Ordinance Alternatives"), NOT at the first
-    // in-text "(c)" inside item (5) of (b)'s parenthetical reference
-    // list. Without the lookahead anchor rule, the new-(c) inserts
-    // dumped into item (5) and the actual subsection-(c) heading
-    // location was left empty.
-    const inclusionaryPos = baseline.indexOf("Inclusionary Housing Ordinance Alternatives");
-    expect(inclusionaryPos).toBeGreaterThan(0);
-    const newSubsectionCInserts = sectionSpans.filter(
-      (s) => s.op === "insert" && s.text.includes("Development Impact Fees"),
+    // The actual subsection-(c) Development Impact Fees content the
+    // bill adds shows up as an insert.
+    const hasDevImpactInsert = sectionChunks.some(
+      (c) => c.op === "insert" && c.text.includes("Development Impact Fees"),
     );
-    expect(newSubsectionCInserts.length).toBeGreaterThan(0);
-    for (const ins of newSubsectionCInserts) {
-      // Must land at the subsection-(c) heading position (right before
-      // "Inclusionary"), not 1500+ chars earlier inside item (5).
-      expect(
-        ins.anchor.baseline_offset,
-        `new-(c) insert ${JSON.stringify(ins.text.slice(0, 40))} anchored at ${ins.anchor.baseline_offset}, expected near ${inclusionaryPos}`,
-      ).toBeGreaterThan(inclusionaryPos - 10);
-    }
+    expect(hasDevImpactInsert).toBe(true);
   }, 60_000);
 
-  it("260543 Fireworks §1290: preserves the inline redline (per-word marks visible, no block render)", async () => {
-    // Old failure (Cause E): bill rewrites §1290 into three labeled
-    // subsections (a)(b)(c). The bill PDF draws (b) Prohibition as a
-    // genuine inline redline — corporation is preserved as context,
-    // "any" struck before "F" inserted before "fireworks", "limits of
-    // the" struck before "City", "and County of San Francisco" struck,
-    // etc. (a) Definition and (c) Penalties are entirely new content.
-    // The diffWords path mis-aligned matching words across the (a)/(b)
-    // restructure and rendered "corporation(a) Definition. shall fire…".
-    // New path: any successful context anchor in the body routes to the
-    // inline path; the renderer's gap-fill from baseline keeps the (b)
-    // edits visible without forcing a full-block delete-then-insert.
+  it("260543 Fireworks §1290: emits per-word inline edits, not one full-section block", async () => {
+    // Old failure (Cause E, v1): bill rewrites §1290 into three labeled
+    // subsections (a)(b)(c). diffWords misaligned matching words across
+    // the (a)/(b) restructure and rendered "corporation(a) Definition.
+    // shall fire…". v2 invariant: the diff stream contains multiple
+    // distinct insert and delete chunks (not collapsed into one
+    // full-baseline replace), and the (a)/(b)/(c) labels show up as
+    // inserts.
     const manifest = await loadManifest();
     const bytes = await readFile(join(BILLS_FIXTURE, "260543.pdf"));
     const meta = buildMeta({
@@ -214,42 +185,36 @@ describe("redline rendering — three formerly-failing real bills", () => {
     const outcome = bill!.section_outcomes.find((o) => o.section_id === ("1290" as SectionId));
     expect(outcome?.status).toBe("anchored");
 
-    const sectionSpans = bill!.text_diff.filter((s) => s.section_id === ("1290" as SectionId));
-    expect(sectionSpans.length).toBeGreaterThan(0);
+    const sectionChunks = bill!.diff_chunks.filter((c) => c.section_id === ("1290" as SectionId));
+    expect(sectionChunks.length).toBeGreaterThan(0);
 
-    // The inline path emits both granular deletes and granular inserts
-    // — never a single full-baseline-delete sentinel.
-    const hasFullBaselineDelete = sectionSpans.some(
-      (s) =>
-        s.op === "delete" &&
-        s.anchor.baseline_offset === 0 &&
-        s.anchor.baseline_length === baseline.length,
-    );
-    expect(hasFullBaselineDelete, "§1290 must not be flattened into one full-baseline delete").toBe(
-      false,
-    );
+    // The diff must include at least one equal chunk — proves it's
+    // NOT a flattened wholesale delete + insert.
+    const hasEqual = sectionChunks.some((c) => c.op === "equal");
+    expect(
+      hasEqual,
+      "§1290 must include equal chunks (preserved context), not a wholesale rewrite",
+    ).toBe(true);
 
-    // Several distinct delete spans cover the redline cuts (any /
-    // limits of the / and County / of San Francisco / the trailing
-    // Fire Marshal sentence). They're short, not one giant span.
-    const deletes = sectionSpans.filter((s) => s.op === "delete");
-    expect(deletes.length).toBeGreaterThanOrEqual(3);
-    for (const d of deletes) {
-      expect(d.anchor.baseline_length).toBeLessThan(baseline.length);
-    }
-
-    // Several distinct insert spans cover the new content — (a) and
-    // (c) prose, plus the small inline inserts inside (b).
-    const inserts = sectionSpans.filter((s) => s.op === "insert");
+    // Several distinct inserts cover the new (a)/(c) content plus
+    // smaller (b) inline edits. The (a)(b)(c) labels show up among
+    // them — they aren't lost or jammed mid-word.
+    const inserts = sectionChunks.filter((c) => c.op === "insert");
     expect(inserts.length).toBeGreaterThanOrEqual(3);
-
-    // Subsection labels appear in the insert stream (the (a)/(b)/(c)
-    // headers the bill adds) — they're not lost on the cutting-room
-    // floor, and they aren't jammed mid-baseline-word.
     const insertCorpus = inserts.map((i) => i.text).join("\n");
     for (const label of ["(a)", "(b)", "(c)"]) {
       const idx = insertCorpus.indexOf(label);
       expect(idx, `${label} should appear among inserts`).toBeGreaterThanOrEqual(0);
+    }
+
+    // No single delete chunk reproduces the entire baseline (the
+    // Cause-E shape that misalignment used to produce). The "hasEqual"
+    // check above already implies preserved context, but assert
+    // explicitly so a future regression that emits one wholesale
+    // delete is caught at the right invariant.
+    const deletes = sectionChunks.filter((c) => c.op === "delete");
+    for (const d of deletes) {
+      expect(d.text).not.toBe(baseline);
     }
   }, 60_000);
 });

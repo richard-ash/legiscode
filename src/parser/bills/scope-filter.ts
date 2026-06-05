@@ -17,9 +17,9 @@ import { SF_BILL_CODE_ALIASES } from "./aliases";
 export type ScopeFilterResult = {
   /**
    * Class A — title verb is "amending" / "adding" / "repealing"; matter
-   * is expected to produce text_diff content.
+   * is expected to produce diff_chunks content.
    * Class B — title verb is "waiving" / "authorizing" / "appropriating" /
-   * "approving"; matter is expected to produce zero text_diff entries.
+   * "approving"; matter is expected to produce zero diff_chunks entries.
    */
   class: "A" | "B";
   /**

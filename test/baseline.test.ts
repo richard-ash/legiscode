@@ -43,7 +43,7 @@ describe("baseline", () => {
   });
 
   it("the @/* path alias resolves to src in vitest", () => {
-    expect(KNOWN_SCHEMA_VERSION).toBe(4);
+    expect(KNOWN_SCHEMA_VERSION).toBe(5);
   });
 });
 

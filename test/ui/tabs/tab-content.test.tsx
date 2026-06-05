@@ -36,7 +36,7 @@ function makeBill(over: Partial<Bill> & { affected_sections?: SectionId[] } = {}
     legistar_url: "https://sfgov.legistar.com/Detail?ID=1&GUID=g",
     legistar_status: "Pending — Land Use Cmte",
     bill_status: "committee",
-    text_diff: [],
+    diff_chunks: [],
     structural_change_scope: hasStructural ? (rest.structural_change_scope ?? "structural") : null,
     body: { preamble: "", amendments: [], closing: "" },
     ...rest,

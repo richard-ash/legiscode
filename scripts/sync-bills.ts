@@ -201,7 +201,7 @@ export type SyncResult = {
   /**
    * Per-section anchoring outcome from `anchorTextDiff`. Each
    * affected section produces exactly one outcome.
-   * status="anchored" means `text_diff[]` is populated on disk; the
+   * status="anchored" means `diff_chunks[]` is populated on disk; the
    * other statuses are per-section fallbacks (section-level sparse
    * failure).
    */
@@ -301,10 +301,10 @@ export async function syncBills(args: {
       not_installed_modules: scope.not_installed_modules,
     };
     const result = await parseBill(bytes, meta, args.manifest, { sectionIndex });
-    // Build-time alignment: bind classified spans to the corpus
-    // baseline. Failures are per-section + non-gating (sparse
-    // text_diff across section_outcomes), so we keep the bills
-    // array regardless.
+    // Build-time alignment: reconstruct each section and diff against
+    // the corpus baseline. Failures are per-section + non-gating
+    // (sparse diff_chunks across section_outcomes), so we keep the
+    // bills array regardless.
     const anchored = anchorTextDiff(result, (moduleId, sectionId) =>
       baselineTexts.get(`${moduleId}::${sectionId}`),
     );
@@ -521,8 +521,8 @@ async function main(argv: string[]): Promise<number> {
     }
     // Per-section anchoring outcomes — invisible from the file
     // tree, so surface a count breakdown for the operator. Empty
-    // text_diff on a written bill is meaningful (a no_baseline gap is
-    // a corpus issue; a classification_low_confidence is a parser
+    // diff_chunks on a written bill is meaningful (a no_baseline gap
+    // is a corpus issue; a classification_low_confidence is a parser
     // issue); operators shouldn't have to source-dive to discover which.
     const outcomeCounts: Record<string, number> = {};
     for (const o of result.anchor_outcomes) {

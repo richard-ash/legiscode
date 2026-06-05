@@ -339,14 +339,14 @@ export function SectionView({
 
   // Overlay mode: when a pending bill is selected as the active overlay
   // for this section, the body re-renders as an inline diff against the
-  // bill's text_diff spans for this section. Citations and defined-term
+  // bill's diff chunks for this section. Citations and defined-term
   // popovers don't render inside the overlay — reading a diff is a
   // distinct mode from exploring the citation graph.
   const overlayBill = activeOverlayBillId
     ? (pendingRailBills?.find((b) => b.file_no === activeOverlayBillId) ?? null)
     : null;
-  const overlaySpansForSection = overlayBill
-    ? overlayBill.text_diff.filter((s) => s.section_id === section.id)
+  const overlayChunksForSection = overlayBill
+    ? overlayBill.diff_chunks.filter((c) => c.section_id === section.id)
     : [];
   // The bill-level parse_status is too coarse: a `partial` bill can
   // have this section anchored cleanly while a sibling section is the
@@ -357,7 +357,7 @@ export function SectionView({
     overlayBill !== null && !billHasDiffForSection(overlayBill, section.id);
   const overlayParagraphs: RenderBodySegment[][] =
     overlayBill !== null && !overlayUnavailable
-      ? splitParagraphs(overlayDiffOnBaseline(overlaySpansForSection, section.text))
+      ? splitParagraphs(overlayDiffOnBaseline(overlayChunksForSection, section.text))
       : [];
 
   return (
@@ -590,12 +590,6 @@ function renderSegment(seg: RenderBodySegment, ctx: RenderCtx, key: string): Rea
       return (
         <span key={key} className="lc-overlay-delete">
           {seg.text}
-        </span>
-      );
-    case "diff_elision":
-      return (
-        <span key={key} className="lc-overlay-elision" aria-hidden>
-          [ unchanged text omitted ]
         </span>
       );
   }
