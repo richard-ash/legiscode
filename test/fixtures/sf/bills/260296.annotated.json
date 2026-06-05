@@ -1,11 +1,11 @@
 {
-  "description": "Per-span regression baseline for classify-spans against 260296.pdf — a structural-change bill (adds Chapter 94C). Per the feat/diff-completeness lock, exact counts replace the count-floor shape.",
+  "description": "Per-span regression baseline for classify-spans against 260296.pdf — a structural-change bill (adds Chapter 94C). Per the feat/diff-completeness lock, exact counts replace the count-floor shape. Counts updated after the italic-flag PostScript-name fallback recovered 2 inserts that pdfjs's italic flag silently miscoded as upright.",
   "fixture": "260296.pdf",
   "file_no": "260296",
   "page_count": 3,
   "expected_classifications": {
-    "context": 192,
-    "insert": 24,
+    "context": 190,
+    "insert": 26,
     "delete": 1,
     "elision": 2,
     "ambiguous": 0
