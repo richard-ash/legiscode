@@ -1,3 +1,5 @@
+import { stripChromeWithOffsets } from "./run-offset-map";
+
 // PDF text cleanup pass for SF Legistar ordinance PDFs.
 //
 // `pdfjs` returns positioned text runs that include page chrome — line
@@ -21,34 +23,6 @@
 // Legistar updates), extend the strip-list rather than reaching for
 // regex permissiveness. The principle: if the parser doesn't know the
 // pattern, it leaves the text alone.
-
-const PAGE_LINE_NUMBER = /^\s*\d{1,2}\s*$/;
-const BOARD_FOOTER = /^BOARD OF SUPERVISORS\b/;
-const FILE_NO_HEADER = /^FILE NO\.\s+\d+\s+ORDINANCE NO\b/;
-const SPONSOR_REPRINT = /^Supervisors? [A-Z]/;
-
-// The 7-line legend that introduces every SF ordinance. Lines are
-// matched by prefix (the PDF extractor sometimes inserts trailing
-// whitespace or odd spacing inside the line, but the prefix is
-// stable).
-const LEGEND_PREFIXES = [
-  "NOTE:",
-  "Additions to Codes",
-  "Deletions to Codes",
-  "Board amendment additions",
-  "Board amendment deletions",
-  "Asterisks (",
-  "subsections or parts of tables",
-];
-
-// Inline sponsor reprint pattern: occurs mid-line when the PDF extractor
-// merges a page-break into the preceding sentence. Matches `Supervisors X; Y`
-// or `Supervisors X, Y` at any position — the proper-noun separator list is
-// the giveaway. Both `;` and `,` show up as separators in the wild
-// (e.g. `Supervisors Wong; Sauter, Sherrill` in file 260544). Strips the
-// match (and any leading whitespace) so the surrounding text rejoins cleanly.
-const INLINE_SPONSOR_REPRINT =
-  /\s*Supervisors? [A-Z][A-Za-z'-]+(?:[;,]\s+[A-Z][A-Za-z'-]+)*(?=\s|$)/g;
 
 // Structural-marker line patterns. A line matching any of these starts a
 // new paragraph during reflow — even when the source PDF has no blank
@@ -132,33 +106,15 @@ export function reflowParagraphs(text: string): string {
  * to walk the document structurally (the structural pass + body
  * parser) can operate on chrome-stripped lines without losing the
  * column-wrapped line breaks that anchor regex-based section detection.
+ *
+ * Thin `.text` wrapper around `stripChromeWithOffsets`. The offset-aware
+ * variant is the canonical implementation; callers that need the
+ * per-run offset map (the build-time anchorer) consume it directly.
  */
 export function stripChrome(raw: string): string {
-  const stripped = raw.replace(INLINE_SPONSOR_REPRINT, "");
-  const lines = stripped.split("\n");
-  const kept: string[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) {
-      kept.push("");
-      continue;
-    }
-    if (PAGE_LINE_NUMBER.test(trimmed)) {
-      const n = Number(trimmed);
-      if (n >= 1 && n <= 25) continue;
-    }
-    if (BOARD_FOOTER.test(trimmed)) continue;
-    if (FILE_NO_HEADER.test(trimmed)) continue;
-    if (SPONSOR_REPRINT.test(trimmed)) continue;
-    if (LEGEND_PREFIXES.some((p) => trimmed.startsWith(p))) continue;
-    kept.push(line);
-  }
-  // Collapse runs of 3+ blank lines so downstream consumers see at most
-  // one blank between paragraphs.
-  return kept
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  // Pass a single full-range so the offsets logic runs over the whole
+  // input; discard the offset map and return just the stripped text.
+  return stripChromeWithOffsets(raw, [{ start: 0, end: raw.length }]).text;
 }
 
 export function cleanupOrdinanceText(raw: string): string {

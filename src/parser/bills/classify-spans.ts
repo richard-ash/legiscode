@@ -46,6 +46,25 @@
 // We bucket lines into the under-baseline band (y < b) → insert, and
 // the through-baseline band (b ≤ y ≤ b + h * 0.8) → delete. Anything
 // above-glyph (y > b + h) is treated as decoration on a different run.
+//
+// ## Per-glyph classification
+//
+// One text run can carry several decoration regions when the lawyer
+// compressed multiple edits into the same glyph footprint:
+//
+//   `(3)(2)` — side-by-side delete + insert, struck on the left half,
+//              underlined on the right half. Two regions.
+//   `(52)`   — overlapped-paren renumber, struck on `(`, `5`, `)` with
+//              the new `2` underlined in the middle. Three regions in
+//              a strike→underline→strike pattern.
+//
+// Each glyph picks its kind from the decoration ops whose x range covers
+// the glyph's center, and adjacent same-kind glyphs merge into a single
+// emitted sub-span. A glyph covered by both strike and underline ops
+// (same x range, different Y band) is ambiguous; a glyph covered by
+// neither is also ambiguous (amendment-class runs are expected to carry
+// some decoration). The downstream `emit-diff` gate treats any
+// ambiguous span as `classification_low_confidence` for its section.
 
 import type { FontMetadata, GraphicsOp, TextRun } from "@/parser/pdf/page-extractor";
 import { isItalicFont, isTimesFont } from "./italic";
@@ -67,12 +86,6 @@ export type ClassifiedSpan = {
 
 export type ClassifySpansOptions = {
   /**
-   * Horizontal overlap fraction required to claim decoration (line's
-   * intersected width / run's width). Default 0.5 = at least half the
-   * run must be covered by the decoration line.
-   */
-  horizontal_overlap_threshold?: number;
-  /**
    * Maximum vertical distance below baseline for a line to count as
    * "underline" (in PDF points). Default 4. SF Legistar underline
    * sits about 1.5–2 pt below baseline.
@@ -81,7 +94,6 @@ export type ClassifySpansOptions = {
 };
 
 const DEFAULT_OPTIONS: Required<ClassifySpansOptions> = {
-  horizontal_overlap_threshold: 0.5,
   underline_max_depth: 4,
 };
 
@@ -95,9 +107,15 @@ const ELISION_COMPONENT_RE = /^\*+$/;
 /**
  * Classify each TextRun by font + graphics-op decoration.
  *
- * The output is one ClassifiedSpan per input TextRun, in input order.
- * No filtering — keeping length parity lets emit-diff drive directly
- * off `source_index` without re-walking the original array.
+ * Normally emits ONE ClassifiedSpan per input TextRun in input order.
+ * When a single italic-Times TextRun carries multiple decoration regions
+ * — `(3)(2)` (strike→underline), `(52)` (strike→underline→strike), or
+ * any other alternating run — the decoration-boundary walker emits one
+ * sub-span per kind region. Every emitted span's `source_index` still
+ * points back to its source TextRun, and the spans for that source
+ * remain consecutive in the output, so emit-diff continues to drive
+ * partition lookups off the run-offset map without re-walking the
+ * original array.
  */
 export function classifySpans(
   runs: readonly TextRun[],
@@ -145,63 +163,234 @@ export function classifySpans(
       continue;
     }
 
-    // Amendment-class run: needs decoration to decide insert vs delete.
+    // T3 tightening: zero-width control glyphs (soft hyphens, joiner
+    // chars, certain ligature shims) come through pdfjs with width === 0
+    // and no useful decoration overlap. Treating them as `ambiguous`
+    // cascades the whole section to classification_low_confidence even
+    // when every other amendment span anchors cleanly. They carry no
+    // diff content, so classify as context — the downstream
+    // `filterToAmendmentSpans` drops them via the normalize() emptiness
+    // check.
+    if (run.width <= 0) {
+      out.push({ page: run.page, text: run.text, kind: "context", source_index: idx });
+      continue;
+    }
+
+    // Runs whose entire payload normalizes to "" carry no diff content
+    // regardless of font/decoration. The dominant case is a single ASCII
+    // space between an underlined word and a struck word: SF Legistar
+    // typesets the space in the same italic-Times font as the surrounding
+    // amendment glyphs, but the underline / strikethrough graphics ops
+    // are drawn under the GLYPHS, not the inter-glyph space — so a
+    // standalone space run with width > 0 has no decoration overlap and
+    // would otherwise fall through to `ambiguous`. Routing to context
+    // matches what `filterToAmendmentSpans` already does for empty
+    // payloads.
+    if (normalized.length === 0) {
+      out.push({ page: run.page, text: run.text, kind: "context", source_index: idx });
+      continue;
+    }
+
+    // Amendment-class run: walk the decoration ops left-to-right and
+    // emit one sub-span per kind region.
     const pageOps = opsByPage.get(run.page) ?? [];
-    const decoration = classifyDecoration(run, pageOps, opts);
-    out.push({ page: run.page, text: run.text, kind: decoration, source_index: idx });
+    const subSpans = classifyByDecorationBoundaries(run, pageOps, opts);
+    for (const sub of subSpans) {
+      out.push({ page: run.page, text: sub.text, kind: sub.kind, source_index: idx });
+    }
   }
 
   return out;
 }
 
-function classifyDecoration(
+/**
+ * Walk a single TextRun's decoration ops glyph-by-glyph and emit one
+ * sub-span per kind region. The dominant case is a single uniform
+ * region (the whole run is underlined or struck), in which case this
+ * returns one sub-span. Multiple regions surface when the lawyer
+ * compressed several edits into a single text-show op:
+ *
+ *   `(3)(2)`  →  delete `(3)` + insert `(2)`           (strike, underline)
+ *   `(52)`    →  delete `(5` + insert `2` + delete `)` (strike, underline, strike)
+ *
+ * Glyph centers are estimated assuming uniform per-character width
+ * (`run.width / run.text.length`). That estimate is accurate for the
+ * monospaced redline glyph pairs SF Legistar uses for numbering edits
+ * (parens, digits) and good-enough for general italic-Times runs whose
+ * decoration ops align with whole-glyph boundaries (the lawyer never
+ * underlines half a glyph). A glyph covered by both a strike op and an
+ * underline op is genuinely ambiguous; so is a glyph covered by
+ * neither — amendment-class runs are expected to carry some decoration.
+ */
+function classifyByDecorationBoundaries(
   run: TextRun,
   pageOps: readonly GraphicsOp[],
   opts: Required<ClassifySpansOptions>,
-): "insert" | "delete" | "ambiguous" {
-  // Skip runs with no horizontal extent (e.g. zero-width control glyphs).
-  if (run.width <= 0) return "ambiguous";
+): Array<{ text: string; kind: "insert" | "delete" | "ambiguous" }> {
+  if (run.text.length === 0) return [{ text: run.text, kind: "ambiguous" }];
 
-  // Bounds of the run's footprint.
   const runLeft = run.x;
   const runRight = run.x + run.width;
   const baseline = run.y;
-  const glyphTop = run.y + Math.max(run.height, 4);
-  // Strikethrough sits between baseline and ~80% of glyph height.
+  const glyphTop = baseline + Math.max(run.height, 4);
   const strikeMin = baseline + 0.1;
   const strikeMax = baseline + Math.max(run.height, 4) * 0.8;
-  // Underline sits between baseline and a few points below it.
   const underlineMax = baseline - 0.5;
   const underlineMin = baseline - opts.underline_max_depth;
 
-  let underlineHit = false;
-  let strikeHit = false;
-
+  // Collect each decoration op's x footprint inside the run, tagged by
+  // kind. Above-glyph ops belong to a different run and are ignored.
+  type Region = { left: number; right: number; kind: "insert" | "delete" };
+  const regions: Region[] = [];
   for (const op of pageOps) {
-    const opLeft = op.bbox.x;
-    const opRight = op.bbox.x + op.bbox.w;
-    // Horizontal overlap test.
-    const intersect = Math.min(runRight, opRight) - Math.max(runLeft, opLeft);
-    if (intersect <= 0) continue;
-    if (intersect / run.width < opts.horizontal_overlap_threshold) continue;
-
-    // Vertical band test. Use the line's center y for the bucket pick.
+    const overlapLeft = Math.max(runLeft, op.bbox.x);
+    const overlapRight = Math.min(runRight, op.bbox.x + op.bbox.w);
+    if (overlapRight <= overlapLeft) continue;
     const opCenterY = op.bbox.y + op.bbox.h / 2;
-
-    if (opCenterY >= underlineMin && opCenterY <= underlineMax) {
-      underlineHit = true;
-    } else if (opCenterY >= strikeMin && opCenterY <= strikeMax) {
-      strikeHit = true;
-    } else if (opCenterY > glyphTop) {
-      // Above-glyph decoration — belongs to a different run, ignore.
-    }
+    if (opCenterY > glyphTop) continue;
+    let kind: "insert" | "delete" | null = null;
+    if (opCenterY >= underlineMin && opCenterY <= underlineMax) kind = "insert";
+    else if (opCenterY >= strikeMin && opCenterY <= strikeMax) kind = "delete";
+    if (kind === null) continue;
+    regions.push({ left: overlapLeft, right: overlapRight, kind });
   }
 
-  if (underlineHit && strikeHit) return "ambiguous";
-  if (underlineHit) return "insert";
-  if (strikeHit) return "delete";
-  // No decoration on an italic-Times run is unexpected: SF Legistar
-  // shouldn't emit such runs. Treat as ambiguous so emit-diff cascades
-  // the whole section to manual_review.
-  return "ambiguous";
+  // Assign each glyph a kind based on which decoration regions cover
+  // its center, then merge adjacent same-kind glyphs into sub-spans.
+  //
+  // Glyphs whose center falls inside one or more regions classify from
+  // the union of those regions' kinds (both kinds present → genuinely
+  // ambiguous, since the lawyer drew strike and underline at the same
+  // x). Glyphs whose center falls in a GAP between regions inherit the
+  // kind of the nearest single-kind neighbor — Legistar regularly draws
+  // its decoration ops a point or two shy of full glyph coverage and we
+  // shouldn't cascade a section to manual_review over a 3pt rendering
+  // quirk. When the two neighbors carry different single kinds, the
+  // gap splits at its midpoint (the boundary between an old-text strike
+  // and a new-text underline lands cleanly on one glyph or the other).
+  const charWidth = run.width / run.text.length;
+  type Kind = "insert" | "delete" | "ambiguous";
+  const glyphKind: Kind[] = [];
+  for (let i = 0; i < run.text.length; i++) {
+    const center = runLeft + (i + 0.5) * charWidth;
+    let hasInsert = false;
+    let hasDelete = false;
+    for (const r of regions) {
+      if (center < r.left || center > r.right) continue;
+      if (r.kind === "insert") hasInsert = true;
+      else hasDelete = true;
+    }
+    if (hasInsert && hasDelete) {
+      glyphKind.push("ambiguous");
+      continue;
+    }
+    if (hasInsert) {
+      glyphKind.push("insert");
+      continue;
+    }
+    if (hasDelete) {
+      glyphKind.push("delete");
+      continue;
+    }
+    // Gap glyph: no region's range contains its center. Inherit from
+    // the nearest single-kind neighbor on either side.
+    glyphKind.push(inheritGapKind(center, regions));
+  }
+
+  const out: Array<{ text: string; kind: Kind }> = [];
+  let curText = run.text[0] ?? "";
+  let curKind = glyphKind[0] ?? "ambiguous";
+  for (let i = 1; i < run.text.length; i++) {
+    const k = glyphKind[i] ?? "ambiguous";
+    if (k === curKind) {
+      curText += run.text[i];
+    } else {
+      out.push({ text: curText, kind: curKind });
+      curText = run.text[i] ?? "";
+      curKind = k;
+    }
+  }
+  out.push({ text: curText, kind: curKind });
+  return out;
+}
+
+/**
+ * Decide a gap glyph's kind from the nearest decoration regions on
+ * either side. The gap is the stretch between two decoration regions
+ * (or between the start/end of the run and the first/last region).
+ *
+ * Rules:
+ *   • Only one neighbor (run boundary): inherit that neighbor's kind.
+ *   • Both neighbors carry the same single kind: that kind.
+ *   • Different single kinds: split at the midpoint of the gap so the
+ *     boundary glyph picks the closer kind.
+ *   • Either neighbor is itself ambiguous (overlapping strike+underline
+ *     at that position): the gap glyph stays ambiguous — we can't
+ *     safely propagate.
+ *   • No regions at all: ambiguous.
+ *
+ * "Nearest" is measured to the region's edge: for the left neighbor,
+ * the region whose `right` is largest but still ≤ center; for the
+ * right neighbor, the region whose `left` is smallest but still ≥
+ * center. When multiple regions share an edge position (e.g., strike
+ * and underline both ending at the same x), their union of kinds is
+ * what counts for the side test.
+ */
+function inheritGapKind(
+  center: number,
+  regions: ReadonlyArray<{ left: number; right: number; kind: "insert" | "delete" }>,
+): "insert" | "delete" | "ambiguous" {
+  if (regions.length === 0) return "ambiguous";
+
+  let leftEdge = Number.NEGATIVE_INFINITY;
+  let leftHasInsert = false;
+  let leftHasDelete = false;
+  let rightEdge = Number.POSITIVE_INFINITY;
+  let rightHasInsert = false;
+  let rightHasDelete = false;
+  for (const r of regions) {
+    if (r.right <= center) {
+      if (r.right > leftEdge) {
+        leftEdge = r.right;
+        leftHasInsert = false;
+        leftHasDelete = false;
+      }
+      if (r.right === leftEdge) {
+        if (r.kind === "insert") leftHasInsert = true;
+        else leftHasDelete = true;
+      }
+    }
+    if (r.left >= center) {
+      if (r.left < rightEdge) {
+        rightEdge = r.left;
+        rightHasInsert = false;
+        rightHasDelete = false;
+      }
+      if (r.left === rightEdge) {
+        if (r.kind === "insert") rightHasInsert = true;
+        else rightHasDelete = true;
+      }
+    }
+  }
+  const leftKind = sideKind(leftHasInsert, leftHasDelete);
+  const rightKind = sideKind(rightHasInsert, rightHasDelete);
+
+  if (leftKind === null && rightKind === null) return "ambiguous";
+  if (rightKind === null) return leftKind ?? "ambiguous";
+  if (leftKind === null) return rightKind;
+  if (leftKind === "ambiguous" || rightKind === "ambiguous") return "ambiguous";
+  if (leftKind === rightKind) return leftKind;
+  // Different single kinds: midpoint of the gap between the two
+  // closest-edge regions decides which side the glyph falls on.
+  const midpoint = (leftEdge + rightEdge) / 2;
+  return center < midpoint ? leftKind : rightKind;
+}
+
+function sideKind(
+  hasInsert: boolean,
+  hasDelete: boolean,
+): "insert" | "delete" | "ambiguous" | null {
+  if (!hasInsert && !hasDelete) return null;
+  if (hasInsert && hasDelete) return "ambiguous";
+  return hasInsert ? "insert" : "delete";
 }

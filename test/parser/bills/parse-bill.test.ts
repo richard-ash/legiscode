@@ -2,7 +2,13 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseBill } from "@/parser/bills";
-import { type BillMeta, BillSchema, type JurisdictionManifest } from "@/types";
+import {
+  type BillMeta,
+  BillSchema,
+  type JurisdictionManifest,
+  type ModuleId,
+  type SectionId,
+} from "@/types";
 import { readJurisdictionManifest } from "@/types/validate";
 
 const REPO_ROOT = join(import.meta.dirname, "..", "..", "..");
@@ -61,7 +67,10 @@ describe("parseBill round-trip against committed fixtures (real PDFs)", () => {
       const validated = BillSchema.parse(bill);
       expect(validated.file_no).toBe("260217");
       expect(validated.module_id).toMatch(/^sf-/);
-      expect(["manual_review", "structural_change"]).toContain(validated.parse_status);
+      // Pre-anchor parse_status is one of body_only / manual_review /
+      // structural_change. The build-time anchorer then upgrades to
+      // ok / partial / absorbed_external as outcomes resolve.
+      expect(["body_only", "manual_review", "structural_change"]).toContain(validated.parse_status);
     }
   }, 30_000);
 
@@ -118,10 +127,14 @@ describe("parseBill round-trip against committed fixtures (real PDFs)", () => {
     expect(Array.isArray(result.body_quality_warnings)).toBe(true);
   }, 30_000);
 
-  it("threads classify-spans output into ParseBillResult with length parity vs runs", async () => {
-    // T6 wires Layer 3 into parseBill: every TextRun produces exactly
-    // one ClassifiedSpan, in source order, with at least some non-context
-    // classifications for the heavy redline fixture (260217).
+  it("threads classify-spans output into ParseBillResult preserving source-order over runs", async () => {
+    // T6 wires Layer 3 into parseBill: every TextRun produces ONE OR
+    // MORE ClassifiedSpans in source order. Length is normally 1:1 with
+    // runs, but the decoration-boundary splitter emits multiple spans
+    // when a single TextRun carries both a strike and an underline
+    // covering different glyph footprints (the `(3)(2)` shape). Each
+    // span's source_index still points back to the producing run, so
+    // the run-offset map remains the right lookup.
     const manifest = await loadManifest();
     const bytes = await readFile(join(BILLS_FIXTURE, "260217.pdf"));
     const meta = buildMeta({
@@ -130,19 +143,199 @@ describe("parseBill round-trip against committed fixtures (real PDFs)", () => {
       long_title: "Ordinance amending the Administrative Code.",
     });
     const result = await parseBill(new Uint8Array(bytes), meta, manifest);
-    expect(result.classified_spans.length).toBe(result.runs.length);
-    // source_index is the identity map over the TextRun array.
-    for (let i = 0; i < result.classified_spans.length; i++) {
-      expect(result.classified_spans[i]?.source_index).toBe(i);
+    expect(result.classified_spans.length).toBeGreaterThanOrEqual(result.runs.length);
+    // source_index is monotonically non-decreasing and bounded by the
+    // run count.
+    let prev = -1;
+    for (const span of result.classified_spans) {
+      expect(span.source_index).toBeGreaterThanOrEqual(prev);
+      expect(span.source_index).toBeLessThan(result.runs.length);
+      prev = span.source_index;
     }
     const kinds = new Set(result.classified_spans.map((s) => s.kind));
     expect(kinds.has("context")).toBe(true);
     expect(kinds.has("insert")).toBe(true);
     expect(kinds.has("delete")).toBe(true);
-    // Bill.text_diff still stays empty here — anchoring happens later
-    // in scripts/sync-bills.ts via emit-diff.
+    // Bill.diff_chunks still stays empty here — reconstruct+diff
+    // happens later in scripts/sync-bills.ts via emit-diff.
     for (const bill of result.bills) {
-      expect(bill.text_diff).toEqual([]);
+      expect(bill.diff_chunks).toEqual([]);
     }
   }, 120_000);
+});
+
+// Regression coverage for the three real-world unresolved cases surfaced
+// by the 100-matter corpus eval. Each test owns the failure-mode + bill
+// it represents so the next refactor that breaks one fails loudly.
+describe("parseBill regression — formerly-unresolved real-world bills", () => {
+  function buildIndex(
+    entries: ReadonlyArray<[ModuleId, ReadonlyArray<string>]>,
+  ): ReadonlyMap<ModuleId, ReadonlySet<SectionId>> {
+    const m = new Map<ModuleId, ReadonlySet<SectionId>>();
+    for (const [moduleId, ids] of entries) {
+      m.set(moduleId, new Set(ids as SectionId[]));
+    }
+    return m;
+  }
+
+  it("260361 §1009.6 resolves once display_label is indexed (sf-health)", async () => {
+    // Real corpus state: Article 19E has a section file named 1009.71.json
+    // whose `id` is "1009.71" but `display_label` is "1009.6". Bills cite
+    // the display form. Before the index loader change, "1009.6" wasn't a
+    // key in sf-health's index and the lookup missed. The fix indexes
+    // display_label too, so a bill citing §1009.6 resolves cleanly.
+    const manifest = await loadManifest();
+    const bytes = await readFile(join(BILLS_FIXTURE, "260361.pdf"));
+    const meta = buildMeta({
+      file_no: "260361",
+      touched: ["sf-health"],
+      long_title: "Ordinance amending the Health Code to prohibit smoking…",
+    });
+    // Synthetic sf-health index modeling the real corpus state — both
+    // the canonical id "1009.71" AND the lowercased display_label "1009.6"
+    // are present after the loader fix.
+    const sectionIndex = buildIndex([
+      [
+        "sf-health" as ModuleId,
+        [
+          "1009.5",
+          "1009.6", // ← display_label key, the new entry the loader adds
+          "1009.7",
+          "1009.71", // ← canonical id, unchanged
+          "1009.8",
+          "1009.9",
+          "1009.10",
+        ],
+      ],
+    ]);
+    const result = await parseBill(new Uint8Array(bytes), meta, manifest, { sectionIndex });
+    const health = result.bills.find((b) => b.module_id === "sf-health");
+    expect(health).toBeDefined();
+    // No partition for §1009.6 ends up as null-section_id (i.e. unresolved
+    // at the partition layer).
+    const unresolvedFor1009_6 = result.section_partitions.filter(
+      (p) =>
+        p.module_id === "sf-health" &&
+        p.section_id === null &&
+        (p.raw_section_id === "1009.6" || p.candidates.includes("1009.6" as SectionId)),
+    );
+    expect(unresolvedFor1009_6).toEqual([]);
+  }, 60_000);
+
+  it("260449 §94A.2/§94D.2 route to sf-administrative once `is are` is tolerated", async () => {
+    // Real bill text from matter 260449 §3:
+    //   "The Chapters 94A and 94D of the Administrative Code is are
+    //    hereby amended by revising Sections 94A.2, 94A.4, and 94D.2…"
+    // Before Fix A, the structural pass missed Section 3 and the nested
+    // SEC. 94A.2 / SEC. 94D.2 headers rolled into Section 2's
+    // sf-transportation group, where lookup naturally failed. After the
+    // fix, Section 3 resolves to sf-administrative and the headers route
+    // there cleanly.
+    const manifest = await loadManifest();
+    const bytes = await readFile(join(BILLS_FIXTURE, "260449.pdf"));
+    const meta = buildMeta({
+      file_no: "260449",
+      touched: ["sf-transportation", "sf-administrative", "sf-fire"],
+      long_title:
+        "Ordinance amending Division I of the Transportation Code; amending the Administrative and Fire Codes…",
+    });
+    const sectionIndex = buildIndex([
+      [
+        "sf-transportation" as ModuleId,
+        ["6.1", "6.2", "6.3", "6.4", "6.5", "6.6", "6.7", "6.8", "6.9", "6.10"],
+      ],
+      ["sf-administrative" as ModuleId, ["94a.2", "94a.4", "94d.2"]],
+      ["sf-fire" as ModuleId, ["108", "108.2.3"]],
+    ]);
+    const result = await parseBill(new Uint8Array(bytes), meta, manifest, { sectionIndex });
+    // Every §94A.2 / §94D.2 partition resolves under sf-administrative,
+    // not sf-transportation.
+    const adminPartitions = result.section_partitions.filter(
+      (p) => p.module_id === "sf-administrative",
+    );
+    const adminRawIds = adminPartitions.map((p) => p.raw_section_id);
+    expect(adminRawIds).toContain("94A.2");
+    expect(adminRawIds).toContain("94D.2");
+    // None of the §94 partitions show up mis-routed to sf-transportation.
+    const transportMisroutes = result.section_partitions.filter(
+      (p) =>
+        p.module_id === "sf-transportation" &&
+        (p.raw_section_id.startsWith("94A") || p.raw_section_id.startsWith("94D")),
+    );
+    expect(transportMisroutes).toEqual([]);
+  }, 60_000);
+
+  it("260538 §5.29-6/§10.100-49 route to sf-administrative once plural verbs are accepted", async () => {
+    // Real bill text from matter 260538's second `Section 8`:
+    //   "Chapter 5, Article XXIX, and Chapter 10, Article XIII, of the
+    //    Administrative Code are hereby amended by revising sections
+    //    5.29-6, and 10.100-49 respectively…"
+    // Plural subject → plural verb. The widened regex now matches and
+    // the headers route to sf-administrative instead of cascading into
+    // the preceding sf-building Section 8 group.
+    const manifest = await loadManifest();
+    const bytes = await readFile(join(BILLS_FIXTURE, "260538.pdf"));
+    const meta = buildMeta({
+      file_no: "260538",
+      touched: ["sf-planning", "sf-building", "sf-administrative"],
+      long_title:
+        "Ordinance amending the Planning Code…; amending the Building Code…; and amending the Administrative Code…",
+    });
+    const sectionIndex = buildIndex([
+      ["sf-planning" as ModuleId, ["413.6", "414a.6", "415", "402", "403", "406", "409"]],
+      ["sf-building" as ModuleId, ["107a.13"]],
+      ["sf-administrative" as ModuleId, ["5.29-6", "10.100-49"]],
+    ]);
+    const result = await parseBill(new Uint8Array(bytes), meta, manifest, { sectionIndex });
+    const adminPartitions = result.section_partitions.filter(
+      (p) => p.module_id === "sf-administrative",
+    );
+    const adminRawIds = adminPartitions.map((p) => p.raw_section_id);
+    expect(adminRawIds).toContain("5.29-6");
+    expect(adminRawIds).toContain("10.100-49");
+    // Building Code Section 8 still anchors §107A.13 and does NOT carry
+    // the bled-in Admin Code section IDs.
+    const buildingPartitions = result.section_partitions.filter(
+      (p) => p.module_id === "sf-building",
+    );
+    const buildingRawIds = buildingPartitions.map((p) => p.raw_section_id);
+    expect(buildingRawIds).not.toContain("5.29-6");
+    expect(buildingRawIds).not.toContain("10.100-49");
+  }, 60_000);
+
+  it("orphan-in-module flag fires when a header's candidates resolve in a different installed module", async () => {
+    // Hand-crafted synthetic check: when the parser CAN'T resolve a
+    // section against the routed module but DOES find it elsewhere, the
+    // partition entry surfaces `orphan_in_module` so the operator log
+    // can tell silent mis-routing from a true corpus gap.
+    //
+    // We exercise this via the 260449 bill but with an artificially
+    // narrow sf-administrative index that's missing §94D.2 — leaving
+    // 94d.2 in sf-transportation's index instead (as if the real-world
+    // mis-routing had inverted). The orphan check should flag it.
+    const manifest = await loadManifest();
+    const bytes = await readFile(join(BILLS_FIXTURE, "260449.pdf"));
+    const meta = buildMeta({
+      file_no: "260449",
+      touched: ["sf-transportation", "sf-administrative", "sf-fire"],
+      long_title:
+        "Ordinance amending Division I of the Transportation Code; amending the Administrative and Fire Codes…",
+    });
+    const sectionIndex = buildIndex([
+      ["sf-transportation" as ModuleId, ["6.1", "94d.2"]],
+      ["sf-administrative" as ModuleId, ["94a.2", "94a.4"]],
+    ]);
+    const result = await parseBill(new Uint8Array(bytes), meta, manifest, { sectionIndex });
+    // Find the §94D.2 partition routed to sf-administrative. With the
+    // widened regex it routes correctly, but the synthetic index doesn't
+    // have 94d.2 under sf-administrative — it's only under
+    // sf-transportation. The orphan check should fire and surface
+    // sf-transportation as the smoking-gun module.
+    const admin94D2 = result.section_partitions.find(
+      (p) => p.module_id === "sf-administrative" && p.raw_section_id === "94D.2",
+    );
+    expect(admin94D2).toBeDefined();
+    expect(admin94D2?.section_id).toBeNull();
+    expect(admin94D2?.orphan_in_module).toBe("sf-transportation");
+  }, 60_000);
 });

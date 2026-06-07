@@ -6,10 +6,12 @@ const SF_MODULES: InstalledModule[] = [
   { id: "sf-building", code_title: "Building Code" },
   { id: "sf-business", code_title: "Business and Tax Regulations Code" },
   { id: "sf-charter", code_title: "Charter" },
+  { id: "sf-fire", code_title: "Fire Code" },
   { id: "sf-health", code_title: "Health Code" },
   { id: "sf-planning", code_title: "Planning Code" },
   { id: "sf-police", code_title: "Police Code" },
   { id: "sf-publicworks", code_title: "Public Works Code" },
+  { id: "sf-transportation", code_title: "Transportation Code" },
 ];
 
 describe("classifyBillTitle", () => {
@@ -88,6 +90,29 @@ describe("classifyBillTitle", () => {
     expect(r.class).toBe("A");
     expect(r.touched_modules).toEqual([]);
     expect(r.unresolved).toEqual(["Labor and Employment Code"]);
+  });
+
+  it("collects stubs from secondary `amending the X Code` clauses", () => {
+    // Multi-clause titles chain "; amending the Y Code" segments after
+    // the primary clause's transition keyword. Each clause contributes
+    // its own stubs to touched_modules.
+    const r = classifyBillTitle(
+      "Ordinance amending Division I of the Transportation Code to make organizational changes; amending the Administrative and Fire Codes to update cross-references; and affirming the Planning Department's determination.",
+      SF_MODULES,
+    );
+    expect(r.class).toBe("A");
+    expect(r.touched_modules).toEqual(["sf-transportation", "sf-administrative", "sf-fire"]);
+  });
+
+  it("expands plural `X and Y Codes` into separate stubs", () => {
+    // The plural marker on `Codes` disambiguates from interior-and
+    // multi-word stubs like `Business and Tax Regulations Code`.
+    const r = classifyBillTitle(
+      "Ordinance amending the Administrative and Fire Codes to update cross-references.",
+      SF_MODULES,
+    );
+    expect(r.class).toBe("A");
+    expect(r.touched_modules).toEqual(["sf-administrative", "sf-fire"]);
   });
 
   it("matches Charter without the 'Code' suffix", () => {

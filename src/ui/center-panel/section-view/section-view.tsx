@@ -54,7 +54,8 @@ import {
   splitParagraphs,
   walkBody,
 } from "@/types";
-import { reconstructInline } from "@/ui/diff/apply-text-diff";
+import { billHasDiffForSection } from "@/ui/diff/bill-section-diff";
+import { overlayDiffOnBaseline } from "@/ui/diff/overlay";
 import type { OpenItem } from "@/workbench";
 import type { NavigationIntent } from "@/workbench/navigate";
 import { CitationLink } from "./citation-link";
@@ -108,7 +109,7 @@ export interface SectionViewProps {
    *  that would otherwise break the `.lc-center` flex chain that pins
    *  the TabStrip and Breadcrumb above the scroll viewport. */
   tabPanel?: { id: string; labelledBy: string };
-  /** Pending Bill rows whose `affected_sections` include this section.
+  /** Pending Bill rows whose `section_outcomes` include this section.
    *  Drives the peach-left-border pending-rail above the body. Empty
    *  array (or undefined) suppresses the rail entirely (Pass 2 lock). */
   pendingRailBills?: ReadonlyArray<Bill>;
@@ -338,21 +339,25 @@ export function SectionView({
 
   // Overlay mode: when a pending bill is selected as the active overlay
   // for this section, the body re-renders as an inline diff against the
-  // bill's text_diff spans for this section. Citations and defined-term
+  // bill's diff chunks for this section. Citations and defined-term
   // popovers don't render inside the overlay — reading a diff is a
   // distinct mode from exploring the citation graph.
   const overlayBill = activeOverlayBillId
     ? (pendingRailBills?.find((b) => b.file_no === activeOverlayBillId) ?? null)
     : null;
-  const overlaySpansForSection = overlayBill
-    ? overlayBill.text_diff.filter((s) => s.section_id === section.id)
+  const overlayChunksForSection = overlayBill
+    ? overlayBill.diff_chunks.filter((c) => c.section_id === section.id)
     : [];
+  // The bill-level parse_status is too coarse: a `partial` bill can
+  // have this section anchored cleanly while a sibling section is the
+  // one that fell through. Check the per-section outcome instead so
+  // the overlay banner reflects what's actually true for the section
+  // in view.
   const overlayUnavailable =
-    overlayBill !== null &&
-    (overlayBill.parse_status !== "ok" || overlaySpansForSection.length === 0);
+    overlayBill !== null && !billHasDiffForSection(overlayBill, section.id);
   const overlayParagraphs: RenderBodySegment[][] =
     overlayBill !== null && !overlayUnavailable
-      ? splitParagraphs(reconstructInline(overlaySpansForSection, section.text))
+      ? splitParagraphs(overlayDiffOnBaseline(overlayChunksForSection, section.text))
       : [];
 
   return (
@@ -585,12 +590,6 @@ function renderSegment(seg: RenderBodySegment, ctx: RenderCtx, key: string): Rea
       return (
         <span key={key} className="lc-overlay-delete">
           {seg.text}
-        </span>
-      );
-    case "diff_elision":
-      return (
-        <span key={key} className="lc-overlay-elision" aria-hidden>
-          [ unchanged text omitted ]
         </span>
       );
   }

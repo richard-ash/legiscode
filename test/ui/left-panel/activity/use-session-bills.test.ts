@@ -4,10 +4,24 @@
 // and the file_no dedupe contract.
 
 import { describe, expect, it } from "vitest";
-import { type Bill, BillSchema } from "@/types";
+import { type Bill, BillSchema, deriveParseStatus, type SectionId } from "@/types";
 import { deriveSessionBills } from "@/ui/left-panel/activity/use-session-bills";
+import { outcomesFromAffectedSections } from "../../../helpers/section-outcomes";
 
-function makeBill(over: Partial<Bill> = {}): Bill {
+function makeBill(over: Partial<Bill> & { affected_sections?: SectionId[] } = {}): Bill {
+  const { affected_sections, ...rest } = over;
+  const explicitParseStatus = rest.parse_status;
+  const explicitOutcomes = rest.section_outcomes;
+  const sectionOutcomes =
+    explicitOutcomes ??
+    (affected_sections
+      ? outcomesFromAffectedSections(affected_sections, explicitParseStatus ?? "manual_review")
+      : []);
+  const hasStructural = explicitParseStatus === "structural_change";
+  // Derive parse_status from the constructed outcomes so the helper is
+  // schema-valid by construction. Explicit overrides win only when they
+  // match the derivation.
+  const derivedStatus = deriveParseStatus(sectionOutcomes, hasStructural);
   return BillSchema.parse({
     file_no: "260217",
     module_id: "sf-admin",
@@ -18,12 +32,13 @@ function makeBill(over: Partial<Bill> = {}): Bill {
     legistar_url: "https://e/d?ID=1&GUID=g",
     legistar_status: "Pending",
     bill_status: "filed",
-    affected_sections: [],
-    text_diff: [],
-    parse_status: "manual_review",
-    structural_change_scope: null,
+    diff_chunks: [],
+    structural_change_scope: hasStructural ? (rest.structural_change_scope ?? "structural") : null,
     body: { preamble: "", amendments: [], closing: "" },
-    ...over,
+    ...rest,
+    // Override last so the derived values win.
+    section_outcomes: sectionOutcomes,
+    parse_status: derivedStatus,
   } as Bill);
 }
 

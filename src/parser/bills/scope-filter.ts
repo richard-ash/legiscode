@@ -17,9 +17,9 @@ import { SF_BILL_CODE_ALIASES } from "./aliases";
 export type ScopeFilterResult = {
   /**
    * Class A — title verb is "amending" / "adding" / "repealing"; matter
-   * is expected to produce text_diff content.
+   * is expected to produce diff_chunks content.
    * Class B — title verb is "waiving" / "authorizing" / "appropriating" /
-   * "approving"; matter is expected to produce zero text_diff entries.
+   * "approving"; matter is expected to produce zero diff_chunks entries.
    */
   class: "A" | "B";
   /**
@@ -129,18 +129,19 @@ export function classifyBillTitle(
   }
 
   const matcher = buildStubMatcher(installed);
-  // Extract the stub list region. The grammar is:
+  // Extract every stub-list region. Single-code titles have one clause:
   //   "amending the {STUB_LIST} to {action}"
-  // STUB_LIST is comma + Oxford-comma + "and" separated; each entry is a
-  // capitalized phrase ending in "Code" or "Charter". We slice from "the"
-  // to the next " to " / " by " / " in order " transition keyword.
-  const region = sliceStubRegion(trimmed);
-  if (region === null) {
+  // Multi-code titles chain clauses with semicolons:
+  //   "amending the X Code to Y; amending the A and B Codes to Z; ..."
+  // Each clause is sliced separately so secondary "amending" segments
+  // contribute their stubs to touched_modules.
+  const regions = sliceStubRegions(trimmed);
+  if (regions.length === 0) {
     // Verb matched but stub list didn't — fall back to Class B-style
     // (no stubs) and let parse_status carry the verdict.
     return result;
   }
-  const stubs = splitStubs(region);
+  const stubs = regions.flatMap((r) => splitStubs(r));
   for (const stub of stubs) {
     result.touched_code_stubs.push(stub);
     const hit = matcher.find((m) => stubMatches(stub, m.stub));
@@ -164,14 +165,26 @@ export function classifyBillTitle(
   return result;
 }
 
-function sliceStubRegion(title: string): string | null {
-  // Look for "the " after the leading verb. The greedy non-stub-ending
-  // suffix is one of "to ", "by ", or "in order to ".
-  const start = /\bthe\s+/i.exec(title);
-  if (start === null) return null;
-  const after = title.slice(start.index + start[0].length);
-  const terminator = / (?:to|by|in order to)\s+/i.exec(after);
-  return terminator ? after.slice(0, terminator.index).trim() : after.trim();
+function sliceStubRegions(title: string): string[] {
+  // Walk every `amending [the] {STUB_LIST}` clause in the title. Each
+  // match's STUB_LIST runs from after "amending [the]" up to the next
+  // " to "/" by "/" in order to" transition or the end of the clause
+  // (semicolon, "and affirming", end-of-string).
+  const re = /\bamending\s+(?:the\s+)?/gi;
+  const regions: string[] = [];
+  let m: RegExpExecArray | null = re.exec(title);
+  while (m !== null) {
+    const after = title.slice(m.index + m[0].length);
+    const terminator = / (?:to|by|in order to)\s+/i.exec(after);
+    const region = terminator ? after.slice(0, terminator.index) : after;
+    // Cap at the next clause boundary so we don't pull stubs from
+    // unrelated sentences.
+    const clauseEnd = /(?:;|\band\s+affirming\b)/i.exec(region);
+    const cleaned = (clauseEnd ? region.slice(0, clauseEnd.index) : region).trim();
+    if (cleaned.length > 0) regions.push(cleaned);
+    m = re.exec(title);
+  }
+  return regions;
 }
 
 function splitStubs(region: string): string[] {
@@ -184,7 +197,13 @@ function splitStubs(region: string): string[] {
   // `Charter` alternative handles the bare "Charter" case (no prefix
   // words; only SF Charter today, but generalized for any future
   // jurisdiction with a constitutional document).
-  const re = /\b(?:Charter|[A-Z][A-Za-z]+(?:\s+(?:and\s+)?[A-Z][A-Za-z]+)*\s+(?:Code|Charter))\b/g;
+  //
+  // Plural form: "Administrative and Fire Codes" decomposes to two
+  // separate stubs (`Administrative Code`, `Fire Code`). The plural
+  // marker `Codes` / `Charters` disambiguates from interior-conjunction
+  // multi-word stubs like `Business and Tax Regulations Code`.
+  const re =
+    /\b(?:Charter|[A-Z][A-Za-z]+(?:\s+(?:and\s+)?[A-Z][A-Za-z]+)*\s+(?:Code|Charter))s?\b/g;
   const out: string[] = [];
   let m: RegExpExecArray | null = re.exec(region);
   while (m !== null) {
@@ -193,7 +212,20 @@ function splitStubs(region: string): string[] {
       .replace(/^and\s+/i, "")
       .replace(/\s+/g, " ")
       .trim();
-    if (cleaned.length > 0) out.push(cleaned);
+    if (cleaned.length > 0) {
+      // Expand plural-form clauses into per-code stubs.
+      const pluralMatch = /^(.+?)\s+(Codes|Charters)$/i.exec(cleaned);
+      if (pluralMatch !== null) {
+        const head = pluralMatch[1] ?? "";
+        const singular = pluralMatch[2]?.toLowerCase() === "charters" ? "Charter" : "Code";
+        for (const part of head.split(/\s+and\s+/i)) {
+          const trimmed = part.replace(/^,\s*/, "").trim();
+          if (trimmed.length > 0) out.push(`${trimmed} ${singular}`);
+        }
+      } else {
+        out.push(cleaned);
+      }
+    }
     m = re.exec(region);
   }
   return out;

@@ -1,10 +1,13 @@
 {
-  "description": "Regression baseline for classify-spans integration. Per the locked plan's A15+C10 locks, this records the expected page count + classification structure but defers human-validated per-span ground truth to a follow-up after the operator validates the rendered diffs.",
+  "description": "Per-span regression baseline for classify-spans against 260296.pdf — a structural-change bill (adds Chapter 94C). Per the feat/diff-completeness lock, exact counts replace the count-floor shape. Counts updated after the italic-flag PostScript-name fallback recovered 2 inserts that pdfjs's italic flag silently miscoded as upright.",
   "fixture": "260296.pdf",
   "file_no": "260296",
   "page_count": 3,
   "expected_classifications": {
-    "min_context_spans": 100,
-    "min_amendment_spans": 0
+    "context": 190,
+    "insert": 26,
+    "delete": 1,
+    "elision": 2,
+    "ambiguous": 0
   }
 }

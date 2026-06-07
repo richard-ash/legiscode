@@ -27,13 +27,12 @@ function wholesaleDeleteBill(
     legistar_url: "https://e/d?ID=1&GUID=g",
     legistar_status: "Pending",
     bill_status: "committee",
-    affected_sections: [sectionId],
-    text_diff: [
+    section_outcomes: [{ section_id: sectionId, status: "anchored", detail: null }],
+    diff_chunks: [
       {
         op: "delete",
         text: baseline,
         section_id: sectionId,
-        anchor: { baseline_offset: 0, baseline_length: baseline.length },
       },
     ],
     parse_status: "ok",
@@ -44,13 +43,19 @@ function wholesaleDeleteBill(
 }
 
 // Inline-edit: a single word replacement at a known baseline offset.
+// v2: chunks are sequential, so the "before"/"after" baseline slices
+// flank the change as equal chunks instead of being filled in by an
+// offset-aware overlay.
 function inlineEditBill(
   fileNo: string,
   moduleId: string,
   sectionId: string,
+  baseline: string,
   deleteAt: { offset: number; length: number; text: string },
   insert: string,
 ): Bill {
+  const before = baseline.slice(0, deleteAt.offset);
+  const after = baseline.slice(deleteAt.offset + deleteAt.length);
   return BillSchema.parse({
     file_no: fileNo,
     module_id: moduleId,
@@ -61,20 +66,12 @@ function inlineEditBill(
     legistar_url: "https://e/d?ID=2&GUID=g2",
     legistar_status: "Pending",
     bill_status: "committee",
-    affected_sections: [sectionId],
-    text_diff: [
-      {
-        op: "delete",
-        text: deleteAt.text,
-        section_id: sectionId,
-        anchor: { baseline_offset: deleteAt.offset, baseline_length: deleteAt.length },
-      },
-      {
-        op: "insert",
-        text: insert,
-        section_id: sectionId,
-        anchor: { baseline_offset: deleteAt.offset, baseline_length: 0 },
-      },
+    section_outcomes: [{ section_id: sectionId, status: "anchored", detail: null }],
+    diff_chunks: [
+      ...(before.length > 0 ? [{ op: "equal" as const, text: before, section_id: sectionId }] : []),
+      { op: "delete" as const, text: deleteAt.text, section_id: sectionId },
+      { op: "insert" as const, text: insert, section_id: sectionId },
+      ...(after.length > 0 ? [{ op: "equal" as const, text: after, section_id: sectionId }] : []),
     ],
     parse_status: "ok",
     structural_change_scope: null,
@@ -93,8 +90,10 @@ function manualReviewBill(fileNo: string, moduleId: string, sectionId: string): 
     legistar_url: "https://e/d?ID=3&GUID=g3",
     legistar_status: "Pending",
     bill_status: "committee",
-    affected_sections: [sectionId],
-    text_diff: [],
+    section_outcomes: [
+      { section_id: sectionId, status: "classification_low_confidence", detail: null },
+    ],
+    diff_chunks: [],
     parse_status: "manual_review",
     structural_change_scope: null,
     body: { preamble: "", amendments: [], closing: "" },
@@ -252,6 +251,7 @@ describe("SectionView overlay — inline edit", () => {
       "260700",
       "sf-health",
       "695",
+      BASELINE,
       { offset: 4, length: 9, text: "committee" },
       "council",
     );
@@ -331,6 +331,71 @@ describe("SectionView overlay — multi-bill section", () => {
     expect(
       screen.getByRole("button", { name: /clear overlay for ord\. 260200/i }),
     ).toBeInTheDocument();
+  });
+});
+
+// Partial-bill helper: anchored outcome for THIS section + a sibling
+// classification_low_confidence outcome elsewhere. Mirrors the real
+// 260177/260540 shape — bill.parse_status derives to "partial" but the
+// section in view is fully diff-renderable.
+function partialBillAnchoredHere(
+  fileNo: string,
+  moduleId: string,
+  sectionId: string,
+  baseline: string,
+): Bill {
+  return BillSchema.parse({
+    file_no: fileNo,
+    module_id: moduleId,
+    short_title: "Partial Amendment",
+    long_title: "Ordinance amending one clean section + one ambiguous section.",
+    sponsor: null,
+    introduced_at: "2026-05-12",
+    legistar_url: "https://e/d?ID=4&GUID=g4",
+    legistar_status: "Pending",
+    bill_status: "committee",
+    section_outcomes: [
+      { section_id: sectionId, status: "anchored", detail: null },
+      { section_id: "999", status: "classification_low_confidence", detail: null },
+    ],
+    diff_chunks: [
+      {
+        op: "delete",
+        text: baseline,
+        section_id: sectionId,
+      },
+    ],
+    parse_status: "partial",
+    structural_change_scope: null,
+    body: { preamble: "", amendments: [], closing: "" },
+  } as Bill);
+}
+
+describe("SectionView overlay — partial bill, anchored section", () => {
+  it("renders the inline diff for the anchored section even though parse_status='partial'", () => {
+    const view = buildSectionView();
+    const bill = partialBillAnchoredHere("260177", "sf-health", "695", BASELINE);
+    render(
+      <SectionView
+        view={view}
+        parentsLabel=""
+        error={null}
+        navigate={vi.fn()}
+        pendingRailBills={[bill]}
+        onOpenBill={vi.fn()}
+      />,
+    );
+    // The per-row gate already allowed Show changes (section is
+    // anchored, diff_chunks has chunks). The whole-bill parse_status
+    // check used to slam "overlay unavailable" here regardless — the
+    // fix routes both gates through the same per-section predicate.
+    fireEvent.click(
+      screen.getByRole("button", { name: /view this section as if ord\. 260177 had passed/i }),
+    );
+    expect(document.querySelector(".lc-section-body--overlay")).not.toBeNull();
+    expect(document.querySelector(".lc-overlay-delete")?.textContent).toBe(BASELINE);
+    // No "We couldn't compute changes" fallback message.
+    expect(screen.queryByText(/couldn't compute changes/i)).toBeNull();
   });
 });
 

@@ -224,6 +224,7 @@
       ],
       "display_rules": {
         "prefix": "m",
+        "extra_prefixes": ["h"],
         "strip_trailing_zero": true
       },
       "id": "sf-housing",

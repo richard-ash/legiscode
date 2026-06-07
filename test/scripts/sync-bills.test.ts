@@ -144,7 +144,7 @@ describe("syncBills integration: fetch → parse → write → purge", () => {
   }, async () => {
     // The skeleton corpus has no on-disk sections, so the parser's
     // sectionIndex is empty → applyDisplayRules candidates don't
-    // resolve → affected_sections is []. anchorTextDiff therefore
+    // resolve → section_outcomes is []. anchorTextDiff therefore
     // produces zero outcomes. This asserts the field exists and
     // bills still validate + write.
     const manifest = await readJurisdictionManifest(MANIFEST_PATH);
@@ -163,7 +163,7 @@ describe("syncBills integration: fetch → parse → write → purge", () => {
       "utf8",
     );
     const billRecord = BillSchema.parse(JSON.parse(billJson));
-    expect(billRecord.text_diff).toEqual([]);
+    expect(billRecord.diff_chunks).toEqual([]);
     expect(billRecord.parse_status).toBe("manual_review");
   });
 

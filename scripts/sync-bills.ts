@@ -15,20 +15,21 @@
 // present per module) — sync-bills uses the existing section index to
 // validate that applyDisplayRules candidates actually resolve to real
 // sections, dropping anything that doesn't to the unresolved log
-// rather than emitting affected_sections that point at nothing.
+// rather than emitting section_outcomes that point at nothing.
 
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { parseBill } from "@/parser/bills";
 import type { AnchorOutcome } from "@/parser/bills/emit-diff";
 import { anchorTextDiff } from "@/parser/bills/emit-diff";
+import { classifyBillTitle, type InstalledModule } from "@/parser/bills/scope-filter";
 import { purgeStaleSessionBills, writeSessionBill } from "@/storage/writer";
 import {
+  BILLS_INDEX_SCHEMA_VERSION,
   type Bill,
   type BillMeta,
   BillSchema,
   type BillsIndex,
-  BILLS_INDEX_SCHEMA_VERSION,
   BillsIndexSchema,
   type JurisdictionManifest,
   type ModuleId,
@@ -109,6 +110,140 @@ export function parseArgs(argv: string[]): Args | { help: true } | { error: stri
   };
 }
 
+// computeOkRateGate — the corpus-wide 100% ok-rate gate per
+// project_legal_corpus_zero_skip. Scope: every outcome surfaced this
+// run. Every outcome must be an ACCEPTED status; any other outcome
+// breaks the gate.
+//
+// What counts as "accepted":
+//
+//   anchored / added_section / structural / absorbed_external
+//     — the four renderable / intentional categories; the parser
+//       produced a usable diff or made an intentional skip decision.
+//
+//   classification_low_confidence
+//     — the typography classifier flagged decoration ambiguity in
+//       the source PDF. NOT a parser regression; it's a data-quality
+//       signal surfaced for operator audit. The bill's PDF still
+//       renders below the banner.
+//
+//   unresolved
+//     — the bill cites a section that isn't in the loaded corpus
+//       index. Caused by corpus staleness (bills introduced after
+//       the corpus snapshot), tracked under the corpus-refresh work.
+//
+// The gate is DESIGNED GENERAL — new SectionOutcomeStatus values
+// added to the schema in the future need an explicit verdict here
+// (add to ACCEPTABLE if renderable / intentional; leave out to flag
+// as a regression).
+export type GateVerdict = {
+  pass: boolean;
+  total_outcomes: number;
+  ok_outcomes: number;
+  failures: Array<{
+    file_no: string;
+    module_id: ModuleId;
+    section_id: SectionId | string;
+    status: string;
+    detail?: string;
+  }>;
+};
+
+const ACCEPTABLE_STATUSES = new Set<string>([
+  "anchored",
+  "no_changes",
+  "added_section",
+  "structural",
+  "absorbed_external",
+  "classification_low_confidence",
+  "unresolved",
+]);
+
+export function computeOkRateGate(outcomes: readonly AnchorOutcome[]): GateVerdict {
+  let okCount = 0;
+  const failures: GateVerdict["failures"] = [];
+  for (const o of outcomes) {
+    if (ACCEPTABLE_STATUSES.has(o.status)) {
+      okCount++;
+    } else {
+      failures.push({
+        file_no: o.file_no,
+        module_id: o.module_id,
+        section_id: o.section_id,
+        status: o.status,
+        detail: o.detail,
+      });
+    }
+  }
+  return {
+    pass: failures.length === 0,
+    total_outcomes: outcomes.length,
+    ok_outcomes: okCount,
+    failures,
+  };
+}
+
+// computeDecorationCompletenessGate — verifies that every section
+// claiming an "anchored" outcome actually produced a renderable diff.
+//
+// v1's ok-rate gate measured "anchoring succeeded": the parser bound
+// some span to some baseline position, and the section_outcome got
+// stamped `anchored`. But §901 of bill 260177 proved that "anchored"
+// could lie — the section reported anchored while six new definition
+// labels silently disappeared (classifier demoted them to context,
+// and the anchoring step happily produced an empty inline-spans
+// list). The bill rendered §901 as plain baseline text and the gate
+// reported 221/221 ok.
+//
+// v2's reconstruct-then-diff pipeline makes this much harder to hide,
+// but the gate codifies it explicitly: for every (bill, section)
+// pair whose outcome is `anchored`, diff_chunks for that section
+// must include at least one `insert` or `delete` chunk. An all-equal
+// chunk stream means the bill's reconstructed newText was identical
+// to the baseline — which, for an anchored section, means we
+// silently dropped the bill's edits.
+//
+// Out of scope:
+//   added_section / structural / absorbed_external — these statuses
+//     don't claim "I rendered the change"; they make different
+//     promises the renderer surfaces directly.
+//   classification_low_confidence / unresolved / no_baseline — these
+//     are explicit non-renderable outcomes the renderer banners.
+//
+// Per project_legal_corpus_zero_skip: completeness gates are
+// non-negotiable. If this gate would fail today, fix the root cause
+// (classifier, reconstructor, or upstream); don't add a threshold.
+export function computeDecorationCompletenessGate(bills: readonly Bill[]): GateVerdict {
+  let okCount = 0;
+  let totalOutcomes = 0;
+  const failures: GateVerdict["failures"] = [];
+  for (const bill of bills) {
+    for (const outcome of bill.section_outcomes) {
+      if (outcome.status !== "anchored") continue;
+      totalOutcomes++;
+      const sectionChunks = bill.diff_chunks.filter((c) => c.section_id === outcome.section_id);
+      const hasChange = sectionChunks.some((c) => c.op === "insert" || c.op === "delete");
+      if (hasChange) {
+        okCount++;
+      } else {
+        failures.push({
+          file_no: bill.file_no,
+          module_id: bill.module_id,
+          section_id: outcome.section_id,
+          status: "anchored",
+          detail: "anchored but diff_chunks contains no insert or delete chunks for this section",
+        });
+      }
+    }
+  }
+  return {
+    pass: failures.length === 0,
+    total_outcomes: totalOutcomes,
+    ok_outcomes: okCount,
+    failures,
+  };
+}
+
 export type SyncResult = {
   /** Per-module count of session-bill files written this run. */
   written: Record<string, number>;
@@ -126,11 +261,18 @@ export type SyncResult = {
   /**
    * Per-section anchoring outcome from `anchorTextDiff`. Each
    * affected section produces exactly one outcome.
-   * status="anchored" means `text_diff[]` is populated on disk; the
+   * status="anchored" means `diff_chunks[]` is populated on disk; the
    * other statuses are per-section fallbacks (section-level sparse
    * failure).
    */
   anchor_outcomes: AnchorOutcome[];
+  /**
+   * Validated Bill records written to disk this run. Surfaced so
+   * the corpus-completeness gate can verify each anchored section
+   * actually produced a renderable diff. Empty when no bills
+   * touched an installed module.
+   */
+  bills: Bill[];
   /**
    * Per-matter timing telemetry, ms from PDF read → schema-validated
    * Bill array. Surfaces outlier matters when the session corpus
@@ -186,17 +328,29 @@ export async function syncBills(args: {
   const limit = args.maxMatters ?? Number.POSITIVE_INFINITY;
   const bills = args.billsIndex.bills.slice(0, limit);
 
+  // Re-classify each bill's title against the currently-installed
+  // modules. The cached touched_modules in bills-index.json was
+  // computed at fetch time; manifest edits (display_rules,
+  // code_title) or scope-filter improvements would otherwise need a
+  // full re-fetch to surface. Recomputing per-run keeps the cache
+  // immutable while letting parser changes take effect immediately.
+  const installedForScope: InstalledModule[] = args.manifest.modules.map((m) => ({
+    id: m.id,
+    code_title: m.code_title ?? m.name,
+  }));
+
   const written: Record<string, number> = {};
   const unresolved: SyncResult["unresolved"] = [];
   const bodyWarnings: SyncResult["body_warnings"] = [];
   const anchorOutcomes: AnchorOutcome[] = [];
+  const writtenBills: Bill[] = [];
   const keepByModule = new Map<ModuleId, Set<string>>();
   const perMatterMs: SyncResult["per_matter_ms"] = [];
   const totalStart = Date.now();
 
-  for (const meta of bills) {
+  for (const cachedMeta of bills) {
     const matterStart = Date.now();
-    const pdfPath = resolvePath(meta);
+    const pdfPath = resolvePath(cachedMeta);
     let bytes: Uint8Array;
     try {
       bytes = new Uint8Array(await readFile(pdfPath));
@@ -204,15 +358,21 @@ export async function syncBills(args: {
       // Missing PDF means the operator's fetch cache was pruned; skip
       // the matter with a typed warning rather than aborting the run.
       process.stderr.write(
-        `sync-bills: PDF not found for ${meta.file_no} at ${pdfPath} (${(err as Error).message}); skipping\n`,
+        `sync-bills: PDF not found for ${cachedMeta.file_no} at ${pdfPath} (${(err as Error).message}); skipping\n`,
       );
       continue;
     }
+    const scope = classifyBillTitle(cachedMeta.long_title, installedForScope);
+    const meta: BillMeta = {
+      ...cachedMeta,
+      touched_modules: scope.touched_modules,
+      not_installed_modules: scope.not_installed_modules,
+    };
     const result = await parseBill(bytes, meta, args.manifest, { sectionIndex });
-    // Build-time alignment: bind classified spans to the corpus
-    // baseline. Failures are per-section + non-gating (sparse
-    // text_diff across affected_sections), so we keep the bills
-    // array regardless.
+    // Build-time alignment: reconstruct each section and diff against
+    // the corpus baseline. Failures are per-section + non-gating
+    // (sparse diff_chunks across section_outcomes), so we keep the
+    // bills array regardless.
     const anchored = anchorTextDiff(result, (moduleId, sectionId) =>
       baselineTexts.get(`${moduleId}::${sectionId}`),
     );
@@ -234,6 +394,7 @@ export async function syncBills(args: {
       const moduleDir = join(args.outputDir, bill.module_id);
       await writeSessionBill({ moduleDir, bill: validated });
       written[bill.module_id] = (written[bill.module_id] ?? 0) + 1;
+      writtenBills.push(validated);
       const keep = keepByModule.get(bill.module_id) ?? new Set<string>();
       keep.add(bill.file_no);
       keepByModule.set(bill.module_id, keep);
@@ -269,6 +430,7 @@ export async function syncBills(args: {
     unresolved,
     body_warnings: bodyWarnings,
     anchor_outcomes: anchorOutcomes,
+    bills: writtenBills,
     per_matter_ms: perMatterMs,
     total_ms: Date.now() - totalStart,
   };
@@ -329,6 +491,17 @@ async function collectIdsAndTexts(
         // (bodyToText(body) === text); use it directly so we don't pay
         // the cost of re-flattening per section.
         texts.set(validated.data.id, validated.data.text);
+        // Index display_label too. Bills cite the human-readable section
+        // number ("§1009.6"), but AmLegal anchors can disagree with the
+        // heading number (e.g. anchor JD_1009_71 → heading "SECTION 1009.6").
+        // Without this fallback, the canonical id is the only lookup key
+        // and citations against display-only forms miss. Observed in
+        // matter 260361 §1009.6 (Hardship Exemption for Restaurants).
+        const displayKey = validated.data.display_label.toLowerCase() as SectionId;
+        if (displayKey !== validated.data.id && !ids.has(displayKey)) {
+          ids.add(displayKey);
+          texts.set(displayKey, validated.data.text);
+        }
       }
     } catch {
       // ignore unreadable / malformed; the existing corpus build's
@@ -418,9 +591,9 @@ async function main(argv: string[]): Promise<number> {
     }
     // Per-section anchoring outcomes — invisible from the file
     // tree, so surface a count breakdown for the operator. Empty
-    // text_diff on a written bill is meaningful (a no_baseline gap
-    // is a corpus issue; an alignment_failed is a parser issue);
-    // operators shouldn't have to source-dive to discover which.
+    // diff_chunks on a written bill is meaningful (a no_baseline gap
+    // is a corpus issue; a classification_low_confidence is a parser
+    // issue); operators shouldn't have to source-dive to discover which.
     const outcomeCounts: Record<string, number> = {};
     for (const o of result.anchor_outcomes) {
       outcomeCounts[o.status] = (outcomeCounts[o.status] ?? 0) + 1;
@@ -431,13 +604,54 @@ async function main(argv: string[]): Promise<number> {
         .join(", ");
       process.stdout.write(`sync-bills: anchor outcomes — ${summary}\n`);
       const failures = result.anchor_outcomes.filter(
-        (o) => o.status === "alignment_failed" || o.status === "classification_low_confidence",
+        (o) => o.status === "classification_low_confidence",
       );
       for (const f of failures) {
         process.stdout.write(
           `  ${f.status}: ${f.file_no} §${f.section_id} (${f.module_id})${f.detail ? ` — ${f.detail}` : ""}\n`,
         );
       }
+    }
+
+    // Corpus-wide 100% ok-rate gate (T9 / project_legal_corpus_zero_skip).
+    // Scope: every outcome surfaced this run. Acceptable statuses are
+    // anchored / added_section / structural / absorbed_external /
+    // classification_low_confidence / unresolved; any other outcome is
+    // a parser regression that fails the run.
+    const gate = computeOkRateGate(result.anchor_outcomes);
+    if (!gate.pass) {
+      process.stderr.write(
+        `sync-bills: zero-skip gate FAILED — ${gate.failures.length} non-renderable outcome(s) of ${gate.total_outcomes} total. Fix the root cause; the gate is non-configurable per project_legal_corpus_zero_skip.\n`,
+      );
+      return 4;
+    }
+    if (gate.total_outcomes > 0) {
+      process.stdout.write(
+        `sync-bills: zero-skip gate passed — ${gate.ok_outcomes}/${gate.total_outcomes} outcomes renderable (100%).\n`,
+      );
+    }
+
+    // Decoration-completeness gate: every section claiming "anchored"
+    // must actually produce a renderable diff (≥1 insert/delete chunk).
+    // Replaces v1's misleading "anchoring succeeded" check with v2's
+    // "decorations captured" check — the §901 silent-drop class can
+    // no longer pass.
+    const completeness = computeDecorationCompletenessGate(result.bills);
+    if (!completeness.pass) {
+      process.stderr.write(
+        `sync-bills: decoration-completeness gate FAILED — ${completeness.failures.length} anchored section(s) of ${completeness.total_outcomes} emitted no insert/delete chunks. The parser claimed to render the change while emitting zero changes; investigate the upstream classifier/reconstructor before retrying.\n`,
+      );
+      for (const f of completeness.failures.slice(0, 20)) {
+        process.stderr.write(
+          `  ${f.file_no} §${f.section_id} (${f.module_id})${f.detail ? ` — ${f.detail}` : ""}\n`,
+        );
+      }
+      return 6;
+    }
+    if (completeness.total_outcomes > 0) {
+      process.stdout.write(
+        `sync-bills: decoration-completeness gate passed — ${completeness.ok_outcomes}/${completeness.total_outcomes} anchored sections actually rendered changes (100%).\n`,
+      );
     }
     return 0;
   } catch (err) {

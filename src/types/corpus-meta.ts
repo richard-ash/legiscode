@@ -12,13 +12,18 @@ import { ModuleIdSchema, SectionIdSchema } from "./identifiers";
 // MIN_SUPPORTED_SCHEMA_VERSION and fails loudly when a stale bundle
 // would otherwise crash downstream on field-shape mismatches.
 //
-// KNOWN_SCHEMA_VERSION = 4: BillStatusSchema widens from the 5-state
-// in-flight taxonomy to a 9-state session taxonomy (adds enacted +
-// vetoed/withdrawn/failed), and JurisdictionManifest gains a
-// `legislative_session` block declaring the session window the bill
-// scraper filters against. Both changes are additive at the type level,
-// but a v3 client cannot interpret a v4 bundle's enacted/terminal bills
-// without falling back to "filed", so MIN advances in lock-step.
+// KNOWN_SCHEMA_VERSION = 5: TextDiffSpan[] (offset-anchored spans with a
+// required `anchor` field) is replaced by DiffChunk[] (sequential
+// equal/insert/delete chunks from `diffWords(baseline, reconstructedNewText)`),
+// and Bill.text_diff is renamed to Bill.diff_chunks. The `op` enum drops
+// "context" and "elision" (substituted into baseline during
+// reconstruction) and gains "equal" (diffWords's term for unchanged
+// runs). A v4 client cannot interpret v5 bundles' diff_chunks field
+// shape, so MIN advances in lock-step.
+//
+// KNOWN_SCHEMA_VERSION = 4 (historical): BillStatusSchema widens from
+// the 5-state in-flight taxonomy to a 9-state session taxonomy, and
+// JurisdictionManifest gains a `legislative_session` block.
 //
 // KNOWN_SCHEMA_VERSION = 3 (historical): TextDiffSpan carries a required
 // build-time `anchor` ({baseline_offset, baseline_length}) binding each
@@ -33,8 +38,8 @@ import { ModuleIdSchema, SectionIdSchema } from "./identifiers";
 // is added, since a stale bundle's records would fail schema validation
 // downstream. When the app learns to read additive future versions, bump
 // KNOWN above MIN.
-export const KNOWN_SCHEMA_VERSION = 4;
-export const MIN_SUPPORTED_SCHEMA_VERSION = 4;
+export const KNOWN_SCHEMA_VERSION = 5;
+export const MIN_SUPPORTED_SCHEMA_VERSION = 5;
 
 // CorpusEntry kinds enumerated in corpus-meta.json's `corpus_entry_kinds`
 // field, so consumers can detect kind-extension at meta-read time without

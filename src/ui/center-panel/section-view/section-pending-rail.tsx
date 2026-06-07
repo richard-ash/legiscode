@@ -14,7 +14,7 @@
 //
 // The toggle is suppressed per-row when the bill can't render an
 // inline diff for THIS section (parse_status !== "ok" OR no
-// text_diff span anchors to section_id). Affordance promises align
+// diff chunks attached to section_id). Affordance promises align
 // with capability — a button labeled "Show changes" should only
 // appear when changes can actually be shown. The row still renders
 // the file_no + status + title so the reader can open the bill and
@@ -29,9 +29,11 @@
 import type { KeyboardEvent, MouseEvent } from "react";
 import type { Bill, SectionId } from "@/types";
 import { STATUS_LABEL, STATUS_TONE } from "@/ui/bill-status";
+import { billHasDiffForSection } from "@/ui/diff/bill-section-diff";
+import { PerSectionBanner } from "@/ui/diff-view/banner";
 
 export interface SectionPendingRailProps {
-  /** Pending Bill rows whose `affected_sections` include this section.
+  /** Pending Bill rows whose `section_outcomes` include this section.
    *  Empty array suppresses the rail entirely. */
   bills: ReadonlyArray<Bill>;
   /** The section currently in view. Used to decide per-row whether
@@ -46,14 +48,9 @@ export interface SectionPendingRailProps {
   onToggleOverlay: (fileNo: string | null) => void;
   /** When true AND `activeOverlayBillId` is non-null, the active row
    *  surfaces an "overlay unavailable" reason instead of the explainer.
-   *  Used when the bill's parse_status isn't `ok` or no text_diff spans
-   *  anchor to this section. */
+   *  Used when the bill's parse_status isn't `ok` or no diff chunks
+   *  attach to this section. */
   overlayUnavailable?: boolean;
-}
-
-function billHasDiffForSection(bill: Bill, sectionId: SectionId): boolean {
-  if (bill.parse_status !== "ok") return false;
-  return bill.text_diff.some((span) => span.section_id === sectionId);
 }
 
 export function SectionPendingRail({
@@ -142,8 +139,31 @@ export function SectionPendingRail({
                 </div>
               ) : null}
               {showUnavailable ? (
-                <div className="lc-section-pending-rail-unavailable" role="note">
-                  We couldn't compute changes for this section under Ord. {bill.file_no}.
+                <div className="lc-section-pending-rail-unavailable">
+                  {(() => {
+                    const outcome = bill.section_outcomes.find((o) => o.section_id === sectionId);
+                    // For non-renderable outcomes, surface the
+                    // specific per-section banner copy. For absent
+                    // outcomes or the defensive case where the
+                    // outcome reads "anchored" but overlayUnavailable
+                    // is still true (corpus rebuild after overlay
+                    // activated), fall back to the generic message.
+                    if (!outcome || outcome.status === "anchored") {
+                      return (
+                        <span role="note">
+                          We couldn't compute changes for this section under Ord. {bill.file_no}.
+                        </span>
+                      );
+                    }
+                    return (
+                      <PerSectionBanner
+                        status={outcome.status}
+                        fileNo={bill.file_no}
+                        sectionId={sectionId}
+                        detailOverride={outcome.detail ?? undefined}
+                      />
+                    );
+                  })()}
                 </div>
               ) : null}
             </li>

@@ -11,10 +11,22 @@
 
 import type { FontMetadata } from "@/parser/pdf/page-extractor";
 
-/** True if pdfjs's font dictionary marks the font as italic. */
+/**
+ * True if pdfjs's font dictionary marks the font as italic, or — when
+ * the flag is missing — if the PostScript name advertises italic/oblique.
+ *
+ * pdfjs occasionally emits the same PostScript name (e.g.
+ * `TimesNewRomanPS-ItalicMT`) under two aliases in one document — one
+ * with the italic flag set, one without. Trusting the flag verbatim
+ * silently misclassifies the unflagged alias as upright, which in the
+ * SF Legistar convention demotes amendment-class runs to context. The
+ * name fallback catches that without affecting fonts whose names don't
+ * advertise italic.
+ */
 export function isItalicFont(meta: FontMetadata | undefined): boolean {
   if (meta === undefined) return false;
-  return meta.italic;
+  if (meta.italic) return true;
+  return /italic|oblique/i.test(meta.name);
 }
 
 /** True if pdfjs's font dictionary marks the font as bold. */

@@ -1,10 +1,11 @@
-// Regression baselines for classify-spans against the committed SF
-// fixture PDFs. The companion `.annotated.json` files capture the
-// minimum expected classification structure (page count + per-kind
-// span floors). Per the locked plan's A15+C10 locks, exhaustive
-// per-span ground truth waits on operator validation of the rendered
-// diffs — these baselines guard against regression without fighting
-// routine parser improvements.
+// Per-span regression baselines for classify-spans against the
+// committed SF fixture PDFs. The companion `.annotated.json` files
+// capture the exact expected classification counts per kind. Any drift
+// surfaces as a CI failure rather than the previous min-floor shape,
+// which let silent regressions slip past CI as long as the counts
+// stayed above the floor. Per the feat/diff-completeness lock the
+// counts here are the load-bearing "we shipped what we said we
+// shipped" gate.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -26,8 +27,11 @@ type Baseline = {
   file_no: string;
   page_count: number;
   expected_classifications: {
-    min_context_spans: number;
-    min_amendment_spans: number;
+    context: number;
+    insert: number;
+    delete: number;
+    elision: number;
+    ambiguous: number;
   };
 };
 
@@ -35,7 +39,7 @@ const FIXTURES = ["260217.pdf", "260544.pdf", "260545.pdf", "260296.pdf"];
 
 describe("classify-spans regression against committed .annotated.json baselines", () => {
   for (const pdfName of FIXTURES) {
-    it(`${pdfName} meets its committed classification floor`, async () => {
+    it(`${pdfName} matches its committed per-span classification counts`, async () => {
       const fileNo = pdfName.replace(".pdf", "");
       const baseline = JSON.parse(
         await readFile(join(BILLS_FIXTURE, `${fileNo}.annotated.json`), "utf8"),
@@ -52,13 +56,10 @@ describe("classify-spans regression against committed .annotated.json baselines"
         const classified = classifySpans(runs, ops, fontMeta);
         const counts = { context: 0, insert: 0, delete: 0, elision: 0, ambiguous: 0 };
         for (const s of classified) counts[s.kind] = (counts[s.kind] ?? 0) + 1;
-        const amendmentSpans = counts.insert + counts.delete + counts.elision;
-        expect(counts.context).toBeGreaterThanOrEqual(
-          baseline.expected_classifications.min_context_spans,
-        );
-        expect(amendmentSpans).toBeGreaterThanOrEqual(
-          baseline.expected_classifications.min_amendment_spans,
-        );
+        // Exact-count regression: each kind must match the committed
+        // baseline. Updates require regenerating the fixture and
+        // committing the new numbers, on purpose.
+        expect(counts).toEqual(baseline.expected_classifications);
       } finally {
         await loaded.destroy();
       }

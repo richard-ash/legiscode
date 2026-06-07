@@ -80,8 +80,11 @@ function validBill(overrides: Partial<Record<string, unknown>> = {}) {
     legistar_url: "https://sfgov.legistar.com/LegislationDetail.aspx?ID=1&GUID=g",
     legistar_status: "Pending Committee Hearing",
     bill_status: "committee",
-    affected_sections: ["10.04.020", "10.04.030"],
-    text_diff: [],
+    section_outcomes: [
+      { section_id: "10.04.020", status: "classification_low_confidence", detail: null },
+      { section_id: "10.04.030", status: "classification_low_confidence", detail: null },
+    ],
+    diff_chunks: [],
     parse_status: "manual_review",
     structural_change_scope: null,
     body: { preamble: "", amendments: [], closing: "" },
@@ -90,21 +93,24 @@ function validBill(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 describe("BillSchema", () => {
-  it("accepts a manual_review bill with empty text_diff and affected sections", () => {
+  it("accepts a manual_review bill with empty diff_chunks and per-section outcomes", () => {
     expect(() => BillSchema.parse(validBill())).not.toThrow();
   });
 
-  it("accepts an ok bill with non-empty text_diff (the invariant honored)", () => {
+  it("accepts an ok bill with non-empty diff_chunks (the invariant honored)", () => {
     expect(() =>
       BillSchema.parse(
         validBill({
           parse_status: "ok",
-          text_diff: [
+          section_outcomes: [
+            { section_id: "10.04.020", status: "anchored", detail: null },
+            { section_id: "10.04.030", status: "anchored", detail: null },
+          ],
+          diff_chunks: [
             {
               op: "insert",
               text: "new text",
               section_id: "10.04.020",
-              anchor: { baseline_offset: 0, baseline_length: 0 },
             },
           ],
         }),
@@ -112,8 +118,19 @@ describe("BillSchema", () => {
     ).not.toThrow();
   });
 
-  it("rejects ok with empty text_diff (invariant)", () => {
-    const result = BillSchema.safeParse(validBill({ parse_status: "ok", text_diff: [] }));
+  it("rejects ok with no renderable outcomes (derived-status invariant)", () => {
+    // parse_status === "ok" must mean section_outcomes has at least
+    // one anchored/added_section outcome. A claim of ok without any
+    // renderable outcomes fails the refine.
+    const result = BillSchema.safeParse(
+      validBill({
+        parse_status: "ok",
+        diff_chunks: [],
+        section_outcomes: [
+          { section_id: "10.04.020", status: "classification_low_confidence", detail: null },
+        ],
+      }),
+    );
     expect(result.success).toBe(false);
   });
 
@@ -123,12 +140,20 @@ describe("BillSchema", () => {
         validBill({
           parse_status: "structural_change",
           structural_change_scope: "by adding Chapter 94C",
+          section_outcomes: [
+            { section_id: "10.04.020", status: "structural", detail: null },
+            { section_id: "10.04.030", status: "structural", detail: null },
+          ],
         }),
       ),
     ).not.toThrow();
 
     const noScope = BillSchema.safeParse(
-      validBill({ parse_status: "structural_change", structural_change_scope: null }),
+      validBill({
+        parse_status: "structural_change",
+        structural_change_scope: null,
+        section_outcomes: [{ section_id: "10.04.020", status: "structural", detail: null }],
+      }),
     );
     expect(noScope.success).toBe(false);
 

@@ -15,10 +15,24 @@ describe("isItalicFont / isBoldFont / isTimesFont", () => {
     expect(isTimesFont(undefined)).toBe(false);
   });
 
-  it("isItalicFont returns the metadata's italic flag verbatim", () => {
+  it("isItalicFont returns true when the italic flag is set", () => {
     expect(isItalicFont({ name: "TimesNewRomanPS-ItalicMT", italic: true, bold: false })).toBe(
       true,
     );
+    expect(isItalicFont({ name: "ArialMT", italic: false, bold: false })).toBe(false);
+  });
+
+  it("isItalicFont falls back to the PostScript name when the flag is missing", () => {
+    // pdfjs alias `g_d0_f6` in bill 260177 carries the PostScript name
+    // `TimesNewRomanPS-ItalicMT` but reports `italic: false` — the
+    // bug-class that silently misclassified §901's new-definition labels
+    // as context. Name-based fallback recovers the truth.
+    expect(isItalicFont({ name: "TimesNewRomanPS-ItalicMT", italic: false, bold: false })).toBe(
+      true,
+    );
+    expect(isItalicFont({ name: "MyCustomFont-Oblique", italic: false, bold: false })).toBe(true);
+    // Names that don't advertise italic stay non-italic.
+    expect(isItalicFont({ name: "TimesNewRomanPSMT", italic: false, bold: false })).toBe(false);
     expect(isItalicFont({ name: "ArialMT", italic: false, bold: false })).toBe(false);
   });
 

@@ -97,13 +97,18 @@ export function deriveSessionBills(
   // withdrawn / failed bills never enter the rail because they won't
   // affect the section (D10 reduced; T6 minimal predicate). The rail
   // shape is locked here so the section view never has to re-filter.
+  //
+  // Touched-set sourced from section_outcomes — every section the bill
+  // touches enters the rail, regardless of per-section diff outcome.
+  // The rail itself decides whether to surface the inline-diff toggle
+  // (per-section, via billHasDiffForSection).
   const bySection = new Map<SectionId, Bill[]>();
   for (const bill of rows) {
     if (!isRailEligible(bill.bill_status)) continue;
-    for (const sectionId of bill.affected_sections) {
-      const existing = bySection.get(sectionId);
+    for (const outcome of bill.section_outcomes) {
+      const existing = bySection.get(outcome.section_id);
       if (existing) existing.push(bill);
-      else bySection.set(sectionId, [bill]);
+      else bySection.set(outcome.section_id, [bill]);
     }
   }
 

@@ -9,12 +9,23 @@ import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Api } from "../../../electron/ipc/contract";
 import { parse as parseRef } from "../../../src/corpus/refs";
-import type { Bill } from "../../../src/types";
-import { BillSchema } from "../../../src/types";
+import type { Bill, SectionId } from "../../../src/types";
+import { BillSchema, deriveParseStatus } from "../../../src/types";
 import { TabContent } from "../../../src/ui/tabs/tab-content";
 import type { OpenItem } from "../../../src/workbench/open-items";
+import { outcomesFromAffectedSections } from "../../helpers/section-outcomes";
 
-function makeBill(over: Partial<Bill> = {}): Bill {
+function makeBill(over: Partial<Bill> & { affected_sections?: SectionId[] } = {}): Bill {
+  const { affected_sections, ...rest } = over;
+  const explicitParseStatus = rest.parse_status;
+  const sectionOutcomes =
+    rest.section_outcomes ??
+    outcomesFromAffectedSections(
+      affected_sections ?? (["1.1", "1.2"] as SectionId[]),
+      explicitParseStatus ?? "manual_review",
+    );
+  const hasStructural = explicitParseStatus === "structural_change";
+  const derivedStatus = deriveParseStatus(sectionOutcomes, hasStructural);
   return BillSchema.parse({
     file_no: "260217",
     module_id: "sf-port",
@@ -25,12 +36,12 @@ function makeBill(over: Partial<Bill> = {}): Bill {
     legistar_url: "https://sfgov.legistar.com/Detail?ID=1&GUID=g",
     legistar_status: "Pending — Land Use Cmte",
     bill_status: "committee",
-    affected_sections: ["1.1", "1.2"],
-    text_diff: [],
-    parse_status: "manual_review",
-    structural_change_scope: null,
+    diff_chunks: [],
+    structural_change_scope: hasStructural ? (rest.structural_change_scope ?? "structural") : null,
     body: { preamble: "", amendments: [], closing: "" },
-    ...over,
+    ...rest,
+    section_outcomes: sectionOutcomes,
+    parse_status: derivedStatus,
   });
 }
 

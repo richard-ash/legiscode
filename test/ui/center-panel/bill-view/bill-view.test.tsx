@@ -7,11 +7,24 @@
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { type Bill, BillSchema } from "@/types";
+import { type Bill, BillSchema, deriveParseStatus, type SectionId } from "@/types";
 import { BillView } from "@/ui/center-panel/bill-view/bill-view";
 import type { OpenItem } from "@/workbench/open-items";
+import { outcomesFromAffectedSections } from "../../../helpers/section-outcomes";
 
-function makeBill(over: Partial<Bill> = {}): Bill {
+function makeBill(over: Partial<Bill> & { affected_sections?: SectionId[] } = {}): Bill {
+  const { affected_sections, ...rest } = over;
+  const explicitParseStatus = rest.parse_status;
+  const sectionOutcomes =
+    rest.section_outcomes ??
+    (affected_sections
+      ? outcomesFromAffectedSections(affected_sections, explicitParseStatus ?? "manual_review")
+      : outcomesFromAffectedSections(
+          ["1.1", "1.2"] as SectionId[],
+          explicitParseStatus ?? "manual_review",
+        ));
+  const hasStructural = explicitParseStatus === "structural_change";
+  const derivedStatus = deriveParseStatus(sectionOutcomes, hasStructural);
   return BillSchema.parse({
     file_no: "260217",
     module_id: "sf-port",
@@ -22,12 +35,14 @@ function makeBill(over: Partial<Bill> = {}): Bill {
     legistar_url: "https://sfgov.legistar.com/Detail?ID=1&GUID=g",
     legistar_status: "Pending — Land Use Cmte",
     bill_status: "committee",
-    affected_sections: ["1.1", "1.2"],
-    text_diff: [],
-    parse_status: "manual_review",
-    structural_change_scope: null,
+    diff_chunks: [],
+    structural_change_scope: hasStructural ? (rest.structural_change_scope ?? "structural") : null,
     body: { preamble: "", amendments: [], closing: "" },
-    ...over,
+    ...rest,
+    // Override last so the derived values win over any user overrides
+    // — keeps the factory schema-valid by construction.
+    section_outcomes: sectionOutcomes,
+    parse_status: derivedStatus,
   });
 }
 
@@ -121,6 +136,65 @@ describe("BillView — parse-status notices", () => {
     );
     expect(screen.getByText(/structural change/i)).toBeInTheDocument();
     expect(screen.getByText(/repeals chapter 10/i)).toBeInTheDocument();
+  });
+
+  it("shows a partial notice when some sections anchored and others fell back", () => {
+    render(
+      <BillView
+        bills={[
+          makeBill({
+            section_outcomes: [
+              { section_id: "1.1", status: "anchored", detail: null },
+              { section_id: "1.2", status: "classification_low_confidence", detail: null },
+            ],
+            diff_chunks: [
+              {
+                op: "insert",
+                text: "new clause",
+                section_id: "1.1",
+              },
+            ],
+          }),
+        ]}
+        navigate={vi.fn()}
+        tabPanel={TAB_PANEL}
+      />,
+    );
+    expect(screen.getByText(/renders for some affected sections/i)).toBeInTheDocument();
+  });
+
+  it("shows an absorbed_external notice for AmLegal-codified bills", () => {
+    render(
+      <BillView
+        bills={[
+          makeBill({
+            section_outcomes: [{ section_id: "1.1", status: "absorbed_external", detail: null }],
+          }),
+        ]}
+        navigate={vi.fn()}
+        tabPanel={TAB_PANEL}
+      />,
+    );
+    expect(screen.getByText(/Codified externally/i)).toBeInTheDocument();
+  });
+
+  it("renders no parse-status notice for a body_only bill (no banner needed)", () => {
+    render(
+      <BillView
+        bills={[
+          makeBill({
+            section_outcomes: [],
+          }),
+        ]}
+        navigate={vi.fn()}
+        tabPanel={TAB_PANEL}
+      />,
+    );
+    // body_only is a quiet state — no banner copy surfaces.
+    expect(screen.queryByText(/Insertions and deletions aren't styled/i)).toBeNull();
+    expect(screen.queryByText(/structural change/i)).toBeNull();
+    expect(screen.queryByText(/renders for some affected sections/i)).toBeNull();
+    expect(screen.queryByText(/Codified externally/i)).toBeNull();
   });
 });
 
