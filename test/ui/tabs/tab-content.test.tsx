@@ -37,6 +37,7 @@ function makeBill(over: Partial<Bill> & { affected_sections?: SectionId[] } = {}
     legistar_status: "Pending — Land Use Cmte",
     bill_status: "committee",
     diff_chunks: [],
+    new_bodies: [],
     structural_change_scope: hasStructural ? (rest.structural_change_scope ?? "structural") : null,
     body: { preamble: "", amendments: [], closing: "" },
     ...rest,

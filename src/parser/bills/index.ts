@@ -256,6 +256,7 @@ export async function parseBill(
       bill_status: billStatus,
       section_outcomes: initialOutcomes,
       diff_chunks: [],
+      new_bodies: [],
       parse_status: parseStatus,
       structural_change_scope: pass.has_structural_action ? pass.structural_action_text : null,
       // The same parsed body is shared across every per-module Bill row

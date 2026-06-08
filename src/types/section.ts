@@ -184,7 +184,7 @@ const FormatSegmentSchema: z.ZodType<FormatSegment> = z.lazy(() =>
     .strict(),
 );
 
-const BodySegmentSchema: z.ZodType<BodySegment> = z.lazy(() =>
+export const BodySegmentSchema: z.ZodType<BodySegment> = z.lazy(() =>
   z.union([
     TextSegmentSchema,
     CitationSegmentSchema,

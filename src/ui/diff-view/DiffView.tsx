@@ -22,7 +22,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Bill, DiffChunk, ModuleId, RenderBodySegment, SectionId } from "@/types";
 import { splitParagraphs } from "@/types";
-import { overlayDiffOnBaseline } from "@/ui/diff/overlay";
+import { bodyFromText, overlayStructured } from "@/ui/diff/overlay";
 import { PerSectionBanner } from "./banner";
 
 /**
@@ -164,7 +164,14 @@ export function DiffView({
   }
 
   if (state.kind === "loaded") {
-    const paragraphs = splitParagraphs(overlayDiffOnBaseline(chunks, state.baseline));
+    // DiffView gets baseline as a string (the loader's contract);
+    // wrap it as a flat BodySegment[] so the structured overlay has
+    // something to walk. Citations / defined-terms inside this view
+    // are unavailable in production — the bill-view route doesn't
+    // carry the parsed section body. Section-view's overlay path
+    // walks section.body directly and keeps full chrome.
+    const baselineBody = bodyFromText(state.baseline);
+    const paragraphs = splitParagraphs(overlayStructured(chunks, baselineBody, "changes"));
     if (paragraphs.length === 0) {
       return (
         <div className="lc-diff-view lc-diff-view--empty" data-testid="diff-view-empty">

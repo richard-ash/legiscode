@@ -85,6 +85,7 @@ function validBill(overrides: Partial<Record<string, unknown>> = {}) {
       { section_id: "10.04.030", status: "classification_low_confidence", detail: null },
     ],
     diff_chunks: [],
+    new_bodies: [],
     parse_status: "manual_review",
     structural_change_scope: null,
     body: { preamble: "", amendments: [], closing: "" },
@@ -113,6 +114,10 @@ describe("BillSchema", () => {
               section_id: "10.04.020",
             },
           ],
+          new_bodies: [
+            { section_id: "10.04.020", body: [{ kind: "text", text: "new text" }] },
+            { section_id: "10.04.030", body: [] },
+          ],
         }),
       ),
     ).not.toThrow();
@@ -126,6 +131,7 @@ describe("BillSchema", () => {
       validBill({
         parse_status: "ok",
         diff_chunks: [],
+        new_bodies: [],
         section_outcomes: [
           { section_id: "10.04.020", status: "classification_low_confidence", detail: null },
         ],

@@ -25,6 +25,9 @@ function makeBill(over: Partial<Bill> & { affected_sections?: SectionId[] } = {}
         ));
   const hasStructural = explicitParseStatus === "structural_change";
   const derivedStatus = deriveParseStatus(sectionOutcomes, hasStructural);
+  const defaultNewBodies = sectionOutcomes
+    .filter((o) => o.status === "anchored" || o.status === "added_section")
+    .map((o) => ({ section_id: o.section_id, body: [] }));
   return BillSchema.parse({
     file_no: "260217",
     module_id: "sf-port",
@@ -36,6 +39,7 @@ function makeBill(over: Partial<Bill> & { affected_sections?: SectionId[] } = {}
     legistar_status: "Pending — Land Use Cmte",
     bill_status: "committee",
     diff_chunks: [],
+    new_bodies: defaultNewBodies,
     structural_change_scope: hasStructural ? (rest.structural_change_scope ?? "structural") : null,
     body: { preamble: "", amendments: [], closing: "" },
     ...rest,

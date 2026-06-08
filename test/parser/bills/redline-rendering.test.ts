@@ -64,6 +64,59 @@ function buildIndex(
   return m;
 }
 
+/**
+ * Load-bearing invariant for the structured overlay walker. Equal+delete
+ * chunk char lengths MUST sum to baseline.length; any drift cascades into
+ * mid-word truncation in the rendered Changes/Proposed views (e.g.
+ * "consumption" → "consumptiog" when a chunk slice overruns by one char
+ * and the next chunk's start drifts forward). The diff emitter uses
+ * diffWordsWithSpace specifically to make this hold by construction, but
+ * pinning it here catches future regressions (lib version bump, primitive
+ * swap, pre-diff transform that breaks byte alignment).
+ */
+function assertOffsetInvariant(
+  chunks: ReadonlyArray<{ op: "equal" | "insert" | "delete"; text: string }>,
+  baseline: string,
+  context: string,
+): void {
+  let span = 0;
+  for (const c of chunks) if (c.op !== "insert") span += c.text.length;
+  expect(span, `${context}: sum(equal+delete).length must equal baseline.length`).toBe(
+    baseline.length,
+  );
+}
+
+/**
+ * No surviving adjacent (delete-whitespace, insert-whitespace) pair. PDF
+ * reconstruction routinely wraps a baseline space to a newline at column
+ * boundaries; diffWordsWithSpace emits that as `del " " + ins "\n"`. If
+ * the coalesce pass in emit-diff is skipped or broken, those pairs leak
+ * through and the renderer's pushText turns the inserted newline into a
+ * phantom paragraph break in Proposed/Changes mode — sentence flow
+ * shatters into one-clause-per-paragraph blocks.
+ */
+function assertNoWhitespaceOnlyPairs(
+  chunks: ReadonlyArray<{ op: "equal" | "insert" | "delete"; text: string }>,
+  context: string,
+): void {
+  const isWs = (s: string) => /^\s+$/.test(s);
+  for (let i = 1; i < chunks.length; i++) {
+    const a = chunks[i - 1];
+    const b = chunks[i];
+    if (!a || !b) continue;
+    if (a.op === "delete" && b.op === "insert" && isWs(a.text) && isWs(b.text)) {
+      throw new Error(
+        `${context}: surviving del-ws + ins-ws pair at chunk ${i - 1}/${i} (del=${JSON.stringify(a.text)}, ins=${JSON.stringify(b.text)}) — coalesce broken, will render as phantom paragraph break`,
+      );
+    }
+    if (a.op === "insert" && b.op === "delete" && isWs(a.text) && isWs(b.text)) {
+      throw new Error(
+        `${context}: surviving ins-ws + del-ws pair at chunk ${i - 1}/${i} (ins=${JSON.stringify(a.text)}, del=${JSON.stringify(b.text)}) — coalesce broken`,
+      );
+    }
+  }
+}
+
 describe("redline rendering — three formerly-failing real bills", () => {
   it("260539 CEQA: every amended §31.x section emits at least one insert or delete chunk", async () => {
     // Old failure (Cause C, v1): diffWords drove a global cursor that
@@ -98,6 +151,12 @@ describe("redline rendering — three formerly-failing real bills", () => {
       const sectionChunks = bill!.diff_chunks.filter((c) => c.section_id === sid);
       const hasEdit = sectionChunks.some((c) => c.op === "insert" || c.op === "delete");
       expect(hasEdit, `${sid} must emit at least one insert or delete chunk`).toBe(true);
+      assertOffsetInvariant(
+        sectionChunks,
+        baselines.get(`sf-administrative::${sid}`)!,
+        `260539 §${sid}`,
+      );
+      assertNoWhitespaceOnlyPairs(sectionChunks, `260539 §${sid}`);
     }
   }, 60_000);
 
@@ -152,10 +211,22 @@ describe("redline rendering — three formerly-failing real bills", () => {
 
     // The actual subsection-(c) Development Impact Fees content the
     // bill adds shows up as an insert.
-    const hasDevImpactInsert = sectionChunks.some(
-      (c) => c.op === "insert" && c.text.includes("Development Impact Fees"),
-    );
-    expect(hasDevImpactInsert).toBe(true);
+    // Concatenate the chunks in order, keeping equal + insert content
+    // (the post-amendment text the reader sees in Proposed mode). The
+    // bill's added subsection-(c) text must surface verbatim somewhere
+    // in that stream. We can't pin "Development Impact Fees" to a
+    // single insert chunk: under diffWordsWithSpace the inter-word
+    // spaces frequently land in equal chunks (baseline whitespace
+    // happens to align with the inserted phrase's spaces), so the
+    // phrase shows up as alternating insert/equal slices that
+    // concatenate into the visible text.
+    const proposedText = sectionChunks
+      .filter((c) => c.op !== "delete")
+      .map((c) => c.text)
+      .join("");
+    expect(proposedText).toContain("Development Impact Fees");
+    assertOffsetInvariant(sectionChunks, baseline, "260542 §206.10");
+    assertNoWhitespaceOnlyPairs(sectionChunks, "260542 §206.10");
   }, 60_000);
 
   it("260543 Fireworks §1290: emits per-word inline edits, not one full-section block", async () => {
@@ -216,5 +287,7 @@ describe("redline rendering — three formerly-failing real bills", () => {
     for (const d of deletes) {
       expect(d.text).not.toBe(baseline);
     }
+    assertOffsetInvariant(sectionChunks, baseline, "260543 §1290");
+    assertNoWhitespaceOnlyPairs(sectionChunks, "260543 §1290");
   }, 60_000);
 });

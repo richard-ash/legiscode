@@ -4,7 +4,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { type Bill, BillSchema, deriveParseStatus, type SectionId } from "@/types";
-import { SectionPendingRail } from "@/ui/center-panel/section-view/section-pending-rail";
+import {
+  type ActiveOverlay,
+  SectionPendingRail,
+} from "@/ui/center-panel/section-view/section-pending-rail";
 import { outcomesFromAffectedSections } from "../../../helpers/section-outcomes";
 
 const SECTION_ID = "1.1" as SectionId;
@@ -20,6 +23,9 @@ function makeBill(over: Partial<Bill> & { affected_sections?: SectionId[] } = {}
     );
   const hasStructural = explicitParseStatus === "structural_change";
   const derivedStatus = deriveParseStatus(sectionOutcomes, hasStructural);
+  const defaultNewBodies = sectionOutcomes
+    .filter((o) => o.status === "anchored" || o.status === "added_section")
+    .map((o) => ({ section_id: o.section_id, body: [] }));
   return BillSchema.parse({
     file_no: "260217",
     module_id: "sf-port",
@@ -37,6 +43,7 @@ function makeBill(over: Partial<Bill> & { affected_sections?: SectionId[] } = {}
         text: "new",
       },
     ],
+    new_bodies: defaultNewBodies,
     structural_change_scope: hasStructural ? (rest.structural_change_scope ?? "structural") : null,
     body: { preamble: "", amendments: [], closing: "" },
     ...rest,
@@ -46,10 +53,13 @@ function makeBill(over: Partial<Bill> & { affected_sections?: SectionId[] } = {}
 }
 
 const RESTING = {
-  activeOverlayBillId: null,
-  onToggleOverlay: vi.fn(),
+  activeOverlay: null as ActiveOverlay | null,
+  onChangeOverlay: vi.fn(),
   sectionId: SECTION_ID,
 };
+
+const CHANGES = (billId: string): ActiveOverlay => ({ billId, mode: "changes" });
+const PROPOSED = (billId: string): ActiveOverlay => ({ billId, mode: "proposed" });
 
 describe("SectionPendingRail — visibility", () => {
   it("renders nothing when no bills affect this section", () => {
@@ -118,24 +128,24 @@ describe("SectionPendingRail — file-no opens bill", () => {
     expect(onOpenBill).toHaveBeenCalledWith("260217", "primary");
   });
 
-  it("clicking the fileno does NOT toggle the overlay (stopPropagation)", () => {
-    const onToggleOverlay = vi.fn();
+  it("clicking the fileno does NOT change the overlay (button is its own click target)", () => {
+    const onChangeOverlay = vi.fn();
     render(
       <SectionPendingRail
         bills={[makeBill()]}
         sectionId={SECTION_ID}
-        activeOverlayBillId={null}
-        onToggleOverlay={onToggleOverlay}
+        activeOverlay={null}
+        onChangeOverlay={onChangeOverlay}
         onOpenBill={vi.fn()}
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /open ord\. 260217/i }));
-    expect(onToggleOverlay).not.toHaveBeenCalled();
+    expect(onChangeOverlay).not.toHaveBeenCalled();
   });
 });
 
-describe("SectionPendingRail — overlay toggle (variant B)", () => {
-  it("renders a 'Show changes' button on each resting row", () => {
+describe("SectionPendingRail — segmented control (Original · Changes · Proposed)", () => {
+  it("renders the three mode buttons on each resting row", () => {
     render(
       <SectionPendingRail
         bills={[makeBill({ file_no: "260100" }), makeBill({ file_no: "260200" })]}
@@ -143,61 +153,162 @@ describe("SectionPendingRail — overlay toggle (variant B)", () => {
         onOpenBill={vi.fn()}
       />,
     );
-    expect(screen.getAllByRole("button", { name: /view this section as if/i })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Original" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Changes" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Proposed" })).toHaveLength(2);
   });
 
-  it("clicking 'Show changes' calls onToggleOverlay with the bill's file_no", () => {
-    const onToggleOverlay = vi.fn();
+  it("Original is the default pressed state when no overlay is active", () => {
+    render(<SectionPendingRail bills={[makeBill()]} {...RESTING} onOpenBill={vi.fn()} />);
+    const original = screen.getByRole("button", { name: "Original" });
+    expect(original.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Changes" }).getAttribute("aria-pressed")).toBe(
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "Proposed" }).getAttribute("aria-pressed")).toBe(
+      "false",
+    );
+  });
+
+  it("clicking Changes dispatches onChangeOverlay with mode='changes'", () => {
+    const onChangeOverlay = vi.fn();
     render(
       <SectionPendingRail
         bills={[makeBill()]}
         sectionId={SECTION_ID}
-        activeOverlayBillId={null}
-        onToggleOverlay={onToggleOverlay}
+        activeOverlay={null}
+        onChangeOverlay={onChangeOverlay}
         onOpenBill={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /view this section as if/i }));
-    expect(onToggleOverlay).toHaveBeenCalledWith("260217");
+    fireEvent.click(screen.getByRole("button", { name: "Changes" }));
+    expect(onChangeOverlay).toHaveBeenCalledWith({ billId: "260217", mode: "changes" });
   });
 
-  it("when active, the row's toggle reads 'Clear overlay' and calls onToggleOverlay(null)", () => {
-    const onToggleOverlay = vi.fn();
+  it("clicking Proposed dispatches onChangeOverlay with mode='proposed'", () => {
+    const onChangeOverlay = vi.fn();
     render(
       <SectionPendingRail
         bills={[makeBill()]}
         sectionId={SECTION_ID}
-        activeOverlayBillId={"260217"}
-        onToggleOverlay={onToggleOverlay}
+        activeOverlay={null}
+        onChangeOverlay={onChangeOverlay}
         onOpenBill={vi.fn()}
       />,
     );
-    const clear = screen.getByRole("button", { name: /clear overlay for ord\. 260217/i });
-    expect(clear.getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(clear);
-    expect(onToggleOverlay).toHaveBeenCalledWith(null);
+    fireEvent.click(screen.getByRole("button", { name: "Proposed" }));
+    expect(onChangeOverlay).toHaveBeenCalledWith({ billId: "260217", mode: "proposed" });
   });
 
-  it("the active row shows the VIEWING badge", () => {
+  it("Changes is pressed when the active overlay is on this bill in changes mode", () => {
     render(
       <SectionPendingRail
         bills={[makeBill()]}
         sectionId={SECTION_ID}
-        activeOverlayBillId={"260217"}
-        onToggleOverlay={vi.fn()}
+        activeOverlay={CHANGES("260217")}
+        onChangeOverlay={vi.fn()}
         onOpenBill={vi.fn()}
       />,
     );
-    expect(screen.getByText("VIEWING")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Changes" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
   });
 
-  it("the active row grows the explainer block (variant B locus)", () => {
+  it("Proposed is pressed when the active overlay is on this bill in proposed mode", () => {
     render(
       <SectionPendingRail
         bills={[makeBill()]}
         sectionId={SECTION_ID}
-        activeOverlayBillId={"260217"}
-        onToggleOverlay={vi.fn()}
+        activeOverlay={PROPOSED("260217")}
+        onChangeOverlay={vi.fn()}
+        onOpenBill={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Proposed" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+  });
+
+  it("clicking Original on the active row clears the overlay (null)", () => {
+    const onChangeOverlay = vi.fn();
+    render(
+      <SectionPendingRail
+        bills={[makeBill()]}
+        sectionId={SECTION_ID}
+        activeOverlay={CHANGES("260217")}
+        onChangeOverlay={onChangeOverlay}
+        onOpenBill={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Original" }));
+    expect(onChangeOverlay).toHaveBeenCalledWith(null);
+  });
+
+  it("non-active rows render with Original pressed even when another row is active", () => {
+    render(
+      <SectionPendingRail
+        bills={[makeBill({ file_no: "260100" }), makeBill({ file_no: "260200" })]}
+        sectionId={SECTION_ID}
+        activeOverlay={CHANGES("260200")}
+        onChangeOverlay={vi.fn()}
+        onOpenBill={vi.fn()}
+      />,
+    );
+    // Two rows. The active one (260200) has Changes pressed; the
+    // other (260100) has Original pressed.
+    const originals = screen.getAllByRole("button", { name: "Original" });
+    const changes = screen.getAllByRole("button", { name: "Changes" });
+    expect(originals.filter((b) => b.getAttribute("aria-pressed") === "true")).toHaveLength(1);
+    expect(changes.filter((b) => b.getAttribute("aria-pressed") === "true")).toHaveLength(1);
+  });
+
+  it("the active row in Changes mode shows the VIEWING CHANGES badge", () => {
+    render(
+      <SectionPendingRail
+        bills={[makeBill()]}
+        sectionId={SECTION_ID}
+        activeOverlay={CHANGES("260217")}
+        onChangeOverlay={vi.fn()}
+        onOpenBill={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("VIEWING CHANGES")).toBeInTheDocument();
+  });
+
+  it("the active row in Proposed mode shows the VIEWING PROPOSED badge", () => {
+    render(
+      <SectionPendingRail
+        bills={[makeBill()]}
+        sectionId={SECTION_ID}
+        activeOverlay={PROPOSED("260217")}
+        onChangeOverlay={vi.fn()}
+        onOpenBill={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("VIEWING PROPOSED")).toBeInTheDocument();
+  });
+
+  it("Changes explainer surfaces the strike/highlight copy", () => {
+    render(
+      <SectionPendingRail
+        bills={[makeBill()]}
+        sectionId={SECTION_ID}
+        activeOverlay={CHANGES("260217")}
+        onChangeOverlay={vi.fn()}
+        onOpenBill={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/Deletions are struck through/i)).toBeInTheDocument();
+  });
+
+  it("Proposed explainer surfaces the post-amendment copy", () => {
+    render(
+      <SectionPendingRail
+        bills={[makeBill()]}
+        sectionId={SECTION_ID}
+        activeOverlay={PROPOSED("260217")}
+        onChangeOverlay={vi.fn()}
         onOpenBill={vi.fn()}
       />,
     );
@@ -209,20 +320,16 @@ describe("SectionPendingRail — overlay toggle (variant B)", () => {
       <SectionPendingRail
         bills={[makeBill({ file_no: "260100" }), makeBill({ file_no: "260200" })]}
         sectionId={SECTION_ID}
-        activeOverlayBillId={"260200"}
-        onToggleOverlay={vi.fn()}
+        activeOverlay={CHANGES("260200")}
+        onChangeOverlay={vi.fn()}
         onOpenBill={vi.fn()}
       />,
     );
-    expect(screen.queryByText(/as if Ord\. 260100 had passed/i)).toBeNull();
-    expect(screen.getByText(/as if Ord\. 260200 had passed/i)).toBeInTheDocument();
+    // Only one explainer should render at a time.
+    expect(screen.getAllByText(/Deletions are struck through/i)).toHaveLength(1);
   });
 
   it("when overlayUnavailable AND the section has a specific non-renderable outcome, the banner surfaces that reason", () => {
-    // Partial bill: section 1.1 isn't anchored — outcome is
-    // `classification_low_confidence`. The rail surfaces the SPECIFIC
-    // banner copy instead of the generic "couldn't compute changes"
-    // string.
     render(
       <SectionPendingRail
         bills={[
@@ -234,14 +341,13 @@ describe("SectionPendingRail — overlay toggle (variant B)", () => {
                 detail: null,
               },
             ],
-            // text_diff must be empty when no renderable outcomes
-            // (the schema refine requires it).
             diff_chunks: [],
+            new_bodies: [],
           }),
         ]}
         sectionId={SECTION_ID}
-        activeOverlayBillId={"260217"}
-        onToggleOverlay={vi.fn()}
+        activeOverlay={CHANGES("260217")}
+        onChangeOverlay={vi.fn()}
         onOpenBill={vi.fn()}
         overlayUnavailable
       />,
@@ -254,40 +360,42 @@ describe("SectionPendingRail — overlay toggle (variant B)", () => {
       <SectionPendingRail
         bills={[makeBill()]}
         sectionId={SECTION_ID}
-        activeOverlayBillId={"260217"}
-        onToggleOverlay={vi.fn()}
+        activeOverlay={CHANGES("260217")}
+        onChangeOverlay={vi.fn()}
         onOpenBill={vi.fn()}
         overlayUnavailable
       />,
     );
-    expect(screen.queryByText(/as if Ord\. 260217 had passed/i)).toBeNull();
+    expect(screen.queryByText(/Deletions are struck through/i)).toBeNull();
     expect(
       screen.getByText(/We couldn't compute changes for this section under Ord\. 260217/i),
     ).toBeInTheDocument();
   });
 });
 
-describe("SectionPendingRail — toggle gating (parse_status + diff coverage)", () => {
-  it("suppresses the Show changes toggle when bill.parse_status is not 'ok'", () => {
+describe("SectionPendingRail — gating (parse_status + diff coverage)", () => {
+  it("suppresses the segmented control when bill.parse_status is not 'ok'", () => {
     render(
       <SectionPendingRail
-        bills={[makeBill({ parse_status: "manual_review", diff_chunks: [] })]}
+        bills={[makeBill({ parse_status: "manual_review", diff_chunks: [], new_bodies: [] })]}
         {...RESTING}
         onOpenBill={vi.fn()}
       />,
     );
-    expect(screen.queryByRole("button", { name: /view this section as if/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Changes" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Proposed" })).toBeNull();
     // Bill row itself still renders — file_no opens the bill.
     expect(screen.getByRole("button", { name: /open ord\. 260217/i })).toBeInTheDocument();
   });
 
-  it("suppresses the toggle for structural_change bills (no inline diff possible)", () => {
+  it("suppresses the segmented control for structural_change bills", () => {
     render(
       <SectionPendingRail
         bills={[
           makeBill({
             parse_status: "structural_change",
             diff_chunks: [],
+            new_bodies: [],
             structural_change_scope: "Section 1. Article 4 is hereby repealed.",
           }),
         ]}
@@ -295,10 +403,10 @@ describe("SectionPendingRail — toggle gating (parse_status + diff coverage)", 
         onOpenBill={vi.fn()}
       />,
     );
-    expect(screen.queryByRole("button", { name: /view this section as if/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Changes" })).toBeNull();
   });
 
-  it("suppresses the toggle when parse_status is ok but no diff span anchors to this section", () => {
+  it("suppresses the segmented control when no diff chunk anchors to this section", () => {
     render(
       <SectionPendingRail
         bills={[
@@ -316,18 +424,16 @@ describe("SectionPendingRail — toggle gating (parse_status + diff coverage)", 
         onOpenBill={vi.fn()}
       />,
     );
-    expect(screen.queryByRole("button", { name: /view this section as if/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Changes" })).toBeNull();
   });
 
-  it("renders the toggle when parse_status is ok AND a diff span anchors to this section", () => {
+  it("renders the segmented control when parse_status is ok AND a diff chunk anchors to this section", () => {
     render(<SectionPendingRail bills={[makeBill()]} {...RESTING} onOpenBill={vi.fn()} />);
-    expect(screen.getByRole("button", { name: /view this section as if/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Changes" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Proposed" })).toBeInTheDocument();
   });
 
-  it("partial bill: shows the toggle when THIS section is anchored even though another section fell back", () => {
-    // Bill is `partial` — section A anchored, section B failed.
-    // When the rail renders for section A, the toggle shows; section
-    // B's outcome doesn't suppress the rail for A.
+  it("partial bill: shows the control when THIS section is anchored even if a sibling failed", () => {
     render(
       <SectionPendingRail
         bills={[
@@ -349,10 +455,10 @@ describe("SectionPendingRail — toggle gating (parse_status + diff coverage)", 
         onOpenBill={vi.fn()}
       />,
     );
-    expect(screen.getByRole("button", { name: /view this section as if/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Changes" })).toBeInTheDocument();
   });
 
-  it("partial bill, rail on a failed section: toggle is suppressed (anchored elsewhere doesn't count)", () => {
+  it("partial bill, rail on a failed section: control is suppressed", () => {
     render(
       <SectionPendingRail
         bills={[
@@ -371,27 +477,28 @@ describe("SectionPendingRail — toggle gating (parse_status + diff coverage)", 
           }),
         ]}
         sectionId={"1.2" as SectionId}
-        activeOverlayBillId={null}
-        onToggleOverlay={vi.fn()}
+        activeOverlay={null}
+        onChangeOverlay={vi.fn()}
         onOpenBill={vi.fn()}
       />,
     );
-    expect(screen.queryByRole("button", { name: /view this section as if/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Changes" })).toBeNull();
   });
 
-  it("keeps the toggle visible on the active row even if hasDiff would be false (defensive — lets user clear a stale overlay)", () => {
+  it("keeps the segmented control visible on the active row even if hasDiff would now be false", () => {
+    // Defensive: corpus rebuilt after the user clicked Changes. The
+    // active row keeps showing the control so the user can return to
+    // Original.
     render(
       <SectionPendingRail
-        bills={[makeBill({ parse_status: "manual_review", diff_chunks: [] })]}
+        bills={[makeBill({ parse_status: "manual_review", diff_chunks: [], new_bodies: [] })]}
         sectionId={SECTION_ID}
-        activeOverlayBillId={"260217"}
-        onToggleOverlay={vi.fn()}
+        activeOverlay={CHANGES("260217")}
+        onChangeOverlay={vi.fn()}
         onOpenBill={vi.fn()}
         overlayUnavailable
       />,
     );
-    expect(
-      screen.getByRole("button", { name: /clear overlay for ord\. 260217/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Original" })).toBeInTheDocument();
   });
 });

@@ -16,6 +16,7 @@
 
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { parseNewBody } from "@/parser/bills/parse-new-body";
 import {
   type Bill,
   BillSchema,
@@ -33,6 +34,20 @@ const BASELINE = "The committee shall meet quarterly to review reports.";
 
 function makeBill(outcomes: SectionOutcome[], diffChunks: Bill["diff_chunks"] = []): Bill {
   const hasStructural = outcomes.some((o) => o.status === "structural");
+  // Every anchored/added_section outcome must have a corresponding
+  // new_bodies entry (BillSchema refine). Derive the body from the
+  // diff_chunks for this section so DiffView's structured overlay has
+  // something to walk; an empty body would short-circuit to the
+  // "removed entirely" empty state.
+  const newBodies = outcomes
+    .filter((o) => o.status === "anchored" || o.status === "added_section")
+    .map((o) => {
+      const newText = diffChunks
+        .filter((c) => c.section_id === o.section_id && (c.op === "equal" || c.op === "insert"))
+        .map((c) => c.text)
+        .join("");
+      return { section_id: o.section_id, body: [...parseNewBody(newText)] };
+    });
   return BillSchema.parse({
     file_no: "260217",
     module_id: MODULE_ID,
@@ -45,6 +60,7 @@ function makeBill(outcomes: SectionOutcome[], diffChunks: Bill["diff_chunks"] = 
     bill_status: "committee",
     section_outcomes: outcomes,
     diff_chunks: diffChunks,
+    new_bodies: newBodies,
     parse_status: deriveParseStatus(outcomes, hasStructural),
     structural_change_scope: hasStructural ? "Repeals Chapter 10" : null,
     body: { preamble: "", amendments: [], closing: "" },

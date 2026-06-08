@@ -3,6 +3,7 @@
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { parseNewBody } from "@/parser/bills/parse-new-body";
 import { type Bill, BillSchema } from "@/types";
 import { SectionView } from "@/ui/center-panel/section-view/section-view";
 import { bodyParaBreak, bodyText, buildCorpusSectionView } from "./fixtures";
@@ -35,6 +36,7 @@ function wholesaleDeleteBill(
         section_id: sectionId,
       },
     ],
+    new_bodies: [{ section_id: sectionId, body: [] }],
     parse_status: "ok",
     structural_change_scope: null,
     body: { preamble: "", amendments: [], closing: "" },
@@ -73,6 +75,7 @@ function inlineEditBill(
       { op: "insert" as const, text: insert, section_id: sectionId },
       ...(after.length > 0 ? [{ op: "equal" as const, text: after, section_id: sectionId }] : []),
     ],
+    new_bodies: [{ section_id: sectionId, body: [...parseNewBody(before + insert + after)] }],
     parse_status: "ok",
     structural_change_scope: null,
     body: { preamble: "", amendments: [], closing: "" },
@@ -94,6 +97,7 @@ function manualReviewBill(fileNo: string, moduleId: string, sectionId: string): 
       { section_id: sectionId, status: "classification_low_confidence", detail: null },
     ],
     diff_chunks: [],
+    new_bodies: [],
     parse_status: "manual_review",
     structural_change_scope: null,
     body: { preamble: "", amendments: [], closing: "" },
@@ -131,9 +135,7 @@ describe("SectionView overlay — resting state (overlay off)", () => {
     );
     expect(screen.getByText(BASELINE)).toBeInTheDocument();
     expect(document.querySelector(".lc-section-body--overlay")).toBeNull();
-    expect(
-      screen.getByRole("button", { name: /view this section as if ord\. 260545 had passed/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Changes" })).toBeInTheDocument();
   });
 
   it("suppresses the rail entirely when no pending bills affect the section", () => {
@@ -166,9 +168,7 @@ describe("SectionView overlay — wholesale delete", () => {
         onOpenBill={vi.fn()}
       />,
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: /view this section as if ord\. 260545 had passed/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Changes" }));
     expect(document.querySelector(".lc-section-body--overlay")).not.toBeNull();
     const deletes = document.querySelectorAll(".lc-overlay-delete");
     expect(deletes).toHaveLength(1);
@@ -188,9 +188,7 @@ describe("SectionView overlay — wholesale delete", () => {
         onOpenBill={vi.fn()}
       />,
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: /view this section as if ord\. 260545 had passed/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Changes" }));
     // §695, "Permit Required" still render as clean text — no strike on the header.
     const sectionId = screen.getByText("§ 695");
     const title = screen.getByText("Permit Required");
@@ -213,11 +211,9 @@ describe("SectionView overlay — wholesale delete", () => {
         onOpenBill={vi.fn()}
       />,
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: /view this section as if ord\. 260545 had passed/i }),
-    );
-    expect(screen.getByText("VIEWING")).toBeInTheDocument();
-    expect(screen.getByText(/as if Ord\. 260545 had passed/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Changes" }));
+    expect(screen.getByText("VIEWING CHANGES")).toBeInTheDocument();
+    expect(screen.getByText(/Deletions are struck through/i)).toBeInTheDocument();
   });
 
   it("clears overlay when the toggle is clicked a second time", () => {
@@ -233,11 +229,9 @@ describe("SectionView overlay — wholesale delete", () => {
         onOpenBill={vi.fn()}
       />,
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: /view this section as if ord\. 260545 had passed/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Changes" }));
     expect(document.querySelector(".lc-section-body--overlay")).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /clear overlay for ord\. 260545/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Original" }));
     expect(document.querySelector(".lc-section-body--overlay")).toBeNull();
     expect(screen.queryByText("VIEWING")).toBeNull();
   });
@@ -265,9 +259,7 @@ describe("SectionView overlay — inline edit", () => {
         onOpenBill={vi.fn()}
       />,
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: /view this section as if ord\. 260700 had passed/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Changes" }));
     const overlay = document.querySelector(".lc-section-body--overlay");
     expect(overlay).not.toBeNull();
     expect(overlay?.querySelector(".lc-overlay-delete")?.textContent).toBe("committee");
@@ -278,7 +270,7 @@ describe("SectionView overlay — inline edit", () => {
 });
 
 describe("SectionView overlay — multi-bill section", () => {
-  it("activating one bill's overlay doesn't change the other's row state", () => {
+  it("activating one bill's Changes mode highlights only that row", () => {
     const view = buildSectionView();
     const billA = wholesaleDeleteBill("260100", "sf-health", "695", BASELINE);
     const billB = wholesaleDeleteBill("260200", "sf-health", "695", BASELINE);
@@ -292,20 +284,14 @@ describe("SectionView overlay — multi-bill section", () => {
         onOpenBill={vi.fn()}
       />,
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: /view this section as if ord\. 260100 had passed/i }),
-    );
-    // billA's row reads as overlay-on; billB's row still says "View as if..."
-    expect(
-      screen.getByRole("button", { name: /clear overlay for ord\. 260100/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /view this section as if ord\. 260200 had passed/i }),
-    ).toBeInTheDocument();
-    expect(screen.getAllByText("VIEWING")).toHaveLength(1);
+    const changesButtons = screen.getAllByRole("button", { name: "Changes" });
+    expect(changesButtons).toHaveLength(2);
+    fireEvent.click(changesButtons[0]!);
+    // Exactly one row shows the VIEWING CHANGES badge.
+    expect(screen.getAllByText("VIEWING CHANGES")).toHaveLength(1);
   });
 
-  it("toggling a second bill replaces the first as the active overlay", () => {
+  it("clicking Changes on a second bill replaces the first as the active overlay", () => {
     const view = buildSectionView();
     const billA = wholesaleDeleteBill("260100", "sf-health", "695", BASELINE);
     const billB = wholesaleDeleteBill("260200", "sf-health", "695", BASELINE);
@@ -319,18 +305,14 @@ describe("SectionView overlay — multi-bill section", () => {
         onOpenBill={vi.fn()}
       />,
     );
+    const changesButtons = screen.getAllByRole("button", { name: "Changes" });
+    fireEvent.click(changesButtons[0]!);
     fireEvent.click(
-      screen.getByRole("button", { name: /view this section as if ord\. 260100 had passed/i }),
+      // Re-query after the first click; the DOM rerendered.
+      screen.getAllByRole("button", { name: "Changes" })[1]!,
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: /view this section as if ord\. 260200 had passed/i }),
-    );
-    expect(
-      screen.getByRole("button", { name: /view this section as if ord\. 260100 had passed/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /clear overlay for ord\. 260200/i }),
-    ).toBeInTheDocument();
+    // Still only one VIEWING CHANGES badge — second click replaced the first.
+    expect(screen.getAllByText("VIEWING CHANGES")).toHaveLength(1);
   });
 });
 
@@ -365,6 +347,7 @@ function partialBillAnchoredHere(
         section_id: sectionId,
       },
     ],
+    new_bodies: [{ section_id: sectionId, body: [] }],
     parse_status: "partial",
     structural_change_scope: null,
     body: { preamble: "", amendments: [], closing: "" },
@@ -389,9 +372,7 @@ describe("SectionView overlay — partial bill, anchored section", () => {
     // anchored, diff_chunks has chunks). The whole-bill parse_status
     // check used to slam "overlay unavailable" here regardless — the
     // fix routes both gates through the same per-section predicate.
-    fireEvent.click(
-      screen.getByRole("button", { name: /view this section as if ord\. 260177 had passed/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Changes" }));
     expect(document.querySelector(".lc-section-body--overlay")).not.toBeNull();
     expect(document.querySelector(".lc-overlay-delete")?.textContent).toBe(BASELINE);
     // No "We couldn't compute changes" fallback message.
@@ -418,9 +399,7 @@ describe("SectionView overlay — unavailable", () => {
     // toggle is suppressed because the parser couldn't produce a diff
     // for this section, so promising "Show changes" would lie.
     expect(screen.getByRole("button", { name: /open ord\. 260999/i })).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /view this section as if ord\. 260999 had passed/i }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Changes" })).toBeNull();
     expect(document.querySelector(".lc-section-body--overlay")).toBeNull();
   });
 });
@@ -458,9 +437,7 @@ describe("SectionView overlay — section change resets state", () => {
         onOpenBill={vi.fn()}
       />,
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: /view this section as if ord\. 260545 had passed/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Changes" }));
     expect(document.querySelector(".lc-section-body--overlay")).not.toBeNull();
     // Section changes; the overlay resets even though the rail bill stays the same.
     rerender(
@@ -507,9 +484,7 @@ describe("SectionView overlay — multi-paragraph body", () => {
         onOpenBill={vi.fn()}
       />,
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: /view this section as if ord\. 260545 had passed/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Changes" }));
     const overlayParas = document.querySelectorAll(".lc-section-body--overlay p.lc-para");
     expect(overlayParas).toHaveLength(3);
     expect(overlayParas[0]?.textContent).toBe("Para one.");

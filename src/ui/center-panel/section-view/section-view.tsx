@@ -55,7 +55,7 @@ import {
   walkBody,
 } from "@/types";
 import { billHasDiffForSection } from "@/ui/diff/bill-section-diff";
-import { overlayDiffOnBaseline } from "@/ui/diff/overlay";
+import { overlayStructured } from "@/ui/diff/overlay";
 import type { OpenItem } from "@/workbench";
 import type { NavigationIntent } from "@/workbench/navigate";
 import { CitationLink } from "./citation-link";
@@ -147,17 +147,28 @@ export function SectionView({
   const tabPanelAttrs = tabPanel
     ? { role: "tabpanel" as const, id: tabPanel.id, "aria-labelledby": tabPanel.labelledBy }
     : null;
-  // Per-section local state — when set, the body re-renders as an
-  // inline overlay showing the bill's proposed changes applied in
-  // place. The pending-rail panel is the toggle target (variant B).
+  // Per-section local state — the active overlay carries both the
+  // bill driving it and the mode the reader picked from the rail's
+  // three-mode segmented control:
+  //
+  //   null              → "Original" (the resting state — render
+  //                       section.body unchanged).
+  //   { billId, mode: "changes" }  → walk the structured-diff overlay
+  //                                  for that bill (strikethrough
+  //                                  deletions + highlighted inserts).
+  //   { billId, mode: "proposed" } → render the bill's new_body
+  //                                  directly (post-amendment text,
+  //                                  no marks).
+  //
   // Resets to null whenever the section identity changes so a stale
   // overlay can't leak across tab navigation.
-  const [activeOverlayBillId, setActiveOverlayBillId] = useState<string | null>(null);
+  type ActiveOverlay = { billId: string; mode: "changes" | "proposed" };
+  const [activeOverlay, setActiveOverlay] = useState<ActiveOverlay | null>(null);
   const sectionKey = view !== null ? `${view.moduleId}::${view.section.id}` : null;
   const lastSectionKeyRef = useRef<string | null>(null);
   if (lastSectionKeyRef.current !== sectionKey) {
     lastSectionKeyRef.current = sectionKey;
-    if (activeOverlayBillId !== null) setActiveOverlayBillId(null);
+    if (activeOverlay !== null) setActiveOverlay(null);
   }
   // Single hover-popover hook for the whole section. Citation handlers
   // and DefinedTerm (via SectionHoverContext) dispatch into the same
@@ -337,14 +348,30 @@ export function SectionView({
 
   const paragraphs = splitParagraphs(section.body);
 
-  // Overlay mode: when a pending bill is selected as the active overlay
-  // for this section, the body re-renders as an inline diff against the
-  // bill's diff chunks for this section. Citations and defined-term
-  // popovers don't render inside the overlay — reading a diff is a
-  // distinct mode from exploring the citation graph.
-  const overlayBill = activeOverlayBillId
-    ? (pendingRailBills?.find((b) => b.file_no === activeOverlayBillId) ?? null)
+  // Overlay mode: when a pending bill is selected as the active
+  // overlay for this section, the body re-renders as either an
+  // inline diff (Changes mode) or the post-amendment text (Proposed
+  // mode). The two modes use different data sources:
+  //
+  //   • Changes  → walk baseline section.body and project the bill's
+  //                diff_chunks onto it via overlayStructured(). Inline
+  //                strike-through and insert highlights require chunk-
+  //                anchored positions, so projection is unavoidable.
+  //   • Proposed → walk the bill's parsed new_body directly. The
+  //                parser already produced the post-amendment
+  //                BodySegment[] at build time; the renderer just
+  //                iterates it. No chunk projection, no inference
+  //                about which atomic segments survived.
+  //
+  // Splitting modes this way eliminates a class of render-time bugs
+  // where atomic-segment wrappers (citations, defined-terms) whose
+  // baseline chars were deleted resurrected in Proposed because the
+  // walker couldn't distinguish "deleted" from "equal" in the
+  // emitted-segment stream. See PR #47 for the regression history.
+  const overlayBill = activeOverlay
+    ? (pendingRailBills?.find((b) => b.file_no === activeOverlay.billId) ?? null)
     : null;
+  const overlayMode = activeOverlay?.mode ?? null;
   const overlayChunksForSection = overlayBill
     ? overlayBill.diff_chunks.filter((c) => c.section_id === section.id)
     : [];
@@ -355,9 +382,17 @@ export function SectionView({
   // in view.
   const overlayUnavailable =
     overlayBill !== null && !billHasDiffForSection(overlayBill, section.id);
+  const overlayNewBody =
+    overlayBill !== null
+      ? (overlayBill.new_bodies.find((n) => n.section_id === section.id)?.body ?? null)
+      : null;
   const overlayParagraphs: RenderBodySegment[][] =
-    overlayBill !== null && !overlayUnavailable
-      ? splitParagraphs(overlayDiffOnBaseline(overlayChunksForSection, section.text))
+    overlayBill !== null && overlayMode !== null && !overlayUnavailable
+      ? overlayMode === "proposed"
+        ? overlayNewBody !== null
+          ? splitParagraphs(overlayNewBody)
+          : []
+        : splitParagraphs(overlayStructured(overlayChunksForSection, section.body, "changes"))
       : [];
 
   return (
@@ -414,14 +449,15 @@ export function SectionView({
               bills={pendingRailBills}
               sectionId={section.id}
               onOpenBill={onOpenBill}
-              activeOverlayBillId={activeOverlayBillId}
-              onToggleOverlay={setActiveOverlayBillId}
+              activeOverlay={activeOverlay}
+              onChangeOverlay={setActiveOverlay}
               overlayUnavailable={overlayUnavailable}
             />
           ) : null}
-          {overlayBill !== null && !overlayUnavailable ? (
+          {overlayBill !== null && overlayMode !== null && !overlayUnavailable ? (
             <div
               className="lc-section-body lc-section-body--overlay"
+              data-overlay-mode={overlayMode}
               data-testid="section-body-overlay"
             >
               {overlayParagraphs.length > 0 ? (
