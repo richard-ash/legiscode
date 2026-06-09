@@ -4,6 +4,7 @@ import type { CorpusBaselineLookup } from "@/parser/bills/emit-diff";
 import { anchorTextDiff, classifySectionAction } from "@/parser/bills/emit-diff";
 import type { ParseBillResult, SectionPartitionEntry } from "@/parser/bills/index";
 import type { RunRange } from "@/parser/bills/run-offset-map";
+import type { TextRun } from "@/parser/pdf/page-extractor";
 import type { Bill, ModuleId, SectionId } from "@/types";
 
 // Default partition: a single section covering an effectively-infinite
@@ -33,6 +34,7 @@ function bill(over: Partial<Bill> = {}): Bill {
     bill_status: "committee",
     section_outcomes: [],
     diff_chunks: [],
+    new_bodies: [],
     parse_status: "body_only",
     structural_change_scope: null,
     body: { preamble: "", amendments: [], closing: "" },
@@ -206,6 +208,69 @@ describe("anchorTextDiff", () => {
     const out = anchorTextDiff(r, lookup);
     expect(out.outcomes).toEqual([]);
     expect(out.bills[0]?.parse_status).toBe("body_only");
+  });
+
+  it("smoothing runs end-to-end: insert with wrap-induced \\n produces a single paragraph", () => {
+    // Regression for PR #46's "spacing broke five times" failure mode.
+    // SF Legistar PDFs whose body line spacing exceeds the per-run
+    // y-drop threshold in emit-structural-whitespace get a \n at every
+    // visual line wrap, fragmenting definition paragraphs into 200+
+    // one-line "paragraphs". The fix is content-aware smoothing in
+    // text-smoothing.ts, wired into emit-diff between collapseStructural-
+    // Whitespace and the diff pass. This test exercises the full chain
+    // — if anyone unwired the smoothing call, the assertion fails.
+    //
+    // Setup: ONE insert span whose text simulates the PDF artifact
+    // (multiple visual lines joined with \n where there should be
+    // spaces). After smoothing, parseNewBody emits ONE text segment
+    // with no paragraph_breaks instead of the fragment chain.
+    const lookup: CorpusBaselineLookup = () => "old text";
+    const insertText = [
+      "“Affordable to a household.” A purchase price that a household can afford",
+      "to pay based on an annual payment for all housing costs",
+      ", as amended from time to time.",
+    ].join("\n");
+    const runs: TextRun[] = [
+      {
+        page: 1,
+        text: insertText,
+        font_name: "g_d0_f1",
+        has_eol: true,
+        x: 0,
+        y: 100,
+        width: 500,
+        height: 12,
+      },
+    ];
+    const r: ParseBillResult = {
+      bills: [
+        bill({
+          section_outcomes: [
+            { section_id: "10.04.020" as SectionId, status: "anchored", detail: null },
+          ],
+        }),
+      ],
+      unresolved_sections: [],
+      body_quality_warnings: [],
+      classified_spans: [span({ kind: "insert", text: insertText, source_index: 0 })],
+      runs,
+      run_offset_map: [[{ chrome_start: 0, chrome_end: 500 }]],
+      section_partitions: [defaultPartition("10.04.020" as SectionId, "sf-administrative")],
+    };
+    const out = anchorTextDiff(r, lookup);
+    const body = out.bills[0]?.new_bodies[0]?.body ?? [];
+    // No paragraph_break anywhere — the wrap-induced \n inside the
+    // insert text got merged. Without smoothing, this would emit two
+    // paragraph_breaks.
+    const breaks = body.filter((s) => s.kind === "paragraph_break");
+    expect(breaks).toEqual([]);
+    // The single text segment contains the merged prose (joined with
+    // a space where the previous line lacked a terminator, joined
+    // without a space where the next line starts with ",").
+    const texts = body.filter((s): s is { kind: "text"; text: string } => s.kind === "text");
+    expect(texts.length).toBe(1);
+    expect(texts[0]?.text).toContain("can afford to pay");
+    expect(texts[0]?.text).toContain("housing costs, as amended");
   });
 });
 

@@ -180,10 +180,21 @@ button.lc-deftrm {
    popover and the inline dashed underline share a visual identity. */
 
 /* ── Subsection labels ──────────────────────────────────────────────── */
+/* Hanging-indent treatment: the marker `(a)`, `(b)(2)`, etc. floats
+ * left of the body text so multi-paragraph subsections retain their
+ * visual hierarchy. Implemented via `float: left` + `text-indent` on
+ * the parent so we don't need a flex wrapper for every label — keeps
+ * the body iteration code identical between normal and overlay modes. */
 .lc-subsection-label {
   font-weight: 600;
   color: var(--text);
-  margin-right: 4px;
+  display: inline-block;
+  min-width: 2.4em;
+  margin-right: 0.4em;
+  /* The label belongs to the paragraph that contains it; the parent
+   * .lc-para's leading whitespace is collapsed by inline-block, so a
+   * tiny right margin re-creates the visual gap a reader expects
+   * between the marker and the body. */
 }
 
 /* ── Editorial status ───────────────────────────────────────────────── */
@@ -335,30 +346,44 @@ button.lc-deftrm {
   background: color-mix(in oklab, var(--peach) 18%, transparent);
   border-radius: 2px;
 }
-.lc-section-pending-rail-toggle {
+/* ── Segmented control (Original · Changes · Proposed) ─────────────── */
+/* Three-button segmented control replaces the old "Show changes"
+ * toggle. Each bill row carries one; only one bill across the rail can
+ * be in a non-Original mode at a time. The peach-tinted chrome marks
+ * it as a forward-looking control distinct from the section body
+ * below. */
+.lc-mode-tabs {
+  display: inline-flex;
+  background: var(--bg-crust);
+  border: 1px solid color-mix(in oklab, var(--peach) 25%, transparent);
+  border-radius: 4px;
+  padding: 2px;
+  gap: 2px;
+}
+.lc-mode-tab {
   appearance: none;
   background: transparent;
-  border: 1px solid color-mix(in oklab, var(--peach) 30%, transparent);
-  border-radius: 2px;
-  cursor: pointer;
+  border: 0;
   font-family: var(--font-sans);
   font-size: 11.5px;
-  color: var(--peach);
-  padding: 4px 10px;
+  color: var(--subtext1);
+  padding: 4px 12px;
+  border-radius: 3px;
+  cursor: pointer;
   white-space: nowrap;
 }
-.lc-section-pending-rail-toggle:hover {
-  background: color-mix(in oklab, var(--peach) 14%, transparent);
+.lc-mode-tab:hover {
   color: var(--text);
+  background: color-mix(in oklab, var(--peach) 10%, transparent);
 }
-.lc-section-pending-rail-toggle:focus-visible {
+.lc-mode-tab:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.lc-section-pending-rail-toggle[aria-pressed="true"] {
-  background: color-mix(in oklab, var(--peach) 22%, transparent);
+.lc-mode-tab[aria-pressed="true"] {
+  background: color-mix(in oklab, var(--peach) 30%, transparent);
   color: var(--text);
-  border-color: var(--peach);
+  font-weight: 600;
 }
 
 /* Explainer block (variant B locus). Grows inside the same panel when
@@ -385,15 +410,18 @@ button.lc-deftrm {
   font-style: italic;
 }
 
-/* ── Overlay body (variant B inline diff) ───────────────────────────── */
-/* When the section body re-renders as an inline diff, citations and
- * defined-term affordances are deliberately stripped — reading a diff
- * is a different mode than exploring the citation graph. The kicker,
- * section number, and title stay untouched (variant B keeps the header
- * semantically stable). */
+/* ── Overlay body (Changes / Proposed render branches) ──────────────── */
+/* When the section body re-renders as a structured overlay
+ * (Changes mode = strikethrough + highlight; Proposed mode = clean
+ * post-amendment text), the kicker, section number, and title stay
+ * untouched — the overlay swap is a body-only operation. The CSS
+ * deliberately does NOT override font-family or line-height: those
+ * inherit from .lc-section-body so the typographic metrics match the
+ * resting body byte-for-byte. Earlier overlays forced `font-family:
+ * var(--font-serif)` here which caused a visible re-flow on toggle;
+ * dropping it removes that source of reader-confusion. */
 .lc-section-body--overlay {
   margin-top: 24px;
-  font-family: var(--font-serif);
   line-height: calc(1.75 * var(--section-line-height-mult, 1));
   color: var(--text);
 }
@@ -407,7 +435,14 @@ button.lc-deftrm {
   background: color-mix(in oklab, var(--green) 18%, transparent);
   color: var(--text);
   border-radius: 1px;
-  padding: 0 1px;
+  /* box-decoration-break: clone keeps the green highlight tight on
+   * each line when an insert wraps; without it browsers paint one
+   * continuous box that breaks the inline metric. NO horizontal
+   * padding — the prior overlay added `padding: 0 1px` which shifted
+   * every word adjacent to an insertion. The box-decoration-break
+   * approach delivers the same visual chip without the layout cost. */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 .lc-overlay-elision {
   display: block;

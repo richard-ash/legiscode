@@ -21,6 +21,7 @@ function makeBill(overrides: Partial<Bill> = {}): Bill {
       { section_id: "10.04.020", status: "classification_low_confidence", detail: null },
     ],
     diff_chunks: [],
+    new_bodies: [],
     parse_status: "manual_review",
     structural_change_scope: null,
     body: { preamble: "", amendments: [], closing: "" },

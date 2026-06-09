@@ -1,29 +1,39 @@
-// Section pending-rail (variant B overlay). Surfaces every pending
-// bill that touches the currently-rendered section above the body.
-// Each row carries two distinct affordances:
+// Section pending-rail with the three-mode segmented control.
+// Surfaces every pending bill that touches the currently-rendered
+// section above the body. Each row carries two distinct affordances:
 //
 //   1. Bill identifier (file_no) — opens the bill tab. Plain click +
 //      Cmd-click background pattern, same as every other bill-open
 //      surface in the app.
 //
-//   2. Show changes / Clear overlay button — toggles the body's
-//      inline overlay. The panel itself is the variant-B locus: when
-//      the overlay is on, the row gains a "VIEWING" suffix and grows
-//      an explainer block below. No separate inline notice, no second
-//      peach-colored chrome saying the same thing.
+//   2. Original · Changes · Proposed segmented control — picks the
+//      render mode for the section body below. Replaces the old
+//      binary toggle ("Show changes" / "Clear overlay"): readers
+//      have three distinct questions about a pending bill —
+//      "what does the section read today?", "what would the bill
+//      change?", "what would the section read if it passed?" — and
+//      this control answers each one without forcing a separate
+//      mental model switch.
 //
-// The toggle is suppressed per-row when the bill can't render an
-// inline diff for THIS section (parse_status !== "ok" OR no
-// diff chunks attached to section_id). Affordance promises align
-// with capability — a button labeled "Show changes" should only
-// appear when changes can actually be shown. The row still renders
-// the file_no + status + title so the reader can open the bill and
-// see why the diff isn't available (status pill + bill-view manual-
-// review banner explain the cause).
+// Only one row can be active at a time. When a row is active, the
+// other rows' segmented controls reset visually to Original (the
+// active row's mode reads through the activeOverlay prop). The panel
+// grows an explainer block under the active row whose copy depends on
+// the active mode.
+//
+// The segmented control's two non-Original buttons (Changes,
+// Proposed) are suppressed per-row when the bill can't render an
+// inline diff for THIS section (parse_status !== "ok" OR no diff
+// chunks attached to section_id). Affordance promises align with
+// capability — a "Changes" button should only appear when changes can
+// actually be shown. The row still renders the file_no + status +
+// title so the reader can open the bill and see why the diff isn't
+// available (status pill + bill-view manual-review banner explain the
+// cause).
 //
 // `overlayUnavailable` covers the defensive case where an overlay
 // somehow activated on a row that the per-row gate would now hide
-// (e.g. corpus rebuild after the toggle was clicked). The active
+// (e.g. corpus rebuild after the control was clicked). The active
 // row surfaces a short reason and the section body stays resting.
 
 import type { KeyboardEvent, MouseEvent } from "react";
@@ -31,6 +41,13 @@ import type { Bill, SectionId } from "@/types";
 import { STATUS_LABEL, STATUS_TONE } from "@/ui/bill-status";
 import { billHasDiffForSection } from "@/ui/diff/bill-section-diff";
 import { PerSectionBanner } from "@/ui/diff-view/banner";
+
+export type OverlayMode = "changes" | "proposed";
+
+export interface ActiveOverlay {
+  billId: string;
+  mode: OverlayMode;
+}
 
 export interface SectionPendingRailProps {
   /** Pending Bill rows whose `section_outcomes` include this section.
@@ -42,14 +59,16 @@ export interface SectionPendingRailProps {
   /** Dispatches the bill open when a row's file-no button fires. */
   onOpenBill: (fileNo: string, mode: "primary" | "background") => void;
   /** When non-null, the matching bill row reads as the active overlay
-   *  locus. Other rows render in resting state. */
-  activeOverlayBillId: string | null;
-  /** Toggles the overlay for a given bill. Pass null to clear. */
-  onToggleOverlay: (fileNo: string | null) => void;
-  /** When true AND `activeOverlayBillId` is non-null, the active row
-   *  surfaces an "overlay unavailable" reason instead of the explainer.
-   *  Used when the bill's parse_status isn't `ok` or no diff chunks
-   *  attach to this section. */
+   *  locus. Other rows render in resting state ("Original" pressed,
+   *  no highlight). */
+  activeOverlay: ActiveOverlay | null;
+  /** Mutates the active-overlay state. Pass null to clear (returns
+   *  the section to Original). */
+  onChangeOverlay: (next: ActiveOverlay | null) => void;
+  /** When true AND `activeOverlay` is non-null, the active row
+   *  surfaces an "overlay unavailable" reason instead of the
+   *  explainer. Used when the bill's parse_status isn't `ok` or no
+   *  diff chunks attach to this section. */
   overlayUnavailable?: boolean;
 }
 
@@ -57,8 +76,8 @@ export function SectionPendingRail({
   bills,
   sectionId,
   onOpenBill,
-  activeOverlayBillId,
-  onToggleOverlay,
+  activeOverlay,
+  onChangeOverlay,
   overlayUnavailable,
 }: SectionPendingRailProps) {
   if (bills.length === 0) return null;
@@ -85,16 +104,23 @@ export function SectionPendingRail({
       </div>
       <ul className="lc-section-pending-rail-list">
         {bills.map((bill) => {
-          const isActive = activeOverlayBillId === bill.file_no;
+          const isActiveBill = activeOverlay?.billId === bill.file_no;
           const hasDiff = billHasDiffForSection(bill, sectionId);
-          const showToggle = hasDiff || isActive;
-          const showExplainer = isActive && !overlayUnavailable;
-          const showUnavailable = isActive && overlayUnavailable === true;
+          // The Changes / Proposed buttons require a renderable
+          // outcome. An active row keeps its segmented control
+          // visible even if hasDiff degrades after a corpus reload —
+          // otherwise the reader couldn't return to Original.
+          const showModeButtons = hasDiff || isActiveBill;
+          const activeMode: "original" | OverlayMode = isActiveBill
+            ? activeOverlay.mode
+            : "original";
+          const showExplainer = isActiveBill && !overlayUnavailable && activeMode !== "original";
+          const showUnavailable = isActiveBill && overlayUnavailable === true;
           return (
             <li
               key={bill.file_no}
               className="lc-section-pending-rail-item"
-              data-overlay-active={isActive ? "true" : undefined}
+              data-overlay-active={isActiveBill && activeMode !== "original" ? "true" : undefined}
             >
               <div className="lc-section-pending-rail-row">
                 <button
@@ -111,43 +137,74 @@ export function SectionPendingRail({
                   {STATUS_LABEL[bill.bill_status]}
                 </span>
                 <span className="lc-section-pending-rail-title">{bill.short_title}</span>
-                {isActive ? (
+                {isActiveBill && activeMode !== "original" ? (
                   <span className="lc-section-pending-rail-viewing" aria-hidden>
-                    VIEWING
+                    {activeMode === "changes" ? "VIEWING CHANGES" : "VIEWING PROPOSED"}
                   </span>
                 ) : null}
-                {showToggle ? (
-                  <button
-                    type="button"
-                    className="lc-section-pending-rail-toggle"
-                    aria-pressed={isActive}
-                    aria-label={
-                      isActive
-                        ? `Clear overlay for Ord. ${bill.file_no}`
-                        : `View this section as if Ord. ${bill.file_no} had passed`
-                    }
-                    onClick={() => onToggleOverlay(isActive ? null : bill.file_no)}
+                {showModeButtons ? (
+                  // biome-ignore lint/a11y/useSemanticElements: segmented-control button group, not a form fieldset
+                  <div
+                    className="lc-mode-tabs"
+                    role="group"
+                    aria-label={`View mode for Ord. ${bill.file_no}`}
                   >
-                    {isActive ? "Clear overlay" : "Show changes"}
-                  </button>
+                    <button
+                      type="button"
+                      className="lc-mode-tab"
+                      aria-pressed={activeMode === "original"}
+                      onClick={() =>
+                        // Clearing the overlay is global: any
+                        // non-Original row resets to null. When the
+                        // user clicks Original on the active row, we
+                        // null the state; when they click Original on
+                        // a non-active row (which is still possible
+                        // when activeOverlay is null and they're just
+                        // confirming the resting state), it's a no-op.
+                        onChangeOverlay(isActiveBill ? null : activeOverlay)
+                      }
+                    >
+                      Original
+                    </button>
+                    <button
+                      type="button"
+                      className="lc-mode-tab"
+                      aria-pressed={activeMode === "changes"}
+                      onClick={() => onChangeOverlay({ billId: bill.file_no, mode: "changes" })}
+                    >
+                      Changes
+                    </button>
+                    <button
+                      type="button"
+                      className="lc-mode-tab"
+                      aria-pressed={activeMode === "proposed"}
+                      onClick={() => onChangeOverlay({ billId: bill.file_no, mode: "proposed" })}
+                    >
+                      Proposed
+                    </button>
+                  </div>
                 ) : null}
               </div>
               {showExplainer ? (
                 <div className="lc-section-pending-rail-explainer" role="note">
-                  You're viewing this section <strong>as if Ord. {bill.file_no} had passed.</strong>{" "}
-                  The current text is shown with strikethrough; proposed additions are highlighted.
+                  {activeMode === "changes" ? (
+                    <>
+                      You're viewing the changes <strong>Ord. {bill.file_no}</strong> would make.{" "}
+                      Deletions are struck through; additions are highlighted.
+                    </>
+                  ) : (
+                    <>
+                      You're viewing this section{" "}
+                      <strong>as if Ord. {bill.file_no} had passed.</strong> No diff marks — this is
+                      the post-amendment text.
+                    </>
+                  )}
                 </div>
               ) : null}
               {showUnavailable ? (
                 <div className="lc-section-pending-rail-unavailable">
                   {(() => {
                     const outcome = bill.section_outcomes.find((o) => o.section_id === sectionId);
-                    // For non-renderable outcomes, surface the
-                    // specific per-section banner copy. For absent
-                    // outcomes or the defensive case where the
-                    // outcome reads "anchored" but overlayUnavailable
-                    // is still true (corpus rebuild after overlay
-                    // activated), fall back to the generic message.
                     if (!outcome || outcome.status === "anchored") {
                       return (
                         <span role="note">

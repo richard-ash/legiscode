@@ -15,8 +15,11 @@
 //        and contexts, skipping deletes, substituting baseline at
 //        elisions, and emitting structural whitespace from PDF
 //        position deltas.
-//     4. Run `diffWords(baseline, newText)` to align. Map each
-//        chunk to a DiffChunk{op, text, section_id}.
+//     4. Run `diffWordsWithSpace(baseline, newText)` to align (the
+//        whitespace-significant variant — its byte-aligned output is
+//        load-bearing for the structured overlay walker, see comment
+//        at the diff call site). Map each chunk to a DiffChunk{op,
+//        text, section_id}.
 //
 // Wholesale-action bills (`amending Section X to read as follows`,
 // `by deleting Section Y`, `by adding Section Z`) still route to
@@ -29,11 +32,12 @@
 // no_baseline. The bill's parse_status is derived from the
 // per-section breakdown.
 
-import { diffWords } from "diff";
+import { type Change, diffWordsWithSpace } from "diff";
 import type {
   Bill,
   DiffChunk,
   ModuleId,
+  NewBody,
   OrdinanceBlock,
   SectionId,
   SectionOutcome,
@@ -42,8 +46,10 @@ import type {
 import { deriveParseStatus } from "@/types";
 import type { ClassifiedSpan } from "./classify-spans";
 import type { ParseBillResult, SectionPartitionEntry } from "./index";
+import { parseNewBody } from "./parse-new-body";
 import { reconstructNewText } from "./reconstruct";
 import type { RunRange } from "./run-offset-map";
+import { smoothReconstructedText } from "./text-smoothing";
 
 export type CorpusBaselineLookup = (
   moduleId: ModuleId,
@@ -82,6 +88,7 @@ export function anchorTextDiff(
     ...b,
     section_outcomes: [...b.section_outcomes],
     diff_chunks: [] as DiffChunk[],
+    new_bodies: [] as NewBody[],
   }));
 
   const partitionsByModule = new Map<ModuleId, SectionPartitionEntry[]>();
@@ -140,6 +147,7 @@ export function anchorTextDiff(
 
     const inlineOutcomes: SectionOutcome[] = [];
     const inlineChunks: DiffChunk[] = [];
+    const inlineNewBodies: NewBody[] = [];
 
     const spansBySection = partitionSpansBySection(
       parseResult.classified_spans,
@@ -220,6 +228,14 @@ export function anchorTextDiff(
         const rewrite = buildImplicitRewriteChunks(bill, partition.raw_section_id, sid, baseline);
         if (rewrite !== null) {
           for (const chunk of rewrite) inlineChunks.push(chunk);
+          // new_body for an implicit rewrite is the concatenated
+          // inserted text — the bill provides the entire post-
+          // amendment content via its insert chunk.
+          const insertChunk = rewrite.find((c) => c.op === "insert");
+          inlineNewBodies.push({
+            section_id: sid,
+            body: insertChunk ? [...parseNewBody(insertChunk.text)] : [],
+          });
           inlineOutcomes.push({
             section_id: sid,
             status: "anchored",
@@ -236,9 +252,57 @@ export function anchorTextDiff(
         }
       }
 
-      // The v2 inline path: reconstruct → diff → emit chunks.
-      const newText = reconstructNewText(parseResult.runs, sectionSpans, baseline);
-      const chunks = diffWords(baseline, newText);
+      // The v2 inline path: reconstruct → normalize → diff → emit chunks.
+      //
+      // Whitespace normalization (collapseStructuralWhitespace) suppresses
+      // PDF blank-line padding ("\n   \n" between paragraphs) before
+      // diffing so we don't ship visible whitespace-only inserts in the
+      // Changes view.
+      //
+      // diffWordsWithSpace (whitespace-significant) is load-bearing for
+      // the structured overlay. The walker advances a basePos cursor by
+      // chunk char count and slices from baseline at that cursor, so
+      // chunk text MUST be byte-identical to baseline at the
+      // corresponding span. The whitespace-insensitive diffWords variant
+      // emits equal chunks using NEW text's whitespace pattern, which
+      // shuffles surrounding whitespace between adjacent chunks and
+      // drifts basePos by ±N chars per mismatch — the drift cascades
+      // through every later chunk and produces mid-word truncation in
+      // the rendered output (mortifying example: "consumption" became
+      // "consumptiog" because the trailing 'n' got pulled into a delete
+      // chunk's slice). diffWordsWithSpace coalesces same-op runs into
+      // coarse chunks by default, so "fracture into word splinters"
+      // isn't a concern.
+      const rawNewText = reconstructNewText(parseResult.runs, sectionSpans, baseline);
+      const newText = smoothReconstructedText(collapseStructuralWhitespace(rawNewText));
+      const chunks = coalesceWhitespaceDiffs(diffWordsWithSpace(baseline, newText));
+      // Offset invariant for the structured overlay: the sum of
+      // equal+delete chunk char lengths MUST equal baseline.length. The
+      // overlay walker advances a basePos cursor by chunk.text.length
+      // and slices from baseline at that cursor; any drift cascades
+      // into mid-word truncation in Changes/Proposed views. With
+      // diffWordsWithSpace this holds by construction (every byte of
+      // baseline appears in exactly one equal-or-delete chunk), but
+      // verify here so a future regression (lib change, new
+      // pre-diff transform) routes through the existing graceful-fail
+      // path instead of silently shipping mangled overlays.
+      const baseSpan = chunks.reduce((n, c) => (c.added === true ? n : n + c.value.length), 0);
+      if (baseSpan !== baseline.length) {
+        const detail = `offset invariant failed: sum(equal+delete)=${baseSpan} vs baseline.length=${baseline.length}`;
+        inlineOutcomes.push({
+          section_id: sid,
+          status: "classification_low_confidence",
+          detail,
+        });
+        outcomes.push({
+          file_no: bill.file_no,
+          module_id: bill.module_id,
+          section_id: sid,
+          status: "classification_low_confidence",
+          detail,
+        });
+        continue;
+      }
       const hasChange = chunks.some((c) => c.added === true || c.removed === true);
       if (!hasChange) {
         // The bill's amendment block cites this section header but
@@ -265,6 +329,7 @@ export function anchorTextDiff(
         const op = c.added === true ? "insert" : c.removed === true ? "delete" : "equal";
         inlineChunks.push({ op, text: c.value, section_id: sid });
       }
+      inlineNewBodies.push({ section_id: sid, body: [...parseNewBody(newText)] });
       inlineOutcomes.push({ section_id: sid, status: "anchored", detail: null });
       outcomes.push({
         file_no: bill.file_no,
@@ -276,6 +341,7 @@ export function anchorTextDiff(
 
     bill.section_outcomes = dedupeOutcomes([...wholesaleOutcomes, ...inlineOutcomes]);
     bill.diff_chunks = [...wholesaleChunks, ...inlineChunks];
+    bill.new_bodies = dedupeNewBodies([...wholesale.new_bodies, ...inlineNewBodies]);
     bill.parse_status = deriveParseStatus(bill.section_outcomes, false);
   }
 
@@ -313,6 +379,68 @@ export function partitionSpansBySection(
   return out;
 }
 
+/**
+ * Collapse runs of whitespace that span a newline down to a single
+ * newline. PDF reconstruction emits structural whitespace (vertical
+ * gaps between runs) as `\n   \n`-style sequences; the corpus
+ * baseline preserves only the canonical single-`\n` paragraph break.
+ * Without this normalization, diffWords' equal chunks carry the
+ * newText artifacts and break the structured overlay's char-count
+ * alignment against baseline body. Non-newline whitespace (mid-line
+ * spaces) is preserved — only whitespace runs that *contain* a
+ * newline get collapsed.
+ */
+function collapseStructuralWhitespace(text: string): string {
+  return text.replace(/[ \t]*\n[ \t\n]*/g, "\n");
+}
+
+/**
+ * Coalesce adjacent pure-whitespace delete + insert pairs into a single
+ * equal chunk that carries baseline's whitespace. PDF reconstruction
+ * routinely wraps a baseline space to a newline at column boundaries,
+ * which diffWordsWithSpace faithfully records as `del " " + ins "\n"`.
+ * The overlay walker then renders the inserted newline as a phantom
+ * paragraph break in Proposed mode (and the delete-space disappears, so
+ * the visual effect is "this paragraph randomly got split in two").
+ *
+ * These pairs aren't substantive changes — they're whitespace
+ * reformatting from the PDF reconstruction. Collapse them so the
+ * Proposed/Changes views render the baseline's paragraph structure.
+ * Uses baseline's whitespace (the delete's text) so the chunk text is
+ * byte-identical to baseline at that span — preserves the offset
+ * invariant.
+ */
+function coalesceWhitespaceDiffs(chunks: readonly Change[]): Change[] {
+  const out: Change[] = [];
+  let i = 0;
+  while (i < chunks.length) {
+    const c = chunks[i];
+    const next = chunks[i + 1];
+    if (c !== undefined && next !== undefined && isWhitespacePair(c, next)) {
+      const baselineSide = c.removed === true ? c : next;
+      out.push({
+        value: baselineSide.value,
+        count: baselineSide.value.length,
+        added: false,
+        removed: false,
+      });
+      i += 2;
+      continue;
+    }
+    if (c !== undefined) out.push(c);
+    i++;
+  }
+  return out;
+}
+
+function isWhitespacePair(a: Change, b: Change): boolean {
+  const aIsDelWs = a.removed === true && /^\s+$/.test(a.value);
+  const aIsInsWs = a.added === true && /^\s+$/.test(a.value);
+  const bIsDelWs = b.removed === true && /^\s+$/.test(b.value);
+  const bIsInsWs = b.added === true && /^\s+$/.test(b.value);
+  return (aIsDelWs && bIsInsWs) || (aIsInsWs && bIsDelWs);
+}
+
 function dedupeOutcomes(outcomes: readonly SectionOutcome[]): SectionOutcome[] {
   // Two passes may emit outcomes for the same section_id (wholesale +
   // inline). Keep the FIRST occurrence — the wholesale pass runs first
@@ -323,6 +451,22 @@ function dedupeOutcomes(outcomes: readonly SectionOutcome[]): SectionOutcome[] {
     if (seen.has(o.section_id)) continue;
     seen.add(o.section_id);
     out.push(o);
+  }
+  return out;
+}
+
+function dedupeNewBodies(entries: readonly NewBody[]): NewBody[] {
+  // Parallel rule to dedupeOutcomes: the wholesale pass populates a
+  // section's new_body and the inline pass skips it via
+  // `wholesaleCovered`, so collisions are not expected in practice —
+  // but a defensive dedupe (first-wins) keeps the invariant clean if
+  // the partition tables ever drift.
+  const seen = new Set<SectionId>();
+  const out: NewBody[] = [];
+  for (const e of entries) {
+    if (seen.has(e.section_id)) continue;
+    seen.add(e.section_id);
+    out.push(e);
   }
   return out;
 }
@@ -417,6 +561,7 @@ function parseSectionList(raw: string): string[] {
 
 type WholesaleResult = {
   chunks: DiffChunk[];
+  new_bodies: NewBody[];
   outcomes: Array<{
     section_id: SectionId;
     status: AnchorOutcomeStatus;
@@ -431,6 +576,7 @@ function synthesizeWholesale(
   parseResult: ParseBillResult,
 ): WholesaleResult {
   const chunks: DiffChunk[] = [];
+  const new_bodies: NewBody[] = [];
   const outcomes: WholesaleResult["outcomes"] = [];
 
   const resolvedByRaw = new Map<string, SectionId>();
@@ -474,12 +620,23 @@ function synthesizeWholesale(
         if (insertText.length > 0) {
           chunks.push({ op: "insert", text: insertText, section_id: resolved });
         }
+        // Rewrite: new_body comes from the inserted text (which is
+        // the full replacement body). Empty insert → empty body.
+        new_bodies.push({
+          section_id: resolved,
+          body: insertText.length > 0 ? [...parseNewBody(insertText)] : [],
+        });
         outcomes.push({
           section_id: resolved,
           status: "anchored",
           detail: "whole-section rewrite",
         });
       } else {
+        // Pure wholesale delete: no surviving body. Emit an empty
+        // new_body so the refine's set-equality invariant holds for
+        // anchored outcomes; the renderer's Proposed view treats an
+        // empty body as "this section would be removed entirely."
+        new_bodies.push({ section_id: resolved, body: [] });
         outcomes.push({
           section_id: resolved,
           status: "anchored",
@@ -504,6 +661,10 @@ function synthesizeWholesale(
         const insertText = extractAddedSectionText(amendment.body, rawSid);
         if (insertText.length === 0) continue;
         chunks.push({ op: "insert", text: insertText, section_id: rawSid as SectionId });
+        new_bodies.push({
+          section_id: rawSid as SectionId,
+          body: [...parseNewBody(insertText)],
+        });
         outcomes.push({
           section_id: rawSid as SectionId,
           status: "added_section",
@@ -513,7 +674,7 @@ function synthesizeWholesale(
     }
   }
 
-  return { chunks, outcomes };
+  return { chunks, new_bodies, outcomes };
 }
 
 function extractAddedSectionText(blocks: readonly OrdinanceBlock[], sectionNumber: string): string {

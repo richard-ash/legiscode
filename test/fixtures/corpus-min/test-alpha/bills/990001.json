@@ -52,5 +52,16 @@
       "text": " (revised by Ord. 990001)",
       "section_id": "1.1"
     }
+  ],
+  "new_bodies": [
+    {
+      "section_id": "1.1",
+      "body": [
+        {
+          "kind": "text",
+          "text": "Hermetic fixture content for section 1.1. (revised by Ord. 990001)"
+        }
+      ]
+    }
   ]
 }

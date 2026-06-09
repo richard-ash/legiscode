@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ModuleIdSchema, SectionIdSchema } from "./identifiers";
-import { DiffChunksSchema } from "./text-diff";
+import { DiffChunksSchema, NewBodiesSchema } from "./text-diff";
 
 // BillMeta is the per-matter row emitted by the Lane-1 Legistar scraper
 // (scripts/fetch-bills.ts) into build/downloads/bills/bills-index.json.
@@ -450,6 +450,17 @@ export const BillSchema = z
      * every classifier miss a silent data loss.
      */
     diff_chunks: DiffChunksSchema,
+    /**
+     * Structured BodySegment[] per renderable section. Built by
+     * parseNewBody() from the same reconstructed newText that
+     * produces diff_chunks. Drives the Proposed view (renders
+     * post-amendment text with hanging-indent subsections through
+     * the regular section-view pipeline) and the Changes view
+     * (where text-level diff chunks are projected onto new_body
+     * coordinates so lists, subsection labels, and paragraph
+     * structure survive the overlay).
+     */
+    new_bodies: NewBodiesSchema,
     parse_status: ParseStatusSchema,
     /** Free-text scope description; only set when parse_status === "structural_change". */
     structural_change_scope: z.string().min(1).nullable(),
@@ -482,6 +493,31 @@ export const BillSchema = z
     {
       message: "diff_chunks must be non-empty when any outcome is anchored or added_section",
       path: ["diff_chunks"],
+    },
+  )
+  .refine(
+    (b) => {
+      // new_bodies must carry exactly one entry per renderable
+      // outcome — anything else means the parser dropped a section
+      // partway through. Section-id set equality (renderable
+      // outcomes ↔ new_bodies entries) catches both shortfalls and
+      // bonus entries.
+      const renderableIds = new Set(
+        b.section_outcomes
+          .filter((o) => o.status === "anchored" || o.status === "added_section")
+          .map((o) => o.section_id),
+      );
+      const newBodyIds = new Set(b.new_bodies.map((n) => n.section_id));
+      if (renderableIds.size !== newBodyIds.size) return false;
+      for (const id of renderableIds) {
+        if (!newBodyIds.has(id)) return false;
+      }
+      return true;
+    },
+    {
+      message:
+        "new_bodies must carry one entry per anchored/added_section outcome (set equality on section_id)",
+      path: ["new_bodies"],
     },
   )
   .refine(

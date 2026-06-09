@@ -77,6 +77,7 @@ function makeBill(over: Partial<Bill> = {}): Bill {
     bill_status: "filed",
     section_outcomes: [],
     diff_chunks: [],
+    new_bodies: [],
     parse_status: "body_only",
     structural_change_scope: null,
     body: { preamble: "", amendments: [], closing: "" },

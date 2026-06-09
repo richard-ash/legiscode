@@ -33,6 +33,7 @@ function makeBill(over: Partial<Bill> & { affected_sections?: SectionId[] } = {}
     legistar_status: "Pending",
     bill_status: "filed",
     diff_chunks: [],
+    new_bodies: [],
     structural_change_scope: hasStructural ? (rest.structural_change_scope ?? "structural") : null,
     body: { preamble: "", amendments: [], closing: "" },
     ...rest,
