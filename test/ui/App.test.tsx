@@ -14,6 +14,40 @@ declare global {
   }
 }
 
+function aiStub(): Api["ai"] {
+  const zeroUsage = {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+  };
+  const settings = {
+    active_provider: "anthropic" as const,
+    model: "claude-sonnet-4-5",
+    telemetry_enabled: false,
+    available_models: [] as readonly string[],
+    has_active_provider_key: false,
+    session_usage: zeroUsage,
+  };
+  return {
+    query: vi.fn().mockResolvedValue({
+      ok: true,
+      chat_id: "c",
+      turn_id: 1,
+      text: "",
+      usage: zeroUsage,
+      stop_reason: "end_turn",
+    }),
+    cancel: vi.fn().mockResolvedValue({ ok: true, cancelled: false }),
+    getSettings: vi.fn().mockResolvedValue(settings),
+    updateSettings: vi.fn().mockResolvedValue(settings),
+    hasApiKey: vi.fn().mockResolvedValue({ has_key: false }),
+    setApiKey: vi.fn().mockResolvedValue({ ok: true }),
+    clearApiKey: vi.fn().mockResolvedValue({ ok: true }),
+    onEvent: vi.fn().mockReturnValue(() => {}),
+  };
+}
+
 function buildApi(overrides: Partial<Api["corpus"]> = {}): Api {
   return {
     corpus: {
@@ -56,6 +90,7 @@ function buildApi(overrides: Partial<Api["corpus"]> = {}): Api {
     },
     app: { ping: vi.fn().mockResolvedValue({ pong: 1 }) },
     shell: { openExternal: vi.fn().mockResolvedValue({ ok: true, value: undefined }) },
+    ai: aiStub(),
   };
 }
 
@@ -196,6 +231,7 @@ function buildPopulatedApi(): Api {
     },
     app: { ping: vi.fn().mockResolvedValue({ pong: 1 }) },
     shell: { openExternal: vi.fn().mockResolvedValue({ ok: true, value: undefined }) },
+    ai: aiStub(),
   };
 }
 
@@ -649,6 +685,7 @@ function buildPopulatedApiWithCitations(
     },
     app: { ping: vi.fn().mockResolvedValue({ pong: 1 }) },
     shell: { openExternal: vi.fn().mockResolvedValue({ ok: true, value: undefined }) },
+    ai: aiStub(),
   };
 }
 

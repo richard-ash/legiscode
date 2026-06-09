@@ -1,0 +1,44 @@
+{
+  "name": "who cites this section",
+  "user_prompt": "What other sections cite § 1.2?",
+  "anchor": { "module_id": "test-alpha", "section_id": "1.2" },
+  "rounds": [
+    {
+      "content": [
+        {
+          "kind": "tool_use",
+          "toolUseId": "u1",
+          "name": "read",
+          "input": { "path": "/modules/test-alpha/sections/1.2/cited-by" }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "kind": "tool_use",
+          "toolUseId": "u2",
+          "name": "read",
+          "input": { "path": "/modules/test-alpha/sections/1.1" }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "kind": "text",
+          "text": "[test-alpha § 1.1] is the only section in the test corpus that cites it."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ],
+  "expect": {
+    "verifier_ok": true,
+    "final_text_contains": ["§ 1.1"],
+    "fetched_refs": [{ "module_id": "test-alpha", "section_id": "1.1" }],
+    "verifier_failures": 0
+  }
+}

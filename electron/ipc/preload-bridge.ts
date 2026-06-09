@@ -11,7 +11,8 @@
 // at every renderer call site.
 
 import { contextBridge, ipcRenderer } from "electron";
-import { type Api, CHANNELS, type Channel, IpcBridgeError } from "./contract";
+import type { AiEvent } from "@/ai/wire";
+import { AI_EVENT_CHANNEL, type Api, CHANNELS, type Channel, IpcBridgeError } from "./contract";
 
 /**
  * Wire `window.api` to `ipcRenderer.invoke`. Called once from preload.ts.
@@ -27,14 +28,29 @@ export function exposeApi(): void {
  * the shape without engaging contextBridge.
  */
 export function buildApi(): Api {
-  const api: Record<string, Record<string, (request?: unknown) => Promise<unknown>>> = {};
+  const api: Record<string, Record<string, unknown>> = {};
   for (const channel of CHANNELS) {
     const colon = channel.indexOf(":");
     const namespace = channel.slice(0, colon);
     const verb = channel.slice(colon + 1);
     if (!api[namespace]) api[namespace] = {};
-    api[namespace][verb] = (request) => safeInvoke(channel, request);
+    api[namespace][verb] = (request: unknown) => safeInvoke(channel, request);
   }
+  // The one-way ai:event channel doesn't have a request/response. The
+  // preload bridge owns the ipcRenderer.on subscription so the renderer
+  // never touches ipcRenderer directly. Returns an unsubscribe fn.
+  if (!api.ai) api.ai = {};
+  api.ai.onEvent = (callback: (event: AiEvent) => void): (() => void) => {
+    const listener = (_event: unknown, payload: AiEvent) => {
+      try {
+        callback(payload);
+      } catch (cause) {
+        console.error("[ai:event] listener threw", cause);
+      }
+    };
+    ipcRenderer.on(AI_EVENT_CHANNEL, listener);
+    return () => ipcRenderer.removeListener(AI_EVENT_CHANNEL, listener);
+  };
   return api as unknown as Api;
 }
 

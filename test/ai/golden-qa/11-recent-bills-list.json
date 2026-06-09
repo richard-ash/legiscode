@@ -1,0 +1,33 @@
+{
+  "name": "recent bills list with clickable bill citation",
+  "user_prompt": "Tell me about recent bills",
+  "anchor": { "module_id": "test-alpha", "section_id": "1.1" },
+  "rounds": [
+    {
+      "content": [
+        {
+          "kind": "tool_use",
+          "toolUseId": "u1",
+          "name": "read",
+          "input": { "path": "/bills" }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "kind": "text",
+          "text": "The session has one pending bill: [Bill #990001], Hermetic Test Ordinance, currently in committee."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ],
+  "expect": {
+    "verifier_ok": true,
+    "final_text_contains": ["[Bill #990001]"],
+    "fetched_refs": [],
+    "verifier_failures": 0
+  }
+}

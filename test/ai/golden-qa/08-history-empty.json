@@ -1,0 +1,33 @@
+{
+  "name": "section history empty acknowledgment",
+  "user_prompt": "When was § 1.2 last amended?",
+  "anchor": { "module_id": "test-alpha", "section_id": "1.2" },
+  "rounds": [
+    {
+      "content": [
+        {
+          "kind": "tool_use",
+          "toolUseId": "u1",
+          "name": "read",
+          "input": { "path": "/modules/test-alpha/sections/1.2/history" }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "kind": "text",
+          "text": "I searched the ordinance history for [test-alpha § 1.2] and found no recorded amendments."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ],
+  "expect": {
+    "verifier_ok": true,
+    "final_text_contains": ["§ 1.2", "no recorded amendments"],
+    "fetched_refs": [{ "module_id": "test-alpha", "section_id": "1.2" }],
+    "verifier_failures": 0
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "name": "explain what a bill changes — reads the bill body, not the current sections",
+  "user_prompt": "What's changing in Bill #990001?",
+  "anchor": { "module_id": "test-alpha", "section_id": "1.1" },
+  "rounds": [
+    {
+      "content": [
+        {
+          "kind": "tool_use",
+          "toolUseId": "u1",
+          "name": "read",
+          "input": { "path": "/bills/990001" }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "kind": "tool_use",
+          "toolUseId": "u2",
+          "name": "read",
+          "input": { "path": "/bills/990001/changes" }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "kind": "tool_use",
+          "toolUseId": "u3",
+          "name": "read",
+          "input": { "path": "/bills/990001/changes/test-alpha/1.1" }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "kind": "text",
+          "text": "[Bill #990001] amends [test-alpha § 1.1] in the test corpus. The bill metadata identifies the target; the per-section diff shows the actual before/after text."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ],
+  "expect": {
+    "verifier_ok": true,
+    "final_text_contains": ["[Bill #990001]", "amends", "[test-alpha § 1.1]"],
+    "fetched_refs": [{ "module_id": "test-alpha", "section_id": "1.1" }],
+    "verifier_failures": 0
+  }
+}

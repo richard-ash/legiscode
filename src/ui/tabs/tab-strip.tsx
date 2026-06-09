@@ -442,7 +442,7 @@ function buildTitle(
   titleMap: ReadonlyMap<string, CorpusTreeNode>,
   sessionBillsById: ReadonlyMap<string, Bill>,
 ): string {
-  if (item.kind === "settings") return "Settings";
+  if (item.kind === "settings") return item.section === "ai" ? "AI Settings" : "Settings";
   if (item.kind === "bill") {
     const bill = sessionBillsById.get(item.billId);
     if (!bill) return `Ord. ${item.billId}`;

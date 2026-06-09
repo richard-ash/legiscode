@@ -49,7 +49,7 @@ const PersistedSectionItemSchema = z.object({
 
 const PersistedSettingsItemSchema = z.object({
   kind: z.literal("settings"),
-  section: z.literal("shortcuts"),
+  section: z.enum(["shortcuts", "ai"]),
 });
 
 const PersistedBillItemSchema = z.object({

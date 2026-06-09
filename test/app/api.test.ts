@@ -51,6 +51,52 @@ const stubApi: Api = {
   shell: {
     openExternal: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
   },
+  ai: {
+    query: vi.fn().mockResolvedValue({
+      ok: true,
+      chat_id: "c",
+      turn_id: 1,
+      text: "",
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+      stop_reason: "end_turn",
+    }),
+    cancel: vi.fn().mockResolvedValue({ ok: true, cancelled: false }),
+    getSettings: vi.fn().mockResolvedValue({
+      active_provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      telemetry_enabled: false,
+      available_models: [],
+      has_active_provider_key: false,
+      session_usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+    }),
+    updateSettings: vi.fn().mockResolvedValue({
+      active_provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      telemetry_enabled: false,
+      available_models: [],
+      has_active_provider_key: false,
+      session_usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+    }),
+    hasApiKey: vi.fn().mockResolvedValue({ has_key: false }),
+    setApiKey: vi.fn().mockResolvedValue({ ok: true }),
+    clearApiKey: vi.fn().mockResolvedValue({ ok: true }),
+    onEvent: vi.fn().mockReturnValue(() => {}),
+  },
 };
 
 beforeEach(() => {

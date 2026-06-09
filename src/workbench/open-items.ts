@@ -25,7 +25,7 @@ import type { PersistedOpenItems } from "@/persistence";
  *  so `section` only ever means a corpus section. The field on
  *  OpenItem.kind="settings" stays `section:` to preserve the persistence
  *  wire format; only the type name changes. */
-export type SettingsPane = "shortcuts";
+export type SettingsPane = "shortcuts" | "ai";
 
 export type OpenItem =
   | { kind: "section"; ref: CorpusRef }

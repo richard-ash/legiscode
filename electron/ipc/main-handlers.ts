@@ -8,7 +8,7 @@
 // `Handlers` type is exhaustive over `Channel`, so a missing entry is a TS
 // error at the call site.
 
-import { ipcMain } from "electron";
+import { type IpcMainInvokeEvent, ipcMain } from "electron";
 import {
   CHANNELS,
   type Channel,
@@ -26,7 +26,10 @@ export type { Channel };
  * `ChannelMap` without a handler entry here fails to type-check.
  */
 export type Handlers = {
-  [C in Channel]: (request: ChannelRequest<C>) => ChannelResponse<C> | Promise<ChannelResponse<C>>;
+  [C in Channel]: (
+    request: ChannelRequest<C>,
+    event?: IpcMainInvokeEvent,
+  ) => ChannelResponse<C> | Promise<ChannelResponse<C>>;
 };
 
 const registered = new Set<Channel>();
@@ -61,10 +64,10 @@ export function registerHandlers(handlers: Handlers): void {
     // a union and TS can't narrow `handlers[channel]` against the loop var.
     // The Handlers type at the call site has already enforced exhaustiveness
     // and per-channel correctness.
-    const handler = handlers[channel] as (request: unknown) => unknown;
-    ipcMain.handle(channel, async (_event, request) => {
+    const handler = handlers[channel] as (request: unknown, event?: IpcMainInvokeEvent) => unknown;
+    ipcMain.handle(channel, async (event, request) => {
       try {
-        return await handler(request);
+        return await handler(request, event);
       } catch (cause) {
         throw new IpcBridgeError(
           channel,
