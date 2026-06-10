@@ -106,6 +106,84 @@ describe("runConversationTurn", () => {
     provider.assertExhausted();
   });
 
+  it("captures per-round and per-tool latency on TurnResult and round_completed", async () => {
+    // Per D2/D6+D9 lock: the operator needs to see provider-call wall-clock
+    // separately from tool-dispatch wall-clock so the parallel-dispatch
+    // decision (commit 3) is grounded in measurement, not theory. Asserts
+    // (a) the round_completed event carries latency / thinking / message
+    // counts, (b) tool_result carries latency, (c) the TurnResult totals
+    // are consistent with the per-round events.
+    const corpus = await loadFixtureCorpus();
+    const provider = new MockProvider([
+      {
+        content: [
+          {
+            kind: "tool_use",
+            toolUseId: "u1",
+            name: "read",
+            input: { path: "/modules/test-alpha/sections/1.1" },
+          },
+        ],
+        stopReason: "tool_use",
+      },
+      {
+        content: [{ kind: "text", text: "Per [test-alpha § 1.1], rule applies." }],
+        stopReason: "end_turn",
+      },
+    ]);
+    const events: ConversationEvent[] = [];
+    const result = await runConversationTurn(
+      {
+        provider,
+        model: "mock-model-1",
+        anchorModule: "test-alpha",
+        router: makeRouterFn({ corpus, turnId: 7 }),
+      },
+      {
+        turnId: 7,
+        history: [],
+        userPrompt: "what does § 1.1 say?",
+        signal: new AbortController().signal,
+        onEvent: (e) => events.push(e),
+      },
+    );
+    expect(result.stopReason).toBe("end_turn");
+    expect(result.roundCount).toBe(2);
+    expect(result.toolCallCount).toBe(1);
+    // MockProvider doesn't emit thinking blocks; this asserts the counter
+    // doesn't accidentally count something else as thinking.
+    expect(result.thinkingBlockCount).toBe(0);
+    // Latencies are >= 0 (real timing is non-deterministic; we just verify
+    // the field is populated, not a specific magnitude).
+    expect(result.providerLatencyMs).toBeGreaterThanOrEqual(0);
+    expect(result.toolLatencyMs).toBeGreaterThanOrEqual(0);
+    expect(result.totalLatencyMs).toBe(result.providerLatencyMs + result.toolLatencyMs);
+
+    const roundEvents = events.filter((e) => e.kind === "round_completed");
+    expect(roundEvents).toHaveLength(2);
+    for (const e of roundEvents) {
+      if (e.kind !== "round_completed") continue;
+      expect(e.latencyMs).toBeGreaterThanOrEqual(0);
+      expect(e.promptMessageCount).toBeGreaterThan(0);
+      expect(e.thinkingBlockCount).toBe(0);
+    }
+    const firstRound = roundEvents[0];
+    if (firstRound?.kind === "round_completed") {
+      expect(firstRound.toolCallCount).toBe(1);
+    }
+    const secondRound = roundEvents[1];
+    if (secondRound?.kind === "round_completed") {
+      expect(secondRound.toolCallCount).toBe(0);
+    }
+
+    const toolResultEvents = events.filter((e) => e.kind === "tool_result");
+    expect(toolResultEvents).toHaveLength(1);
+    if (toolResultEvents[0]?.kind === "tool_result") {
+      expect(toolResultEvents[0].latencyMs).toBeGreaterThanOrEqual(0);
+    }
+    provider.assertExhausted();
+  });
+
   it("cancels promptly when the signal aborts before the first provider call", async () => {
     const corpus = await loadFixtureCorpus();
     const provider = new MockProvider([]);

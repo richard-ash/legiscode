@@ -348,6 +348,19 @@ async function runQuery(req: AiQueryRequest, window: BrowserWindow | null): Prom
       total_tokens: turn.totalUsage.inputTokens + turn.totalUsage.outputTokens,
       cache_read: turn.totalUsage.cacheReadInputTokens,
       verifier_failures: turn.verifierFailures,
+      // Per-turn latency breakdown (commit 2, feat/agent-polish). Lets
+      // the operator see whether a slow turn (T03 at 409s in the MVP run)
+      // was dominated by the provider rounds (extended thinking +
+      // generation) or by the in-process tool dispatch. provider_latency
+      // and tool_latency may overlap with each other only when a future
+      // commit ships parallel dispatch; today they're serial and sum to
+      // total wall-clock.
+      round_count: turn.roundCount,
+      tool_call_count: turn.toolCallCount,
+      thinking_block_count: turn.thinkingBlockCount,
+      total_latency_ms: turn.totalLatencyMs,
+      provider_latency_ms: turn.providerLatencyMs,
+      tool_latency_ms: turn.toolLatencyMs,
     });
     return {
       ok: true,
@@ -396,6 +409,20 @@ function forwardConversationEvent(
         tool_use_id: e.toolUseId,
         result: projectToolResult(e.result),
       });
+      // Tool-call latency posts to telemetry only — the renderer's tool
+      // chip already shows pending-vs-done; the millisecond figure is for
+      // post-hoc latency analysis, not UI.
+      emitTelemetry({
+        kind: "ai.tool.result",
+        ts: new Date().toISOString(),
+        corpus_hash: corpus.corpusHash,
+        prompt_hash: SYSTEM_PROMPT_HASH,
+        turn_id: e.turnId,
+        chat_id: chatId,
+        tool_use_id: e.toolUseId,
+        ok: e.result.ok,
+        latency_ms: e.latencyMs,
+      });
       return;
     case "text":
       emit({
@@ -407,6 +434,43 @@ function forwardConversationEvent(
       return;
     case "round_completed":
       // Round-level events stay local; the renderer doesn't render them.
+      // Telemetry captures the per-round breakdown so the operator can
+      // see whether wall-clock comes from the provider call (extended
+      // thinking, generation) or downstream tool dispatch.
+      emitTelemetry({
+        kind: "ai.round.completed",
+        ts: new Date().toISOString(),
+        corpus_hash: corpus.corpusHash,
+        prompt_hash: SYSTEM_PROMPT_HASH,
+        turn_id: e.turnId,
+        chat_id: chatId,
+        round: e.round,
+        latency_ms: e.latencyMs,
+        thinking_block_count: e.thinkingBlockCount,
+        prompt_message_count: e.promptMessageCount,
+        tool_call_count: e.toolCallCount,
+        input_tokens: e.usage.inputTokens,
+        output_tokens: e.usage.outputTokens,
+        cache_creation_input_tokens: e.usage.cacheCreationInputTokens ?? 0,
+        cache_read_input_tokens: e.usage.cacheReadInputTokens ?? 0,
+      });
+      return;
+    case "verification_outcome":
+      // Renderer never sees the verifier per N17/N18; only telemetry
+      // captures it, and only when the user has opted in.
+      emitTelemetry({
+        kind: "ai.verification.outcome",
+        ts: new Date().toISOString(),
+        corpus_hash: corpus.corpusHash,
+        prompt_hash: SYSTEM_PROMPT_HASH,
+        turn_id: e.turnId,
+        chat_id: chatId,
+        round: e.round,
+        ok: e.ok,
+        matched_count: e.matchedCount,
+        missing_count: e.missing.length,
+        missing: e.missing,
+      });
       return;
   }
 }

@@ -34,6 +34,14 @@ const MAX_TOKENS = 4096;
 
 // Event emitted up to the caller — the IPC handler forwards each as
 // `ai:event` over webContents.send. Turn-id propagation lives here.
+//
+// Latency fields are stamped from Date.now() deltas around the awaited
+// boundary they describe: tool_result.latencyMs covers the router
+// dispatch + tool body; round_completed.latencyMs covers the provider
+// call + stream finalization. The IPC handler forwards measurement-only
+// fields to the local telemetry sink (per N17/N18 the renderer never
+// sees them) so the operator can audit which round-trip dominates
+// turn wall-clock without a code change.
 export type ConversationEvent =
   | {
       kind: "tool_call";
@@ -47,6 +55,7 @@ export type ConversationEvent =
       turnId: number;
       toolUseId: string;
       result: ToolResultBase;
+      latencyMs: number;
     }
   | {
       kind: "text";
@@ -58,6 +67,24 @@ export type ConversationEvent =
       turnId: number;
       round: number;
       usage: ProviderResponse["usage"];
+      latencyMs: number;
+      /** Count of `thinking` / `redacted_thinking` blocks the model emitted
+       *  this round. Proxy for "did extended thinking fire" — Anthropic
+       *  doesn't expose a separate thinking-token count today. */
+      thinkingBlockCount: number;
+      /** Count of messages on the wire for this round (system+tool defs are
+       *  cached separately; this measures the chat window). */
+      promptMessageCount: number;
+      /** Count of tool_use blocks the assistant produced this round. */
+      toolCallCount: number;
+    }
+  | {
+      kind: "verification_outcome";
+      turnId: number;
+      round: number;
+      ok: boolean;
+      matchedCount: number;
+      missing: readonly { module_id: string | null; section_id: string }[];
     };
 
 export interface ConversationConfig {
@@ -103,6 +130,18 @@ export interface TurnResult {
   /** Reason the turn ended. */
   stopReason: "end_turn" | "max_rounds" | "cancelled" | "error";
   error?: { kind: ProviderError["kind"]; message: string };
+  /** Number of provider rounds the turn used (1-MAX_ROUNDS_PER_TURN). */
+  roundCount: number;
+  /** Provider-call wall-clock summed across rounds, in milliseconds. */
+  providerLatencyMs: number;
+  /** Tool-dispatch wall-clock summed across rounds, in milliseconds. */
+  toolLatencyMs: number;
+  /** Total provider-call + tool-dispatch wall-clock, in milliseconds. */
+  totalLatencyMs: number;
+  /** Aggregate tool_use count across rounds. */
+  toolCallCount: number;
+  /** Aggregate thinking-block count across rounds. */
+  thinkingBlockCount: number;
 }
 
 /**
@@ -126,6 +165,12 @@ export async function runConversationTurn(
     fetchedRefs: [],
     verifierFailures: 0,
     stopReason: "end_turn",
+    roundCount: 0,
+    providerLatencyMs: 0,
+    toolLatencyMs: 0,
+    totalLatencyMs: 0,
+    toolCallCount: 0,
+    thinkingBlockCount: 0,
   };
 
   const messages: ProviderMessage[] = [
@@ -145,6 +190,7 @@ export async function runConversationTurn(
   for (let round = 1; round <= MAX_ROUNDS_PER_TURN; round++) {
     if (input.signal.aborted) {
       acc.stopReason = "cancelled";
+      acc.totalLatencyMs = acc.providerLatencyMs + acc.toolLatencyMs;
       return acc;
     }
     let response: ProviderResponse;
@@ -152,13 +198,15 @@ export async function runConversationTurn(
     // it did, the loop must NOT re-emit text from the returned content
     // blocks — that would double up the chat panel's accumulator.
     let streamedAnyText = false;
+    const prunedMessages = pruneToWindow(messages);
+    const providerCallStart = Date.now();
     try {
       response = await config.provider.call({
         model: config.model,
         systemPrompt: SYSTEM_PROMPT_V1,
         systemCacheable: true,
         tools: TOOL_DEFINITIONS_V1 as unknown as Parameters<ModelProvider["call"]>[0]["tools"],
-        messages: pruneToWindow(messages),
+        messages: prunedMessages,
         maxTokens: MAX_TOKENS,
         signal: input.signal,
         onTextDelta: (delta) => {
@@ -178,12 +226,16 @@ export async function runConversationTurn(
         };
       }
       acc.newMessages = turnMessages;
+      acc.providerLatencyMs += Date.now() - providerCallStart;
+      acc.totalLatencyMs = acc.providerLatencyMs + acc.toolLatencyMs;
       return acc;
     }
 
+    const providerLatencyMs = Date.now() - providerCallStart;
     // Emit text + collect tool_use blocks.
     const toolUses: { toolUseId: string; name: string; input: unknown }[] = [];
     let assistantText = "";
+    let thinkingBlockCount = 0;
     for (const block of response.content) {
       if (block.kind === "text") {
         assistantText += block.text;
@@ -206,14 +258,24 @@ export async function runConversationTurn(
           name: block.name as ToolName,
           input: block.input,
         });
+      } else if (block.kind === "thinking" || block.kind === "redacted_thinking") {
+        thinkingBlockCount += 1;
       }
     }
     addUsage(acc.totalUsage, response.usage);
+    acc.roundCount = round;
+    acc.providerLatencyMs += providerLatencyMs;
+    acc.toolCallCount += toolUses.length;
+    acc.thinkingBlockCount += thinkingBlockCount;
     input.onEvent({
       kind: "round_completed",
       turnId: input.turnId,
       round,
       usage: response.usage,
+      latencyMs: providerLatencyMs,
+      thinkingBlockCount,
+      promptMessageCount: prunedMessages.length,
+      toolCallCount: toolUses.length,
     });
 
     // Record the assistant message for the history (full content, not
@@ -235,6 +297,17 @@ export async function runConversationTurn(
         fetched: [...turnFetched, ...turnAttempted],
         anchorModule: config.anchorModule,
       });
+      input.onEvent({
+        kind: "verification_outcome",
+        turnId: input.turnId,
+        round,
+        ok: verify.ok,
+        matchedCount: verify.matched.length,
+        missing: verify.missing.map((m) => ({
+          module_id: m.module_id,
+          section_id: m.section_id,
+        })),
+      });
       if (!verify.ok && round < MAX_ROUNDS_PER_TURN) {
         acc.verifierFailures += 1;
         const failure = formatVerificationFailure(verify);
@@ -250,6 +323,7 @@ export async function runConversationTurn(
       acc.newMessages = turnMessages;
       acc.fetchedRefs = turnFetched;
       acc.stopReason = "end_turn";
+      acc.totalLatencyMs = acc.providerLatencyMs + acc.toolLatencyMs;
       return acc;
     }
 
@@ -259,14 +333,19 @@ export async function runConversationTurn(
       if (input.signal.aborted) {
         acc.stopReason = "cancelled";
         acc.newMessages = turnMessages;
+        acc.totalLatencyMs = acc.providerLatencyMs + acc.toolLatencyMs;
         return acc;
       }
+      const toolStart = Date.now();
       const { toolUseId, payload } = await config.router(use.name, use.input, use.toolUseId);
+      const toolLatencyMs = Date.now() - toolStart;
+      acc.toolLatencyMs += toolLatencyMs;
       input.onEvent({
         kind: "tool_result",
         turnId: input.turnId,
         toolUseId,
         result: payload,
+        latencyMs: toolLatencyMs,
       });
       if (payload.ok) {
         for (const f of payload.fetched) {
@@ -307,6 +386,7 @@ export async function runConversationTurn(
   acc.newMessages = turnMessages;
   acc.fetchedRefs = turnFetched;
   acc.finalText = acc.finalText || "(round budget exhausted)";
+  acc.totalLatencyMs = acc.providerLatencyMs + acc.toolLatencyMs;
   return acc;
 }
 
