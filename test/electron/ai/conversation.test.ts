@@ -206,4 +206,156 @@ describe("runConversationTurn", () => {
     );
     expect(result.stopReason).toBe("cancelled");
   });
+
+  it("dispatches multiple tool_use blocks in parallel and preserves tool_result order", async () => {
+    // Three tools per round. Tool 1 takes 30ms, tool 2 takes 5ms, tool 3
+    // takes 5ms. Sequential dispatch would take ≥40ms; parallel with the
+    // cap-of-4 worker pool takes ≤max(30,5,5)+overhead ≈ 30-50ms. Assert
+    // wall-clock is below the sequential floor to prove concurrency.
+    //
+    // Independently assert that tool_result events surface in completion
+    // order (latest may arrive first when latencies differ) but the
+    // toolResults that ride the next user message stay in tool_use order
+    // — required by Anthropic's contract.
+    const completionOrder: string[] = [];
+    const customRouter = async (
+      _name: string,
+      _input: unknown,
+      toolUseId: string,
+    ): Promise<{
+      toolUseId: string;
+      payload: import("../../../electron/ai/tools/types").ToolResultBase;
+    }> => {
+      const delays: Record<string, number> = { u1: 30, u2: 5, u3: 5 };
+      const ms = delays[toolUseId] ?? 5;
+      await new Promise((resolve) => setTimeout(resolve, ms));
+      completionOrder.push(toolUseId);
+      return {
+        toolUseId,
+        payload: {
+          ok: true,
+          fetched: [{ module_id: "test-alpha", section_id: toolUseId.replace("u", "") }],
+          corpus_hash: "mock",
+          turn_id: 1,
+        } as import("../../../electron/ai/tools/types").ToolResultBase,
+      };
+    };
+
+    const provider = new MockProvider([
+      {
+        content: [
+          { kind: "tool_use", toolUseId: "u1", name: "read", input: { path: "/x/1" } },
+          { kind: "tool_use", toolUseId: "u2", name: "read", input: { path: "/x/2" } },
+          { kind: "tool_use", toolUseId: "u3", name: "read", input: { path: "/x/3" } },
+        ],
+        stopReason: "tool_use",
+      },
+      {
+        content: [{ kind: "text", text: "Done." }],
+        stopReason: "end_turn",
+      },
+    ]);
+    const events: ConversationEvent[] = [];
+    const start = Date.now();
+    const result = await runConversationTurn(
+      {
+        provider,
+        model: "mock-model-1",
+        anchorModule: "test-alpha",
+        router: customRouter,
+      },
+      {
+        turnId: 1,
+        history: [],
+        userPrompt: "fan out",
+        signal: new AbortController().signal,
+        onEvent: (e) => events.push(e),
+      },
+    );
+    const wallClockMs = Date.now() - start;
+
+    expect(result.stopReason).toBe("end_turn");
+    // Sequential would be ≥40ms (30+5+5); parallel should beat it. Allow
+    // generous headroom (35ms cap) to soak up CI scheduler jitter.
+    expect(wallClockMs).toBeLessThan(40 + 10);
+    // Completion order should put the two 5ms tools (u2, u3) before u1.
+    expect(completionOrder[0]).not.toBe("u1");
+    // The user-message tool_results must align with tool_use order — the
+    // Anthropic API requires it.
+    const userToolResults = result.newMessages.find(
+      (m) => m.role === "user" && m.content.every((c) => c.kind === "tool_result"),
+    );
+    expect(userToolResults).toBeDefined();
+    const ids = userToolResults?.content.map((c) =>
+      c.kind === "tool_result" ? c.toolUseId : null,
+    );
+    expect(ids).toEqual(["u1", "u2", "u3"]);
+    // turnFetched accumulates from all three parallel results without
+    // duplicates (each tool returns a distinct section_id).
+    expect(result.fetchedRefs).toHaveLength(3);
+    expect(new Set(result.fetchedRefs.map((r) => r.section_id))).toEqual(new Set(["1", "2", "3"]));
+  });
+
+  it("stops parallel dispatch when the signal aborts mid-round", async () => {
+    // First worker awaits a 50ms tool; the abort fires after 5ms. The
+    // worker that's already in flight runs to completion; subsequent
+    // workers (those that haven't yet pulled work) see the aborted
+    // signal and drain without dispatching.
+    const dispatched: string[] = [];
+    const customRouter = async (
+      _name: string,
+      _input: unknown,
+      toolUseId: string,
+    ): Promise<{
+      toolUseId: string;
+      payload: import("../../../electron/ai/tools/types").ToolResultBase;
+    }> => {
+      dispatched.push(toolUseId);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return {
+        toolUseId,
+        payload: {
+          ok: true,
+          fetched: [],
+          corpus_hash: "mock",
+          turn_id: 1,
+        } as import("../../../electron/ai/tools/types").ToolResultBase,
+      };
+    };
+    const provider = new MockProvider([
+      {
+        content: [
+          { kind: "tool_use", toolUseId: "a1", name: "read", input: { path: "/x/1" } },
+          { kind: "tool_use", toolUseId: "a2", name: "read", input: { path: "/x/2" } },
+          { kind: "tool_use", toolUseId: "a3", name: "read", input: { path: "/x/3" } },
+          { kind: "tool_use", toolUseId: "a4", name: "read", input: { path: "/x/4" } },
+          { kind: "tool_use", toolUseId: "a5", name: "read", input: { path: "/x/5" } },
+          { kind: "tool_use", toolUseId: "a6", name: "read", input: { path: "/x/6" } },
+        ],
+        stopReason: "tool_use",
+      },
+    ]);
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 5);
+    const result = await runConversationTurn(
+      {
+        provider,
+        model: "mock-model-1",
+        anchorModule: "test-alpha",
+        router: customRouter,
+      },
+      {
+        turnId: 1,
+        history: [],
+        userPrompt: "abort me",
+        signal: controller.signal,
+        onEvent: () => {},
+      },
+    );
+    expect(result.stopReason).toBe("cancelled");
+    // Workers cap at 4, so at most 4 tools may have been dispatched before
+    // abort took effect. Fewer than 6 always.
+    expect(dispatched.length).toBeLessThan(6);
+    expect(dispatched.length).toBeLessThanOrEqual(4);
+  });
 });

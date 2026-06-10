@@ -31,6 +31,14 @@ const API_WINDOW_TURNS = 10;
 // Per P4.
 const MAX_ROUNDS_PER_TURN = 10;
 const MAX_TOKENS = 4096;
+// Concurrency cap on tool_use dispatch per round. The Anthropic
+// parallel-tool-use contract permits multiple tool_use blocks in one
+// assistant response; without a cap a high-fanout round could
+// hammer the corpus indexes and fight the event loop. Four is the
+// Anthropic-recommended budget for typical parallel-tool-use turns
+// (D6 lock). Real read latency is in milliseconds; the cap mostly
+// bounds memory and event-loop fairness, not throughput.
+const TOOL_DISPATCH_CONCURRENCY = 4;
 
 // Event emitted up to the caller — the IPC handler forwards each as
 // `ai:event` over webContents.send. Turn-id propagation lives here.
@@ -327,57 +335,91 @@ export async function runConversationTurn(
       return acc;
     }
 
-    // Dispatch tools, build the tool_result message in the same order.
-    const toolResults: ProviderContentBlock[] = [];
-    for (const use of toolUses) {
-      if (input.signal.aborted) {
-        acc.stopReason = "cancelled";
-        acc.newMessages = turnMessages;
-        acc.totalLatencyMs = acc.providerLatencyMs + acc.toolLatencyMs;
-        return acc;
-      }
-      const toolStart = Date.now();
-      const { toolUseId, payload } = await config.router(use.name, use.input, use.toolUseId);
-      const toolLatencyMs = Date.now() - toolStart;
-      acc.toolLatencyMs += toolLatencyMs;
-      input.onEvent({
-        kind: "tool_result",
-        turnId: input.turnId,
-        toolUseId,
-        result: payload,
-        latencyMs: toolLatencyMs,
-      });
-      if (payload.ok) {
-        for (const f of payload.fetched) {
+    // Bounded-concurrency parallel tool dispatch.
+    //
+    // Anthropic permits multiple tool_use blocks per assistant turn and
+    // expects the next user message to carry one tool_result per id, in
+    // the SAME order. We dispatch up to TOOL_DISPATCH_CONCURRENCY tools
+    // at once with a worker-pool pattern, but stash each result by its
+    // ORIGINAL index so the toolResults array stays positionally aligned
+    // with tool_use order.
+    //
+    // Latency accounting: acc.toolLatencyMs records wall-clock spent in
+    // the parallel block, not the sum of per-tool times. The per-tool
+    // timing still rides on the tool_result event so telemetry can see
+    // each call's individual cost, but the turn total is honest about
+    // overlap.
+    const toolResults: ProviderContentBlock[] = new Array(toolUses.length);
+    const toolDispatchStart = Date.now();
+    let nextToolIndex = 0;
+    let abortedDuringDispatch = false;
+    const workerCount = Math.min(TOOL_DISPATCH_CONCURRENCY, toolUses.length);
+    const workers = Array.from({ length: workerCount }, async (): Promise<void> => {
+      while (true) {
+        const idx = nextToolIndex++;
+        if (idx >= toolUses.length) return;
+        if (input.signal.aborted) {
+          // Drain without dispatching new tools. In-flight tools (already
+          // awaiting in another worker) run to completion; the conversation
+          // loop bails after Promise.all resolves.
+          abortedDuringDispatch = true;
+          return;
+        }
+        const use = toolUses[idx] as (typeof toolUses)[number];
+        const toolStart = Date.now();
+        const { toolUseId, payload } = await config.router(use.name, use.input, use.toolUseId);
+        const toolLatencyMs = Date.now() - toolStart;
+        input.onEvent({
+          kind: "tool_result",
+          turnId: input.turnId,
+          toolUseId,
+          result: payload,
+          latencyMs: toolLatencyMs,
+        });
+        if (payload.ok) {
+          for (const f of payload.fetched) {
+            if (
+              !turnFetched.some((r) => r.module_id === f.module_id && r.section_id === f.section_id)
+            ) {
+              turnFetched.push({ module_id: f.module_id, section_id: f.section_id });
+            }
+          }
+        } else {
+          // not_found on read("/modules/X/sections/Y") identifies a ref
+          // the model deliberately probed. Record it as "attempted" so
+          // the verifier accepts honest acknowledgment prose like
+          // "§ X doesn't exist."
+          const probed = extractProbedRef(use.name, use.input);
           if (
-            !turnFetched.some((r) => r.module_id === f.module_id && r.section_id === f.section_id)
+            probed &&
+            !turnAttempted.some(
+              (r) => r.module_id === probed.module_id && r.section_id === probed.section_id,
+            )
           ) {
-            turnFetched.push({ module_id: f.module_id, section_id: f.section_id });
+            turnAttempted.push(probed);
           }
         }
-      } else {
-        // not_found on read("/modules/X/sections/Y") identifies a ref
-        // the model deliberately probed. Record it as "attempted" so
-        // the verifier accepts honest acknowledgment prose like
-        // "§ X doesn't exist."
-        const probed = extractProbedRef(use.name, use.input);
-        if (
-          probed &&
-          !turnAttempted.some(
-            (r) => r.module_id === probed.module_id && r.section_id === probed.section_id,
-          )
-        ) {
-          turnAttempted.push(probed);
-        }
+        toolResults[idx] = {
+          kind: "tool_result",
+          toolUseId,
+          content: serializeToolResult(payload),
+          isError: !payload.ok,
+        };
       }
-      toolResults.push({
-        kind: "tool_result",
-        toolUseId,
-        content: serializeToolResult(payload),
-        isError: !payload.ok,
-      });
+    });
+    await Promise.all(workers);
+    acc.toolLatencyMs += Date.now() - toolDispatchStart;
+    if (abortedDuringDispatch || input.signal.aborted) {
+      acc.stopReason = "cancelled";
+      acc.newMessages = turnMessages;
+      acc.totalLatencyMs = acc.providerLatencyMs + acc.toolLatencyMs;
+      return acc;
     }
-    const userMsg: ProviderMessage = { role: "user", content: toolResults };
+    // Filter out any positions that never resolved — shouldn't happen
+    // unless the abort drained early, but defends against a sparse
+    // toolResults array leaking past the abort check.
+    const orderedResults = toolResults.filter((r): r is ProviderContentBlock => r !== undefined);
+    const userMsg: ProviderMessage = { role: "user", content: orderedResults };
     messages.push(userMsg);
     turnMessages.push(userMsg);
   }
