@@ -25,6 +25,7 @@ export function buildCorpusSectionView(
     hierarchy: ["Port Code", "Article 1"],
     editorial_status: "active",
     body: [],
+    article: null,
   };
   return {
     moduleId,

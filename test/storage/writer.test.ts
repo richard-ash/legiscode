@@ -37,6 +37,7 @@ function makeSection(id: string): SectionFile {
     hierarchy: [],
     editorial_status: "active",
     body: [],
+    article: null,
   };
 }
 

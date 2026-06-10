@@ -40,6 +40,7 @@ function makeSection(id: string): SectionFile {
     hierarchy: [],
     editorial_status: "active",
     body: [],
+    article: null,
   };
 }
 
@@ -176,6 +177,7 @@ describe("validateCorpus — newly_vague_by_reason bucketing (D9)", () => {
       hierarchy: [...hierarchy],
       editorial_status: "active",
       body: [],
+      article: null,
     };
   }
 

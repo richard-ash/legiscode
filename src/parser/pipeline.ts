@@ -210,6 +210,7 @@ function buildParsedModule(
       defined_terms: Array.from(new Set(definedTermMatches.map((d) => d.term))),
       editorial_status: ps.editorial_status,
       ...(ps.redirect_to ? { redirect_to: ps.redirect_to } : {}),
+      article: ps.article,
       // body[] is replaced by buildBodySegments in Pass 3. We seed a
       // single text segment so the schema's roundtrip invariant
       // (bodyToText(body) === text) passes here — the real tokenized

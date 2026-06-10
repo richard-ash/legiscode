@@ -221,6 +221,7 @@ function buildPopulatedApi(): Api {
             hierarchy: ["Port Code", "ARTICLE 1"],
             editorial_status: "active" as const,
             body: [],
+            article: null,
           },
           parents: [{ code: "Port Code", name: "", sectionId: null }],
           prev: null,
@@ -674,6 +675,7 @@ function buildPopulatedApiWithCitations(
               editorial_status: "active" as const,
               // biome-ignore lint/suspicious/noExplicitAny: test fixture shape passthrough
               body: (override?.body ?? []) as any,
+              article: null,
             },
             parents: [{ code: "Port Code", name: "", sectionId: null }],
             prev: null,

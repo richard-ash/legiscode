@@ -63,6 +63,21 @@ export interface SpanRecord {
   format: SpanFormat;
 }
 
+/**
+ * Article / chapter node tracked while walking a module. `id` is the raw
+ * article or chapter identifier extracted from the hierarchy marker
+ * label (e.g. "3.5", "12-D", "I", "9A"). `title` is the human title
+ * after the colon, or "" when the marker carried only an id.
+ *
+ * Used by parseHierarchyMarker to recover the article/chapter chain a
+ * section sits under so the corpus loader can expose
+ * /modules/{m}/articles[/{a}] without re-parsing strings at runtime.
+ */
+export interface HierarchyNode {
+  id: string;
+  title: string;
+}
+
 export interface ParsedSection {
   id: string;
   /**
@@ -85,6 +100,17 @@ export interface ParsedSection {
   source_location: { line: number };
   editorial_status: "active" | "reserved" | "repealed" | "redesignated";
   redirect_to?: string;
+  /**
+   * Article (with optional chapter parent chain) the section sits under.
+   * Null when the section sits under only a chapter (or under no
+   * article/chapter at all). Mirrors SectionArticle in @/types so the
+   * loader can hand the value to the schema validator without remapping.
+   */
+  article: {
+    id: string;
+    title: string;
+    parents: { kind: "article" | "chapter"; id: string }[];
+  } | null;
 }
 
 export interface ParsedAppendix {
@@ -401,6 +427,71 @@ function classifyRbox(el: cheerio.Cheerio<any>): RboxClassification {
   return { kind: "section", classes, editorial_status };
 }
 
+/**
+ * Extract `{id, title}` from a hierarchy-marker label like "Article 3.5:Fees",
+ * "Chapter 9A: Farmers' Market", "Article I:Existence and Powers",
+ * "Article 26*" (no colon, asterisk-suffix), or "Article 4.2.Sewer System
+ * Management" (dot used as separator before the title word).
+ *
+ * Returns null when the label has no id-shaped token after the prefix; the
+ * caller treats null as "no usable hierarchy info this round." Real SF
+ * AmLegal labels almost always parse — the null case guards against
+ * stripped or malformed input rather than the steady-state corpus.
+ *
+ * Exported for unit testing — production callers only use it indirectly
+ * via parseModuleFromBound.
+ */
+export function parseHierarchyMarker(label: string): HierarchyNode | null {
+  // Require the prefix actually be stripped — a bare "Article" / "Chapter"
+  // with no id after it has no usable hierarchy info and must return null
+  // rather than turn the prefix word into a phantom id.
+  const prefixRe = /^\s*(?:Article|Chapter)\s+/i;
+  if (!prefixRe.test(label)) return null;
+  const stripped = label.replace(prefixRe, "").trim();
+  if (!stripped) return null;
+
+  // Strong separator first: a colon after the id is the AmLegal convention
+  // ("Article 3.5:Fees", "Chapter 6: Behested Payment Reporting").
+  const colonIdx = stripped.indexOf(":");
+  if (colonIdx >= 0) {
+    const idRaw = stripped.slice(0, colonIdx).trim();
+    const title = stripped.slice(colonIdx + 1).trim();
+    const id = idRaw.replace(/\*+$/, "").trim();
+    if (id) return { id, title };
+  }
+
+  // Colon-less labels: leading token is `[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*`,
+  // but a trailing `.<TitleWord>` segment is a title separator that AmLegal
+  // sometimes emits in place of a colon ("Article 4.2.Sewer System
+  // Management"). Detect the title-word boundary as
+  //   dot/dash, capital letter, lowercase letter
+  // and chop the id there.
+  const tokenRe = /^([A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)/;
+  const m = stripped.match(tokenRe);
+  if (!m?.[1]) return null;
+  let id = m[1];
+  let title = stripped.slice(id.length).trim();
+
+  // Chop a trailing `.<TitleWord>` off the id if present: "4.2.Sewer" →
+  // id "4.2", title "Sewer System Management". The guard `[A-Z][a-z]` only
+  // matches a TitleCase word boundary so dotted ids like "4.2" stay intact.
+  const titleWordChop = id.match(/^(.*?)[.\-]([A-Z][a-z].*)$/);
+  if (titleWordChop && titleWordChop[1] && titleWordChop[2]) {
+    id = titleWordChop[1];
+    title = `${titleWordChop[2]}${title ? ` ${title}` : ""}`.trim();
+  }
+
+  // Editorial-chrome scrub on the colon-less path only: trailing-asterisk
+  // on the id is the AmLegal footnote marker ("Article 26*"). When the
+  // label had no colon, that asterisk leaks into title position; strip it.
+  // The colon-bearing path leaves title untouched — "Chapter 41F:Tourist
+  // Hotel Conversion *" carries the asterisk as title content.
+  id = id.replace(/\*+$/, "").trim();
+  title = title.replace(/^\*+\s*/, "").trim();
+  if (!id) return null;
+  return { id, title };
+}
+
 function rboxLabelText(el: cheerio.Cheerio<any>): string {
   // Hierarchy rboxes have shape:
   //   <div class="rbox Article">
@@ -490,7 +581,23 @@ function parseModuleFromBound(
 
   const codeTitle = bound.module.code_title;
   let currentDivision: string | null = null;
+  // Display-only label of the most recent Article OR Chapter marker.
+  // Drives the legacy hierarchy[] display chain that the file tree and
+  // breadcrumb renderer iterate. Article and Chapter share this slot
+  // because v1 hierarchy display flattens to one parent under the code
+  // title (Division optional). The richer chapter+article CHAIN lives in
+  // currentChapter / currentArticle below, used to populate
+  // ParsedSection.article for the AI agent's articles path tree.
   let currentArticleOrChapter: string | null = null;
+  // Structured chapter and article state. Article markers carry the
+  // section's article id+title; Chapter markers carry the chapter id+title
+  // and are surfaced through ParsedSection.article.parents when a section
+  // sits under Chapter > Article. A new Article marker after a Chapter
+  // keeps the chapter as parent; a new Chapter clears the article (the
+  // chapter starts fresh content). Division clears both. Appendix containers
+  // also clear both — appendix-housed sections get article=null.
+  let currentChapter: HierarchyNode | null = null;
+  let currentArticle: HierarchyNode | null = null;
   // Pattern A: track the active Appendix container so its inner Sections
   // (whether anchored as `JD_ArticleNAppendixXSec.M` or heading-text-only
   // `SEC. 1.`) get ids qualified by the container's slug, distinguishing
@@ -648,8 +755,22 @@ function parseModuleFromBound(
         if (meta.level === "Division") {
           if (label) currentDivision = prettifyTitle(label);
           currentArticleOrChapter = null;
+          currentChapter = null;
+          currentArticle = null;
         } else if (label) {
-          currentArticleOrChapter = prettifyTitle(label);
+          const pretty = prettifyTitle(label);
+          currentArticleOrChapter = pretty;
+          const node = parseHierarchyMarker(pretty);
+          if (meta.level === "Article") {
+            // A new article keeps the existing chapter (if any) as its
+            // parent in ParsedSection.article.parents.
+            currentArticle = node;
+          } else if (meta.level === "Chapter") {
+            // A new chapter starts fresh content — any article previously
+            // tracked belonged to a sibling chapter and must not leak.
+            currentChapter = node;
+            currentArticle = null;
+          }
         }
         // Article/Chapter/Division boundary terminates any active appendix
         // container; subsequent sections live under the new hierarchy node.
@@ -664,6 +785,19 @@ function parseModuleFromBound(
         const hierarchy = currentAppendix
           ? [...baseHierarchy, formatAppendixHierarchyLabel(currentAppendix)]
           : baseHierarchy;
+        // Article surface for the AI agent's /modules/{m}/articles paths.
+        // Appendix-housed sections get null — appendix containers are
+        // addressed separately and don't enumerate via /articles.
+        const article: ParsedSection["article"] =
+          currentArticle && !currentAppendix
+            ? {
+                id: currentArticle.id,
+                title: currentArticle.title,
+                parents: currentChapter
+                  ? [{ kind: "chapter" as const, id: currentChapter.id }]
+                  : [],
+              }
+            : null;
         const parsed = parseSectionElement(
           el,
           bound.module,
@@ -675,6 +809,7 @@ function parseModuleFromBound(
           body.elements,
           currentAppendix,
           sharedAnchorKeys,
+          article,
         );
         if (parsed.kind === "ok") {
           sections.push(parsed.section);
@@ -939,6 +1074,7 @@ function parseSectionElement(
   bodyElements: cheerio.Cheerio<any>[],
   containerAppendix: AppendixContainer | null,
   sharedAnchorKeys: Set<string>,
+  article: ParsedSection["article"],
 ): SectionParse {
   const node = sectionEl.get(0) as any;
   const line = offsetToLine(getStartIndex(node), lineMap);
@@ -1167,6 +1303,7 @@ function parseSectionElement(
     hierarchy_slugs: hierarchy.map(slugify),
     source_location: { line },
     editorial_status: editorialStatus,
+    article,
   };
   if (redirectTo) section.redirect_to = redirectTo;
   return { kind: "ok", section };

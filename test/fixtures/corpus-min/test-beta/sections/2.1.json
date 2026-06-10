@@ -10,6 +10,16 @@
     "Beta"
   ],
   "editorial_status": "active",
+  "article": {
+    "id": "12-D",
+    "title": "Chapter-Parented Article",
+    "parents": [
+      {
+        "kind": "chapter",
+        "id": "5"
+      }
+    ]
+  },
   "body": [
     {
       "kind": "text",

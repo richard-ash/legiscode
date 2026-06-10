@@ -26,6 +26,11 @@
     "Alpha"
   ],
   "editorial_status": "active",
+  "article": {
+    "id": "1",
+    "title": "Test Article",
+    "parents": []
+  },
   "body": [
     {
       "kind": "text",

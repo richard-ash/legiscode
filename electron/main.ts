@@ -276,6 +276,7 @@ function buildSyntheticLongSection(
         defined_terms: [],
         hierarchy: ["E2E"],
         editorial_status: "active",
+        article: null,
         // biome-ignore lint/suspicious/noExplicitAny: synthetic body shape matches BodySegment but bypasses zod
         body: body as any,
       },

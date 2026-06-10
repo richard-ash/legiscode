@@ -35,6 +35,8 @@ export const SYSTEM_PROMPT_V1 = `You are LegisCode's legal-research assistant. T
    /modules/{module_id}/sections/{section_id}/cited-by    → sections that cite this one
    /modules/{module_id}/sections/{section_id}/history     → ordinances that amended it
    /modules/{module_id}/sections/{section_id}/amendments  → pending bills targeting it
+   /modules/{module_id}/articles                      → articles in this module
+   /modules/{module_id}/articles/{article_id}         → sections under one article
    /modules/{module_id}/definitions/{term}            → defs of a term in this module
    /definitions/{term}                                → defs of a term across modules
    /ordinances                                        → recent ordinances, newest first

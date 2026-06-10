@@ -34,6 +34,7 @@ import {
   ModuleDefinitionsSchema,
   ModuleIdSchema,
   type ScopeExpr,
+  type SectionArticle,
   type SectionFile,
   SectionFileSchema,
   type SectionId,
@@ -78,6 +79,29 @@ interface AncestorEntry {
   firstSectionId: SectionId;
 }
 
+/**
+ * One article entry exposed to the AI agent via /modules/{m}/articles
+ * and /modules/{m}/articles/{a}. Built at corpus-load time by walking
+ * every section's `article` field and grouping by `article.id`.
+ *
+ * `sections` lists every section that sits under this article, in the
+ * module's canonical numeric-aware section.id order. `parents` repeats
+ * the parent chain from the first contributing section (chapter-under-
+ * article is the only nesting v1 surfaces; collisions inside a module
+ * across distinct parents stay as separate ArticleIndexEntry rows).
+ */
+interface ArticleIndexEntry {
+  id: string;
+  title: string;
+  parents: readonly { kind: "article" | "chapter"; id: string }[];
+  sections: readonly {
+    section_id: SectionId;
+    display_label: string;
+    title: string;
+    editorial_status: SectionFile["editorial_status"];
+  }[];
+}
+
 interface LoadedModule {
   id: string;
   /** Display name from manifest.json — e.g. "San Francisco Port Code". */
@@ -107,6 +131,14 @@ interface LoadedModule {
    * re-querying.
    */
   ancestorIndex: ReadonlyMap<SectionId, ReadonlyArray<AncestorEntry>>;
+  /**
+   * Article index for the AI agent's /modules/{m}/articles paths.
+   * Built once at corpus-load time; empty array when no section in
+   * the module carries `article` (older --corpus-path bundles).
+   */
+  articles: readonly ArticleIndexEntry[];
+  /** id-keyed lookup over articles for O(1) /articles/{a} routing. */
+  articlesById: ReadonlyMap<string, ArticleIndexEntry>;
   /**
    * Session bills loaded from this module's bills/ directory. Empty
    * array when the directory is missing, when sync-bills has not been
@@ -432,6 +464,7 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
   const definitions = await loadDefinitions(moduleDir, manifest.id);
   const definitionsById = indexDefinitionsById(definitions);
   const ancestorIndex = buildAncestorIndex(sections);
+  const { articles, articlesById } = buildArticleIndex(sections);
   const sessionBills = await loadSessionBills(moduleDir, manifest.id);
 
   return {
@@ -444,8 +477,58 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
     definitions,
     definitionsById,
     ancestorIndex,
+    articles,
+    articlesById,
     sessionBills,
   };
+}
+
+/**
+ * Walk `sections` and group by `article.id`. Within a module, two sections
+ * tagged with `article.id = "X"` get merged into one ArticleIndexEntry.
+ * Sections without an article are skipped (they're queryable through the
+ * section path tree but not under /modules/{m}/articles).
+ *
+ * Entries are sorted by article id numeric-aware so the listing returns
+ * "1", "1.5", "2", "13.1" in the order a reader would scan; sections
+ * inside each entry inherit the already-sorted incoming order.
+ *
+ * Parents are recorded from the first contributing section. Cases where
+ * the same article id appears under two distinct parents inside one
+ * module (e.g. "Article 1" exists under two chapters) collapse here —
+ * v1 surfaces the union; if real data ever produces such collisions
+ * we'll need a richer `(parents, id)` key.
+ */
+function buildArticleIndex(sections: readonly LoadedSection[]): {
+  articles: readonly ArticleIndexEntry[];
+  articlesById: ReadonlyMap<string, ArticleIndexEntry>;
+} {
+  const byId = new Map<string, ArticleIndexEntry>();
+  for (const s of sections) {
+    const article: SectionArticle | null = s.section.article;
+    if (!article) continue;
+    const existing = byId.get(article.id);
+    const sectionEntry = {
+      section_id: s.section.id,
+      display_label: s.section.display_label,
+      title: s.section.title,
+      editorial_status: s.section.editorial_status,
+    };
+    if (existing) {
+      existing.sections = [...existing.sections, sectionEntry];
+    } else {
+      byId.set(article.id, {
+        id: article.id,
+        title: article.title,
+        parents: article.parents,
+        sections: [sectionEntry],
+      });
+    }
+  }
+  const articles = Array.from(byId.values()).sort((a, b) =>
+    a.id.localeCompare(b.id, "en", { numeric: true, sensitivity: "base" }),
+  );
+  return { articles, articlesById: byId };
 }
 
 /**
@@ -521,6 +604,24 @@ export const listPendingBills = listSessionBills;
 // get_section_history call). Surfacing the directory here means the AI
 // module never has to re-resolve --corpus-path from argv.
 
+/**
+ * Per-article entry exposed to the AI tool router. Mirrors
+ * ArticleIndexEntry one-to-one; the AiCorpusArticle type re-declares
+ * the same shape so the AI module doesn't import the loader's internal
+ * ArticleIndexEntry interface.
+ */
+export interface AiCorpusArticle {
+  readonly id: string;
+  readonly title: string;
+  readonly parents: readonly { kind: "article" | "chapter"; id: string }[];
+  readonly sections: readonly {
+    readonly section_id: SectionId;
+    readonly display_label: string;
+    readonly title: string;
+    readonly editorial_status: SectionFile["editorial_status"];
+  }[];
+}
+
 export interface AiCorpusModule {
   readonly id: string;
   readonly name: string;
@@ -529,6 +630,8 @@ export interface AiCorpusModule {
   readonly sections: readonly { readonly section: SectionFile }[];
   /** Module-canonical Definition list (definitions-v2.json). */
   readonly definitions: readonly Definition[];
+  /** Article index for the /modules/{m}/articles[/{a}] read arms. */
+  readonly articles: readonly AiCorpusArticle[];
   /** Session bills loaded from this module's bills/ directory. */
   readonly sessionBills: readonly Bill[];
 }
@@ -573,6 +676,7 @@ export function getAiCorpusHandle(): AiCorpusHandle | null {
       jurisdiction: m.jurisdiction,
       sections: m.sections,
       definitions: m.definitions,
+      articles: m.articles,
       sessionBills: m.sessionBills,
     })),
     getSection: (moduleId, sectionId) => {

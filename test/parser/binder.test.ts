@@ -448,6 +448,7 @@ describe("bindCitation — D5 hierarchy-scoped collision-family fallback", () =>
       hierarchy: [...hierarchy],
       editorial_status: "active",
       body: [],
+      article: null,
     };
   }
 
@@ -845,6 +846,7 @@ describe("Phase 4 gate — validator rejects section-ref with missing anchor", (
       hierarchy: ["Test Code"],
       editorial_status: "active" as const,
       body: [],
+      article: null,
     });
     const result = validateCorpus([
       {
