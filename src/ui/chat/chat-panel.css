@@ -146,6 +146,31 @@
   font-style: italic;
 }
 
+.lc-chat-prose table {
+  width: 100%;
+  margin: 0.6em 0;
+  border-collapse: collapse;
+  font-size: var(--ui-sm);
+}
+
+.lc-chat-prose th,
+.lc-chat-prose td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--bg-surface1);
+  text-align: left;
+  vertical-align: top;
+}
+
+.lc-chat-prose thead th {
+  font-weight: 600;
+  color: var(--subtext1);
+  border-bottom: 1px solid var(--bg-surface2, var(--bg-surface1));
+}
+
+.lc-chat-prose tbody tr:last-child td {
+  border-bottom: none;
+}
+
 .lc-chat-thinking {
   color: var(--overlay1);
   font-style: italic;

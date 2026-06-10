@@ -193,6 +193,33 @@ describe("ChatPanel render states", () => {
     expect(onBillClick).toHaveBeenCalledTimes(2);
   });
 
+  it("renders GFM pipe tables and tokenizes citations inside cells", () => {
+    const chat = makeChat({
+      turns: [
+        makeTurn({
+          assistantText:
+            "Here's the comparison:\n\n" +
+            "| Element | Current | Proposed |\n" +
+            "| --- | --- | --- |\n" +
+            "| Penalties | None specified | First offense: infraction, $125-$250 fine |\n" +
+            "| Definition | None | Cross-references [test-alpha § 1.5] |\n",
+        }),
+      ],
+    });
+    const { container } = render(<ChatPanel {...defaults} chat={chat} hasApiKey={true} />);
+    const table = container.querySelector(".lc-chat-prose table");
+    expect(table).not.toBeNull();
+    expect(table?.querySelectorAll("thead th")).toHaveLength(3);
+    const bodyRows = table?.querySelectorAll("tbody tr") ?? [];
+    expect(bodyRows).toHaveLength(2);
+    expect(bodyRows[0]?.textContent).toContain("Penalties");
+    expect(bodyRows[0]?.textContent).toContain("$125-$250");
+    // Citation inside a cell still becomes a clickable button.
+    const cite = screen.getByRole("button", { name: /test-alpha § 1.5/ });
+    expect(cite).toHaveTextContent("[test-alpha § 1.5]");
+    expect(cite.closest("td")).not.toBeNull();
+  });
+
   it("renders an error message when a turn ended with an error", () => {
     const chat = makeChat({
       turns: [

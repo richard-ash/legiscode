@@ -13,6 +13,7 @@
 
 import React, { type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { AiCorpusContextRef } from "@/ai/wire";
 import { parseSourcesBlock, splitProseAndSources } from "@/parser/citation-verify";
 
@@ -45,6 +46,7 @@ export function ChatCitationProse({
   return (
     <div className="lc-chat-prose">
       <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
         components={{
           p: ({ children }) => <p>{renderInline(children, ctx)}</p>,
           li: ({ children }) => <li>{renderInline(children, ctx)}</li>,
@@ -57,6 +59,8 @@ export function ChatCitationProse({
           h5: ({ children }) => <h5>{renderInline(children, ctx)}</h5>,
           h6: ({ children }) => <h6>{renderInline(children, ctx)}</h6>,
           blockquote: ({ children }) => <blockquote>{renderInline(children, ctx)}</blockquote>,
+          th: ({ children }) => <th>{renderInline(children, ctx)}</th>,
+          td: ({ children }) => <td>{renderInline(children, ctx)}</td>,
           // Code stays verbatim — citation syntax inside backticks is intentional content.
         }}
       >
