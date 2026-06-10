@@ -13,7 +13,12 @@
 // model self-corrects or rewrites the answer. The renderer sees only
 // the final prose + tool trail.
 
-import { formatVerificationFailure, verifyCitations } from "@/parser/citation-verify";
+import {
+  formatSourcesBlockFailure,
+  formatVerificationFailure,
+  verifyCitations,
+  verifySourcesBlock,
+} from "@/parser/citation-verify";
 import { SYSTEM_PROMPT_V1, TOOL_DEFINITIONS_V1 } from "./prompt";
 import type {
   ModelProvider,
@@ -191,6 +196,12 @@ export async function runConversationTurn(
   // the model deliberately checked — the prose can honestly say
   // "§ X doesn't exist" because the tool call is in the log.
   const turnAttempted: { module_id: string; section_id: string }[] = [];
+  // Bills the model fetched this turn (read /bills/{file_no}/* paths).
+  // Tracked separately from section refs because bills resolve against
+  // the session bills index, not the sections index. R19 enforces that
+  // every bill cited in prose appears in the Sources block AND that
+  // every block entry was fetched this turn.
+  const turnFetchedBills: { file_no: string }[] = [];
   const turnMessages: ProviderMessage[] = [
     { role: "user", content: [{ kind: "text", text: input.userPrompt }] },
   ];
@@ -327,6 +338,32 @@ export async function runConversationTurn(
         turnMessages.push(fixUp);
         continue;
       }
+      // R19 / D8 — Sources block enforcement. Runs after the
+      // inline-cite verifier so the model first reconciles unfetched
+      // cites (the most common failure), then surfaces missing /
+      // incomplete blocks as a separate self-correct loop.
+      //
+      // Pass turnAttempted separately so the verifier can exempt
+      // honest-acknowledgment cites ("§ X doesn't exist") from the
+      // Sources-block-required rule. A probed-and-not-found ref is not
+      // authority; mentioning it in prose doesn't carry citation weight.
+      const sourcesOutcome = verifySourcesBlock({
+        text: assistantText,
+        fetchedSections: turnFetched,
+        fetchedBills: turnFetchedBills,
+        attemptedSections: turnAttempted,
+      });
+      if (!sourcesOutcome.ok && round < MAX_ROUNDS_PER_TURN) {
+        acc.verifierFailures += 1;
+        const failure = formatSourcesBlockFailure(sourcesOutcome);
+        const fixUp: ProviderMessage = {
+          role: "user",
+          content: [{ kind: "text", text: failure }],
+        };
+        messages.push(fixUp);
+        turnMessages.push(fixUp);
+        continue;
+      }
       acc.finalText = assistantText;
       acc.newMessages = turnMessages;
       acc.fetchedRefs = turnFetched;
@@ -384,6 +421,18 @@ export async function runConversationTurn(
               turnFetched.push({ module_id: f.module_id, section_id: f.section_id });
             }
           }
+          // Bill paths (/bills/{file_no}[/...]) don't surface via
+          // payload.fetched — that field is typed as section refs only.
+          // Harvest bill file_nos from the requested path AND from the
+          // result payload (listings + metadata both expose them) so the
+          // Sources-block verifier (R19) can validate bill citations
+          // symmetrically. Listings count: the model legitimately cites a
+          // bill it discovered via `/bills` without per-bill drilling.
+          for (const fn of harvestFetchedBills(use.name, use.input, payload)) {
+            if (!turnFetchedBills.some((b) => b.file_no === fn)) {
+              turnFetchedBills.push({ file_no: fn });
+            }
+          }
         } else {
           // not_found on read("/modules/X/sections/Y") identifies a ref
           // the model deliberately probed. Record it as "attempted" so
@@ -435,6 +484,76 @@ export async function runConversationTurn(
 function pruneToWindow(messages: readonly ProviderMessage[]): ProviderMessage[] {
   if (messages.length <= API_WINDOW_TURNS * 2) return [...messages];
   return messages.slice(-(API_WINDOW_TURNS * 2));
+}
+
+/**
+ * Harvest the set of bill file_nos a successful tool dispatch made
+ * available to the model. Sources are unioned across two surfaces:
+ *
+ *   1. The requested path: `/bills/{file_no}[/...]` reveals one bill.
+ *   2. The result payload: a `bills-list` listing yields every file_no
+ *      in `payload.bills[]`; a single-bill response yields its file_no.
+ *
+ * Without (2), a perfectly normal pattern — "the session has one
+ * pending bill: [Bill #N]" after reading `/bills` — would fail R19's
+ * Sources-block enforcement because the file_no never appears in
+ * fetchedBills. The listing IS the model's evidence the bill exists.
+ *
+ * Used by R19's Sources-block verifier so cited bills can be validated
+ * against the fetched-this-turn set symmetrically with sections.
+ */
+function harvestFetchedBills(
+  toolName: string,
+  rawInput: unknown,
+  payload: ToolResultBase,
+): readonly string[] {
+  if (toolName !== "read") return [];
+  const out = new Set<string>();
+  // Path-side harvest.
+  if (rawInput && typeof rawInput === "object" && "path" in rawInput) {
+    const path = (rawInput as { path: unknown }).path;
+    if (typeof path === "string") {
+      const parts = path
+        .trim()
+        .replace(/^\/+/, "")
+        .replace(/\/+$/, "")
+        .split("/")
+        .filter((p) => p.length > 0);
+      if (parts.length >= 2 && parts[0] === "bills") {
+        const fileNo = parts[1];
+        if (typeof fileNo === "string" && /^\d{3,12}$/.test(fileNo)) out.add(fileNo);
+      }
+    }
+  }
+  // Payload-side harvest. Inspect kind-tagged shapes from electron/ai/tools/types.ts.
+  if (payload.ok) {
+    const p = payload as unknown as {
+      kind?: string;
+      file_no?: string;
+      bill?: { file_no?: string };
+      bills?: readonly { file_no?: string }[];
+      body?: { file_no?: string };
+      diff?: { file_no?: string };
+    };
+    switch (p.kind) {
+      case "bill":
+        if (p.bill?.file_no) out.add(p.bill.file_no);
+        break;
+      case "bills-list":
+        for (const b of p.bills ?? []) if (b.file_no) out.add(b.file_no);
+        break;
+      case "bill-proposed-text":
+        if (p.body?.file_no) out.add(p.body.file_no);
+        break;
+      case "bill-changes":
+        if (p.file_no) out.add(p.file_no);
+        break;
+      case "bill-section-diff":
+        if (p.diff?.file_no) out.add(p.diff.file_no);
+        break;
+    }
+  }
+  return Array.from(out);
 }
 
 /**

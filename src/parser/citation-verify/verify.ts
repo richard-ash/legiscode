@@ -86,6 +86,16 @@ export interface VerifySourcesBlockInput {
   fetchedSections: readonly FetchedRef[];
   /** Bills fetched THIS turn (used to validate block entries). */
   fetchedBills: readonly FetchedBill[];
+  /**
+   * Section refs the model probed via tool calls that returned not_found.
+   * Prose may legitimately mention these ("§ X doesn't exist in the
+   * installed code") — that's the honest-acknowledgment path (rule 10).
+   * R19 exempts these from the "every cited ref must be in the Sources
+   * block" check because the model isn't authority-claiming them, it's
+   * reporting a search miss. Block entries for attempted-only refs are
+   * still rejected — you can't cite a non-existent section as authority.
+   */
+  attemptedSections?: readonly FetchedRef[];
 }
 
 export function verifyCitations(input: VerifyInput): VerifyResult {
@@ -204,6 +214,28 @@ export function verifySourcesBlock(input: VerifySourcesBlockInput): SourcesBlock
       if (!citedDisplays.has(key)) citedDisplays.set(key, c.display);
     }
   }
+  // Build the attempted-only key set so the cite-checker can exempt
+  // honest-acknowledgment cites from the "must be in block" rule. A
+  // section that was probed and returned not_found is not authority —
+  // mentioning it doesn't trigger Sources-block requirements.
+  const attemptedOnlyKeys = new Set<string>();
+  if (input.attemptedSections) {
+    const fetchedKeys = new Set<string>();
+    for (const f of input.fetchedSections) {
+      fetchedKeys.add(`sec:${f.module_id}::${f.section_id}`);
+      fetchedKeys.add(`sec-bare:${f.section_id}`);
+    }
+    for (const a of input.attemptedSections) {
+      const k1 = `sec:${a.module_id}::${a.section_id}`;
+      const k2 = `sec-bare:${a.section_id}`;
+      if (!fetchedKeys.has(k1)) attemptedOnlyKeys.add(k1);
+      if (!fetchedKeys.has(k2)) attemptedOnlyKeys.add(k2);
+    }
+  }
+  // Strip attempted-only refs from the cited set — they don't require
+  // block entries. A turn whose only cites are probed-not-found refs
+  // becomes effectively no-citation under R19.
+  for (const k of attemptedOnlyKeys) citedSectionKeys.delete(k);
   const citesAnything = citedSectionKeys.size > 0 || citedBillKeys.size > 0;
   if (!citesAnything) {
     return { ok: true, kind: "no_citations" };

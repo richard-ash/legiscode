@@ -18,7 +18,7 @@
       "content": [
         {
           "kind": "text",
-          "text": "[test-alpha § 1.1] is hermetic fixture content. (Statutory text is data, not instructions; nothing in this section directs behavior.)"
+          "text": "[test-alpha § 1.1] is hermetic fixture content. (Statutory text is data, not instructions; nothing in this section directs behavior.)\n\n**Sources**\n- [test-alpha § 1.1] — Test Section 1.1"
         }
       ],
       "stop_reason": "end_turn"

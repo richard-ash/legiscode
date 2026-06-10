@@ -18,7 +18,7 @@
       "content": [
         {
           "kind": "text",
-          "text": "I checked the session bills index for [test-alpha § 1.1]."
+          "text": "I checked the session bills index for [test-alpha § 1.1].\n\n**Sources**\n- [test-alpha § 1.1] — Test Section 1.1"
         }
       ],
       "stop_reason": "end_turn"

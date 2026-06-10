@@ -27,7 +27,9 @@ describe("runConversationTurn", () => {
         content: [
           {
             kind: "text",
-            text: 'Per [test-alpha § 1.1], the rule applies. The section says "Hermetic".',
+            text:
+              'Per [test-alpha § 1.1], the rule applies. The section says "Hermetic".\n\n' +
+              "**Sources**\n- [test-alpha § 1.1] — Test Section 1.1\n",
           },
         ],
         stopReason: "end_turn",
@@ -80,9 +82,16 @@ describe("runConversationTurn", () => {
         stopReason: "tool_use",
       },
       // Third round: model writes the answer correctly, now with the
-      // section in fetched.
+      // section in fetched and a Sources block listing it (R19).
       {
-        content: [{ kind: "text", text: "Per [test-alpha § 1.1], the rule applies." }],
+        content: [
+          {
+            kind: "text",
+            text:
+              "Per [test-alpha § 1.1], the rule applies.\n\n" +
+              "**Sources**\n- [test-alpha § 1.1] — Test Section 1.1\n",
+          },
+        ],
         stopReason: "end_turn",
       },
     ]);
@@ -127,7 +136,14 @@ describe("runConversationTurn", () => {
         stopReason: "tool_use",
       },
       {
-        content: [{ kind: "text", text: "Per [test-alpha § 1.1], rule applies." }],
+        content: [
+          {
+            kind: "text",
+            text:
+              "Per [test-alpha § 1.1], rule applies.\n\n" +
+              "**Sources**\n- [test-alpha § 1.1] — Test Section 1.1\n",
+          },
+        ],
         stopReason: "end_turn",
       },
     ]);
@@ -294,6 +310,92 @@ describe("runConversationTurn", () => {
     // duplicates (each tool returns a distinct section_id).
     expect(result.fetchedRefs).toHaveLength(3);
     expect(new Set(result.fetchedRefs.map((r) => r.section_id))).toEqual(new Set(["1", "2", "3"]));
+  });
+
+  it("injects an R19 self-correct loop when prose cites but lacks a Sources block", async () => {
+    // Round 1: model fetches the section and writes correct prose, but
+    // omits the trailing Sources block. R19's verifySourcesBlock fires a
+    // synthetic verification_failure. Round 2: model adds the block.
+    const corpus = await loadFixtureCorpus();
+    const provider = new MockProvider([
+      {
+        content: [
+          {
+            kind: "tool_use",
+            toolUseId: "u1",
+            name: "read",
+            input: { path: "/modules/test-alpha/sections/1.1" },
+          },
+        ],
+        stopReason: "tool_use",
+      },
+      {
+        // Cited but no Sources block — R19 forces a retry.
+        content: [{ kind: "text", text: "Per [test-alpha § 1.1] the rule applies." }],
+        stopReason: "end_turn",
+      },
+      {
+        content: [
+          {
+            kind: "text",
+            text:
+              "Per [test-alpha § 1.1], the rule applies.\n\n" +
+              "**Sources**\n- [test-alpha § 1.1] — Test Section 1.1\n",
+          },
+        ],
+        stopReason: "end_turn",
+      },
+    ]);
+    const result = await runConversationTurn(
+      {
+        provider,
+        model: "mock-model-1",
+        anchorModule: "test-alpha",
+        router: makeRouterFn({ corpus, turnId: 1 }),
+      },
+      {
+        turnId: 1,
+        history: [],
+        userPrompt: "what does § 1.1 say?",
+        signal: new AbortController().signal,
+        onEvent: () => {},
+      },
+    );
+    expect(result.stopReason).toBe("end_turn");
+    expect(result.verifierFailures).toBe(1);
+    expect(result.finalText).toContain("**Sources**");
+    provider.assertExhausted();
+  });
+
+  it("does not require a Sources block when the answer cites nothing", async () => {
+    // R19 / D8 escape hatch: a no-citation answer (e.g. "the corpus
+    // doesn't include sf-fire") legitimately omits the block. The
+    // verifier must let it pass without looping.
+    const corpus = await loadFixtureCorpus();
+    const provider = new MockProvider([
+      {
+        content: [{ kind: "text", text: "The corpus doesn't include sf-fire." }],
+        stopReason: "end_turn",
+      },
+    ]);
+    const result = await runConversationTurn(
+      {
+        provider,
+        model: "mock-model-1",
+        anchorModule: "test-alpha",
+        router: makeRouterFn({ corpus, turnId: 1 }),
+      },
+      {
+        turnId: 1,
+        history: [],
+        userPrompt: "what does sf-fire say?",
+        signal: new AbortController().signal,
+        onEvent: () => {},
+      },
+    );
+    expect(result.stopReason).toBe("end_turn");
+    expect(result.verifierFailures).toBe(0);
+    provider.assertExhausted();
   });
 
   it("stops parallel dispatch when the signal aborts mid-round", async () => {
