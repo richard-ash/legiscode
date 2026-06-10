@@ -132,11 +132,103 @@ handler entry:
 `preload-bridge.ts` and the renderer-side `api()` accessor never need to
 change — both derive from `CHANNELS` and the `Api` interface respectively.
 
+## AI chat panel (feat/ai-agent)
+
+The AI chat panel adds a long-lived HTTP transport from the main process
+to the Anthropic API. The main process — not the renderer — owns every
+piece of that transport: the SDK, the tool router, the system prompt,
+the API key. The renderer holds a thin chat UI that talks to main over
+the `ai:query` / `ai:cancel` IPC channels and listens on a one-way
+`ai:event` channel for progressive tool-call events.
+
+### Node-transport allowlist
+
+Electron's `session.webRequest` covers only the renderer's network
+calls. The Anthropic SDK runs in the main process via Node's
+`http`/`https` stack (undici), which `session.webRequest` does not
+intercept. Without an additional gate, a misconfigured `HTTPS_PROXY`
+or an SDK that follows a redirect to a third-party host could exfiltrate
+prompt text.
+
+`electron/ai/network-allowlist.ts` installs a global `undici` dispatcher
+that proxies every outbound HTTP request through a host check before
+the underlying dispatcher sees it. The allowlist is small and named —
+adding a provider host requires editing this file. `HTTPS_PROXY` /
+`HTTP_PROXY` are honored as the *underlying* transport, but the host
+check still runs first; a misconfigured proxy can only reach allowlisted
+hosts.
+
+### Per-provider API key storage
+
+Provider API keys live in encrypted files at
+`${userData}/secrets/${provider_id}.bin`, mode 0600 on POSIX. Encryption
+goes through Electron's `safeStorage`, which delegates to the platform
+keychain (Keychain on macOS, libsecret on Linux, DPAPI on Windows). The
+renderer never sees the key — it submits a key via `ai:setApiKey`, main
+encrypts and persists, then reads back on demand inside the conversation
+loop. `ai:clearApiKey` deletes the file.
+
+Keys never appear in IPC events, telemetry, or chat history. The
+prompt-hash regression test (T8) covers prompt content but not key
+storage; the `ai:hasApiKey` channel returns only a boolean.
+
+### Tool output ↔ prompt injection defense
+
+Tool results — including statutory text the model fetched via
+`get_section` — are wrapped in `<corpus_evidence>...</corpus_evidence>`
+tags before being fed back into the model. The system prompt instructs
+the model to treat everything inside those tags as data, never as
+instructions. An adversarial corpus that smuggled "ignore previous
+instructions" inside a section's text would be quoted, not obeyed.
+
+Adversarial fixtures under `test/ai/golden-qa/` cover this case
+explicitly (see `10-adversarial-injection.json`).
+
+### Citation verification (no-hallucination invariant)
+
+Every section citation in the model's prose must appear in the
+turn's tool-call log. The verifier in
+`src/parser/citation-verify/verify.ts` runs at the end of each turn;
+violations emit a synthetic `<verification_failure>` block that re-enters
+the agentic loop so the model self-corrects. Verification failures
+never reach the renderer as a UI state — there is only one
+user-visible outcome (the answer prose).
+
+The golden Q&A harness (`test/ai/hallucination.test.ts`) is the
+launch gate. T1's 100-fixture floor is a `/ship` precondition; the
+starter set exercises every tool and acknowledgment pattern. Authoring
+the remainder is tracked in TODOS.md.
+
+### IPC trust boundary
+
+`ai:query` validates its payload via zod, caps the prompt at 4000
+characters, and enforces one in-flight turn per window. `ai:event` is
+a one-way push from main to renderer; the renderer never sends events
+back. Subscription is held by the preload bridge so the renderer never
+touches `ipcRenderer` directly.
+
+### Screenshot-leakage note
+
+The chat panel renders user prompts and assistant prose as plain text.
+Workflows that share screenshots — slide decks, bug reports, demo
+recordings — can leak the contents of a conversation. The chat panel
+intentionally does not redact tool-line detail expansions, because
+hiding what the model fetched would defeat the verifiability property.
+Operators should treat chat screenshots like any other source-of-truth
+artifact.
+
+### Local-only telemetry
+
+When telemetry is enabled in AI settings, events are appended as JSON
+lines to `${userData}/ai-telemetry/events.jsonl`. No network upload in
+v1. Every event carries `corpus_hash` and `prompt_hash` so a regression
+can be pinned to a specific snapshot. Prompt text and response text
+are NEVER included; events carry only structural counts and outcomes.
+
 ## What does not ship in this branch
 
 - Code signing + notarization — owned by `feat/build-pipeline`.
 - Auto-updater — owned by `feat/release-prep`.
-- Anthropic API connect-src extension — owned by `feat/ai-agent`.
 - Cross-platform titlebar matrix CI — owned by `feat/build-pipeline`.
 
 Each is tracked in `TODOS.md` with the owning branch.

@@ -66,6 +66,38 @@ import type {
   ShellOpenExternalResult,
 } from "@/corpus/wire";
 
+// ─── AI wire types (used by ai:query / ai:cancel / ai:event channel) ────────
+
+import type {
+  AiCancelRequest,
+  AiCancelResult,
+  AiEvent,
+  AiQueryRequest,
+  AiQueryResult,
+} from "@/ai/wire";
+
+export type {
+  AiCorpusContextRef,
+  AiEventCallback,
+  AiSettingsView,
+  AiTokenUsage,
+  AiToolResultView,
+  AiUnsubscribeFn,
+} from "@/ai/wire";
+export type { AiCancelRequest, AiCancelResult, AiEvent, AiQueryRequest, AiQueryResult };
+
+import type {
+  AiClearApiKeyRequest,
+  AiClearApiKeyResult,
+  AiGetSettingsResult,
+  AiHasApiKeyRequest,
+  AiHasApiKeyResult,
+  AiSetApiKeyRequest,
+  AiSetApiKeyResult,
+  AiUpdateSettingsRequest,
+  AiUpdateSettingsResult,
+} from "@/ai/wire";
+
 // ─── Channel registry ───────────────────────────────────────────────────────
 
 /**
@@ -79,13 +111,20 @@ import type {
  *   4. Add a handler entry to the `Handlers` literal in electron/main.ts.
  */
 export interface ChannelMap {
-  "corpus:list": { request: void; response: CorpusListResult };
+  "corpus:list": { request: undefined; response: CorpusListResult };
   "corpus:read": { request: CorpusReadRequest; response: CorpusReadResult };
-  "app:ping": { request: void; response: AppPingResult };
+  "app:ping": { request: undefined; response: AppPingResult };
   "shell:openExternal": {
     request: ShellOpenExternalRequest;
     response: ShellOpenExternalResult;
   };
+  "ai:query": { request: AiQueryRequest; response: AiQueryResult };
+  "ai:cancel": { request: AiCancelRequest; response: AiCancelResult };
+  "ai:getSettings": { request: undefined; response: AiGetSettingsResult };
+  "ai:updateSettings": { request: AiUpdateSettingsRequest; response: AiUpdateSettingsResult };
+  "ai:hasApiKey": { request: AiHasApiKeyRequest; response: AiHasApiKeyResult };
+  "ai:setApiKey": { request: AiSetApiKeyRequest; response: AiSetApiKeyResult };
+  "ai:clearApiKey": { request: AiClearApiKeyRequest; response: AiClearApiKeyResult };
 }
 
 export type Channel = keyof ChannelMap;
@@ -98,7 +137,29 @@ export type ChannelResponse<C extends Channel> = ChannelMap[C]["response"];
  * once per channel. Cross-checked against `ChannelMap` keys at compile time
  * — adding a channel to one without the other is a TypeScript error.
  */
-export const CHANNELS = ["corpus:list", "corpus:read", "app:ping", "shell:openExternal"] as const;
+export const CHANNELS = [
+  "corpus:list",
+  "corpus:read",
+  "app:ping",
+  "shell:openExternal",
+  "ai:query",
+  "ai:cancel",
+  "ai:getSettings",
+  "ai:updateSettings",
+  "ai:hasApiKey",
+  "ai:setApiKey",
+  "ai:clearApiKey",
+] as const;
+
+/**
+ * One-way event channel from main → renderer for the AI module's
+ * progressive events (tool calls, results, prose text). NOT part of
+ * the typed ipcMain.handle/invoke surface — events flow over
+ * webContents.send + ipcRenderer.on. Listed here so the preload bridge
+ * can register the subscription and the renderer's window.api.ai.onEvent
+ * has one place to read the channel name.
+ */
+export const AI_EVENT_CHANNEL = "ai:event" as const;
 
 // Compile-time cross-check: CHANNELS and ChannelMap must enumerate the same
 // set of channel names. Either side adding/removing without the other fires
@@ -140,6 +201,22 @@ export interface Api {
      *  Electron's shell. Fire-and-forget at the call site; failures are
      *  logged main-side, not surfaced as UI. */
     openExternal: (request: ShellOpenExternalRequest) => Promise<ShellOpenExternalResult>;
+  };
+  ai: {
+    /** Submit a chat turn. Resolves with the final assistant prose +
+     *  usage; progressive events arrive on the ai:event channel. */
+    query: (request: AiQueryRequest) => Promise<AiQueryResult>;
+    /** Cancel an in-flight turn by turnId. */
+    cancel: (request: AiCancelRequest) => Promise<AiCancelResult>;
+    getSettings: () => Promise<AiGetSettingsResult>;
+    updateSettings: (request: AiUpdateSettingsRequest) => Promise<AiUpdateSettingsResult>;
+    hasApiKey: (request: AiHasApiKeyRequest) => Promise<AiHasApiKeyResult>;
+    setApiKey: (request: AiSetApiKeyRequest) => Promise<AiSetApiKeyResult>;
+    clearApiKey: (request: AiClearApiKeyRequest) => Promise<AiClearApiKeyResult>;
+    /** Subscribe to progressive events. Returns an unsubscribe fn. The
+     *  subscription is held by the preload bridge; the renderer never
+     *  touches ipcRenderer directly. */
+    onEvent: (callback: (event: AiEvent) => void) => () => void;
   };
 }
 

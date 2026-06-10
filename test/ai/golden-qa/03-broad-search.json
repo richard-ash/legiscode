@@ -1,0 +1,44 @@
+{
+  "name": "broad search then targeted read",
+  "user_prompt": "Where does the corpus talk about hermetic content?",
+  "anchor": { "module_id": "test-alpha", "section_id": "1.1" },
+  "rounds": [
+    {
+      "content": [
+        {
+          "kind": "tool_use",
+          "toolUseId": "u1",
+          "name": "search",
+          "input": { "query": "Hermetic" }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "kind": "tool_use",
+          "toolUseId": "u2",
+          "name": "read",
+          "input": { "path": "/modules/test-alpha/sections/1.1" }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "kind": "text",
+          "text": "[test-alpha § 1.1] is the only test section that mentions hermetic content."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ],
+  "expect": {
+    "verifier_ok": true,
+    "final_text_contains": ["§ 1.1"],
+    "fetched_refs": [{ "module_id": "test-alpha", "section_id": "1.1" }],
+    "verifier_failures": 0
+  }
+}

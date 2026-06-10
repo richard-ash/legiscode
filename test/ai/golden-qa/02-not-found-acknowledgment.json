@@ -1,0 +1,33 @@
+{
+  "name": "honest acknowledgment when section does not exist",
+  "user_prompt": "What does § 999.99 say?",
+  "anchor": { "module_id": "test-alpha", "section_id": "1.1" },
+  "rounds": [
+    {
+      "content": [
+        {
+          "kind": "tool_use",
+          "toolUseId": "u1",
+          "name": "read",
+          "input": { "path": "/modules/test-alpha/sections/999.99" }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "kind": "text",
+          "text": "§ 999.99 doesn't exist in the installed code. I searched the test-alpha module and the section number is not present."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ],
+  "expect": {
+    "verifier_ok": true,
+    "final_text_contains": ["doesn't exist", "searched"],
+    "fetched_refs": [],
+    "verifier_failures": 0
+  }
+}

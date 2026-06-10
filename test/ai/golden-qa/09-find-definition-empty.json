@@ -1,0 +1,33 @@
+{
+  "name": "term not defined acknowledgment",
+  "user_prompt": "How does the code define 'hippopotamus'?",
+  "anchor": { "module_id": "test-alpha", "section_id": "1.1" },
+  "rounds": [
+    {
+      "content": [
+        {
+          "kind": "tool_use",
+          "toolUseId": "u1",
+          "name": "read",
+          "input": { "path": "/definitions/hippopotamus" }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "kind": "text",
+          "text": "I searched for the term 'hippopotamus' across the installed modules and found no defining section."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ],
+  "expect": {
+    "verifier_ok": true,
+    "final_text_contains": ["searched"],
+    "fetched_refs": [],
+    "verifier_failures": 0
+  }
+}

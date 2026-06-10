@@ -1,0 +1,33 @@
+{
+  "name": "cross-module reference walk",
+  "user_prompt": "What does the section from beta module say?",
+  "anchor": { "module_id": "test-beta", "section_id": "2.1" },
+  "rounds": [
+    {
+      "content": [
+        {
+          "kind": "tool_use",
+          "toolUseId": "u1",
+          "name": "read",
+          "input": { "path": "/modules/test-beta/sections/2.1" }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "kind": "text",
+          "text": "[test-beta § 2.1] is in the test-beta module."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ],
+  "expect": {
+    "verifier_ok": true,
+    "final_text_contains": ["§ 2.1", "test-beta"],
+    "fetched_refs": [{ "module_id": "test-beta", "section_id": "2.1" }],
+    "verifier_failures": 0
+  }
+}

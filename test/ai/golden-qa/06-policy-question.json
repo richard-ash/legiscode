@@ -1,0 +1,22 @@
+{
+  "name": "policy question acknowledgment",
+  "user_prompt": "Is this a good law?",
+  "anchor": { "module_id": "test-alpha", "section_id": "1.1" },
+  "rounds": [
+    {
+      "content": [
+        {
+          "kind": "text",
+          "text": "That's a policy question, not legal text. The corpus has the statutory text but not the analysis you're asking for."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ],
+  "expect": {
+    "verifier_ok": true,
+    "final_text_contains": ["policy question"],
+    "fetched_refs": [],
+    "verifier_failures": 0
+  }
+}

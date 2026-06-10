@@ -28,7 +28,11 @@ test("SET1 — open Settings from the titlebar, ⌘, focuses it, close returns t
     await expect(sectionList.getByRole("tab")).toHaveCount(1, { timeout: 10_000 });
 
     // Open the titlebar settings dropdown, then the Keyboard Shortcuts item.
-    await page.getByRole("button", { name: "Settings" }).click();
+    // Scope to the titlebar — the chat panel's "Open AI settings" button
+    // also has the accessible name "Settings", so a page-scoped lookup
+    // hits strict-mode.
+    const titlebar = page.getByTestId("titlebar");
+    await titlebar.getByRole("button", { name: "Settings" }).click();
     await page.getByRole("menuitem", { name: /Keyboard Shortcuts/ }).click();
 
     // A real Settings tab opened, rendering the read-only shortcut page.

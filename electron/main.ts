@@ -11,7 +11,14 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, screen, session, shell } from "electron";
-import { listCorpus, loadCorpus, readSection, resolveCorpusPath } from "./corpus-loader";
+import { buildAiHandlers } from "./ai/index";
+import {
+  listCorpus,
+  loadCorpus,
+  readSection,
+  rememberCorpusRoot,
+  resolveCorpusPath,
+} from "./corpus-loader";
 import { buildDevCsp, buildProdCsp } from "./csp";
 import { assertAllChannelsRegistered, type Handlers, registerHandlers } from "./ipc/main-handlers";
 import { handleShellOpenExternal } from "./shell-handler";
@@ -39,13 +46,16 @@ app.whenReady().then(async () => {
   // Kick the corpus load before the window so disk I/O overlaps with
   // BrowserWindow construction. The window stays show:false until
   // both webContents.did-finish-load and this promise resolve.
-  corpusReady = loadCorpus(
-    resolveCorpusPath({
-      isPackaged: app.isPackaged,
-      resourcesPath: process.resourcesPath,
-      projectRoot,
-    }),
-  );
+  const corpusRoot = resolveCorpusPath({
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    projectRoot,
+  });
+  // The AI tool module reads the corpus root path for lazy
+  // ordinance-history loads. Stashing it here means the AI module never
+  // re-parses argv or env to find it.
+  rememberCorpusRoot(corpusRoot);
+  corpusReady = loadCorpus(corpusRoot);
 
   installCspGuard();
   registerIpcHandlers();
@@ -185,6 +195,11 @@ const E2E_MOCK_CORPUS_READ = process.env.LEGISCODE_E2E_MOCK_CORPUS_READ;
 let e2eFailRemaining = E2E_MOCK_CORPUS_READ === "fail" ? 1 : 0;
 
 function registerIpcHandlers(): void {
+  const ai = buildAiHandlers({
+    // Single-window v1: every renderer-side invoke comes from mainWindow.
+    // When multi-window lands the resolver maps senderFrame → window.
+    resolveWindow: () => mainWindow,
+  });
   const handlers: Handlers = {
     "corpus:list": async () => {
       await (corpusReady ?? Promise.resolve());
@@ -199,6 +214,16 @@ function registerIpcHandlers(): void {
     "app:ping": () => ({ pong: Date.now() }),
     "shell:openExternal": (req) =>
       handleShellOpenExternal(req, { openExternal: (url) => shell.openExternal(url) }),
+    "ai:query": async (req, event) => {
+      await (corpusReady ?? Promise.resolve());
+      return ai["ai:query"](req, event);
+    },
+    "ai:cancel": (req) => ai["ai:cancel"](req),
+    "ai:getSettings": () => ai["ai:getSettings"](),
+    "ai:updateSettings": (req) => ai["ai:updateSettings"](req),
+    "ai:hasApiKey": (req) => ai["ai:hasApiKey"](req),
+    "ai:setApiKey": (req) => ai["ai:setApiKey"](req),
+    "ai:clearApiKey": (req) => ai["ai:clearApiKey"](req),
   };
   registerHandlers(handlers);
 }

@@ -19,6 +19,7 @@
 // performance cost (zod parse per section, ~11k sections) is amortized
 // against the boot once-per-app-launch.
 
+import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import {
@@ -173,7 +174,7 @@ export async function loadCorpus(rootDir: string): Promise<LoaderState> {
 
   try {
     const exists = await stat(rootDir).catch(() => null);
-    if (!exists || !exists.isDirectory()) {
+    if (!exists?.isDirectory()) {
       return setError({
         kind: "not_loaded",
         detail: `Corpus directory not found at ${rootDir}. Reinstall the app or run with --corpus-path=…`,
@@ -463,7 +464,7 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
 async function loadSessionBills(moduleDir: string, moduleId: string): Promise<readonly Bill[]> {
   const dir = join(moduleDir, "bills");
   const exists = await stat(dir).catch(() => null);
-  if (!exists || !exists.isDirectory()) return [];
+  if (!exists?.isDirectory()) return [];
   const entries = await readdir(dir, { withFileTypes: true });
   const bills: Bill[] = [];
   for (const entry of entries) {
@@ -505,6 +506,96 @@ export function listSessionBills(): readonly Bill[] {
 
 /** @deprecated alias retained for transitional test compatibility. */
 export const listPendingBills = listSessionBills;
+
+// ─── AI tool corpus access ──────────────────────────────────────────────────
+//
+// Read-only projection of the loader's in-memory state for the AI tool router.
+// Tools live in electron/ai/ and need to walk every section, look up a
+// section by qualified ref, scan defined-term occurrences, and find the
+// corpus root directory (for lazy ordinance-history reads). Exposing the
+// internal LoadedCorpus would leak the writer/loader boundary; this
+// accessor returns the narrow surface tools actually use.
+//
+// The corpus root directory is needed because OrdinanceHistory files
+// are not loaded eagerly (per the v1 lock in electron/ai — lazy on first
+// get_section_history call). Surfacing the directory here means the AI
+// module never has to re-resolve --corpus-path from argv.
+
+export interface AiCorpusModule {
+  readonly id: string;
+  readonly name: string;
+  readonly codeTitle: string;
+  readonly jurisdiction: string;
+  readonly sections: readonly { readonly section: SectionFile }[];
+  /** Module-canonical Definition list (definitions-v2.json). */
+  readonly definitions: readonly Definition[];
+  /** Session bills loaded from this module's bills/ directory. */
+  readonly sessionBills: readonly Bill[];
+}
+
+export interface AiCorpusHandle {
+  /** Stable across boot; sha256-prefix derived from module versions. */
+  readonly corpusHash: string;
+  /** Disk path of the loaded corpus root (parent of the per-module dirs). */
+  readonly rootDir: string;
+  readonly modules: readonly AiCorpusModule[];
+  /** Lookup; null when (moduleId, sectionId) is unknown. */
+  getSection(moduleId: string, sectionId: string): SectionFile | null;
+}
+
+let cachedRootDir: string | null = null;
+
+/**
+ * Stash the resolved corpus root path so the AI tool module can access
+ * lazily-loaded artifacts (ordinance-history files) without re-parsing
+ * argv. Called once at boot from electron/main.ts after resolveCorpusPath.
+ */
+export function rememberCorpusRoot(rootDir: string): void {
+  cachedRootDir = rootDir;
+}
+
+/**
+ * AI tool access to the loaded corpus. Returns null until loadCorpus
+ * has resolved; the AI handlers gate on corpus readiness per A8 before
+ * calling.
+ */
+export function getAiCorpusHandle(): AiCorpusHandle | null {
+  if (state === null || state.kind !== "ok") return null;
+  const rootDir = cachedRootDir;
+  if (!rootDir) return null;
+  return {
+    corpusHash: hashCorpusVersions(state),
+    rootDir,
+    modules: state.modules.map((m) => ({
+      id: m.id,
+      name: m.name,
+      codeTitle: m.codeTitle,
+      jurisdiction: m.jurisdiction,
+      sections: m.sections,
+      definitions: m.definitions,
+      sessionBills: m.sessionBills,
+    })),
+    getSection: (moduleId, sectionId) => {
+      if (state === null || state.kind !== "ok") return null;
+      const inner = state.byRef.get(moduleId);
+      const loaded = inner?.get(sectionId);
+      return loaded ? loaded.section : null;
+    },
+  };
+}
+
+// corpus_hash projection. The AI module passes this on every tool result
+// and telemetry event so adversarial fixtures and golden Q&A pairs can
+// pin against a specific corpus snapshot. SHA256 over the sorted
+// `${moduleId}@${moduleVersion}` lines; we keep the 12-char prefix
+// because the hash is for collision detection across boots, not crypto.
+function hashCorpusVersions(s: LoadedCorpus): string {
+  const lines = s.modules
+    .map((m) => `${m.id}@${m.moduleVersion}`)
+    .sort()
+    .join("\n");
+  return createHash("sha256").update(lines).digest("hex").slice(0, 12);
+}
 
 /**
  * Walk the module's sections and build a per-section ordered ancestor
@@ -565,7 +656,7 @@ async function loadDefinitions(
 ): Promise<readonly Definition[]> {
   const path = join(moduleDir, "definitions-v2.json");
   const exists = await stat(path).catch(() => null);
-  if (!exists || !exists.isFile()) return [];
+  if (!exists?.isFile()) return [];
   let parsed: ReturnType<typeof JSON.parse>;
   try {
     parsed = JSON.parse(await readFile(path, "utf8"));
@@ -595,7 +686,7 @@ async function collectJson(dir: string): Promise<string[]> {
     const current = stack.pop();
     if (!current) continue;
     const exists = await stat(current).catch(() => null);
-    if (!exists || !exists.isDirectory()) continue;
+    if (!exists?.isDirectory()) continue;
     const entries = await readdir(current, { withFileTypes: true });
     for (const e of entries) {
       const p = join(current, e.name);

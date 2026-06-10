@@ -5,10 +5,17 @@
 // useNavigation's `navigate(item, intent)` primitive.
 
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useChat } from "@/app/ai/use-chat";
 import { api } from "@/app/api";
 import { applyPersistedLineHeightMult } from "@/app/section-line-height";
 import { useCitationDispatch } from "@/citations/dispatch";
-import { type CorpusRef, corpusRefFromWire, corpusRefToWire, hash as refHash } from "@/corpus/refs";
+import {
+  type CorpusRef,
+  corpusRefFromWire,
+  corpusRefToWire,
+  parse as parseCorpusRef,
+  hash as refHash,
+} from "@/corpus/refs";
 import type {
   CorpusError,
   CorpusModuleSummary,
@@ -17,6 +24,7 @@ import type {
 } from "@/corpus/wire";
 import { readOpenItems, writeOpenItems } from "@/persistence";
 import type { Bill } from "@/types";
+import { ChatPanel } from "@/ui/chat/chat-panel";
 import { ActivityBar } from "@/ui/chrome/activity-bar";
 import { BootOverlay } from "@/ui/chrome/boot-overlay";
 import { Breadcrumb } from "@/ui/chrome/breadcrumb";
@@ -475,7 +483,14 @@ export function App() {
               />
             }
             center={center}
-            right={<div className="lc-rightpanel" />}
+            right={
+              <RightChatSurface
+                section={section}
+                onOpenAiSettings={() => navigate({ kind: "settings", section: "ai" }, "primary")}
+                onCitationClick={(ref) => navigateToWireRef(ref, navigate)}
+                onBillClick={(fileNo) => navigate({ kind: "bill", billId: fileNo }, "primary")}
+              />
+            }
           />
         </div>
       </div>
@@ -492,6 +507,82 @@ export function App() {
 function describeError(cause: unknown): string {
   if (cause instanceof Error) return cause.message;
   return typeof cause === "string" ? cause : JSON.stringify(cause);
+}
+
+// Helper: AiCorpusContextRef → workbench navigate. Avoids reshaping
+// through `{moduleId, sectionId}` (which the baseline grep gate
+// reserves for boundary helpers) by calling refs.parse directly.
+function navigateToWireRef(
+  ref: { module_id: string; section_id: string },
+  navigate: ReturnType<typeof useNavigation>["navigate"],
+): void {
+  const corpusRef = parseCorpusRef({ module: ref.module_id, section: ref.section_id });
+  navigate({ kind: "section", ref: corpusRef }, "primary");
+}
+
+interface RightChatSurfaceProps {
+  /** Currently-focused section. Null when the active tab is a Bill,
+   *  Settings, or empty workbench. The chat panel stays mounted either
+   *  way — only the anchor it carries with each send changes. */
+  section: CorpusSectionView | null;
+  onOpenAiSettings: () => void;
+  onCitationClick: (ref: { module_id: string; section_id: string }) => void;
+  onBillClick: (fileNo: string) => void;
+}
+
+/**
+ * Adapter that bridges the global chat hook to the right pane. Per
+ * [[feedback_global_chat_not_per_section]] the chat is one thread; the
+ * active section is per-send context, never a remount key.
+ */
+function RightChatSurface({
+  section,
+  onOpenAiSettings,
+  onCitationClick,
+  onBillClick,
+}: RightChatSurfaceProps): ReactNode {
+  const [hasApiKey, setHasApiKey] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    // Defensive try around api(): in jsdom tests the bridge may be torn
+    // down mid-effect when components remount; treat as "no key".
+    try {
+      void api()
+        .ai.hasApiKey({ provider_id: "anthropic" })
+        .then((result) => {
+          if (!cancelled) setHasApiKey(result.has_key);
+        })
+        .catch(() => {
+          if (!cancelled) setHasApiKey(false);
+        });
+    } catch {
+      if (!cancelled) setHasApiKey(false);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const chat = useChat();
+
+  const anchor = section
+    ? { module_id: section.moduleId, section_id: section.section.id }
+    : undefined;
+  const anchorLabel = section ? `§ ${section.section.display_label}` : null;
+  const anchorModule = section?.moduleId ?? "";
+
+  return (
+    <ChatPanel
+      chat={chat}
+      anchor={anchor}
+      anchorLabel={anchorLabel}
+      anchorModule={anchorModule}
+      hasApiKey={hasApiKey}
+      onOpenSettings={onOpenAiSettings}
+      onCitationClick={onCitationClick}
+      onBillClick={onBillClick}
+    />
+  );
 }
 
 function hasRefInTree(tree: readonly CorpusTreeNode[], ref: CorpusRef): boolean {

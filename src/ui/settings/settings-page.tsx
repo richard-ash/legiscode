@@ -22,6 +22,7 @@ import {
   type ShortcutScope,
 } from "@/ui/shortcuts/registry";
 import type { SettingsPane } from "@/workbench/open-items";
+import { AiSettingsPane } from "./ai-pane";
 
 export interface SettingsPageProps {
   section: SettingsPane;
@@ -108,7 +109,20 @@ export function SettingsPage({ section, tabPanel }: SettingsPageProps): ReactNod
   const searchId = useId();
   const groups = useMemo(() => buildGroups(deferredQuery.trim().toLowerCase()), [deferredQuery]);
 
-  // Forward-compat: section is "shortcuts" today; future sections branch here.
+  // Spread the ARIA wiring (mirrors SectionView) so role=tabpanel +
+  // aria-labelledby travel together and the static a11y lint sees a
+  // consistent role/attr pair.
+  const tabPanelAttrsForSwitch = tabPanel
+    ? { role: "tabpanel" as const, id: tabPanel.id, "aria-labelledby": tabPanel.labelledBy }
+    : {};
+
+  if (section === "ai") {
+    return (
+      <div {...tabPanelAttrsForSwitch} className="lc-settings-page">
+        <AiSettingsPane />
+      </div>
+    );
+  }
   if (section !== "shortcuts") return null;
 
   const empty = groups.length === 0;
