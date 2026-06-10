@@ -230,4 +230,75 @@ describe("ChatPanel render states", () => {
     // The rotating thinking status is the only "we're working" affordance.
     expect(container.querySelector(".lc-chat-thinking")).not.toBeNull();
   });
+
+  // F2 / D3 Sources block UI states — per feedback_ui_state_coverage,
+  // every render branch (empty / single / many / mixed / broken) gets an
+  // explicit assertion.
+
+  it("does not render a Sources block when the answer has none", () => {
+    const chat = makeChat({
+      turns: [
+        makeTurn({
+          assistantText: "The corpus doesn't include sf-fire.",
+        }),
+      ],
+    });
+    const { container } = render(<ChatPanel {...defaults} chat={chat} hasApiKey={true} />);
+    expect(container.querySelector(".lc-sources-block")).toBeNull();
+  });
+
+  it("renders a Sources block with a single section entry", () => {
+    const chat = makeChat({
+      turns: [
+        makeTurn({
+          assistantText:
+            "Per [sf-planning § 106], zoning is incorporated.\n\n" +
+            "**Sources**\n- [sf-planning § 106] — Zoning Map\n",
+        }),
+      ],
+    });
+    const { container } = render(<ChatPanel {...defaults} chat={chat} hasApiKey={true} />);
+    const block = container.querySelector(".lc-sources-block");
+    expect(block).not.toBeNull();
+    expect(block?.querySelectorAll(".lc-sources-item")).toHaveLength(1);
+    expect(block?.textContent).toContain("[sf-planning § 106]");
+    expect(block?.textContent).toContain("Zoning Map");
+  });
+
+  it("renders a mixed Sources block with section + bill chips", () => {
+    const chat = makeChat({
+      turns: [
+        makeTurn({
+          assistantText:
+            "[sf-planning § 106] and [Bill #260543] both apply.\n\n" +
+            "**Sources**\n" +
+            "- [sf-planning § 106] — Zoning Map\n" +
+            "- [Bill #260543] — Police Code Penalty\n",
+        }),
+      ],
+    });
+    const { container } = render(<ChatPanel {...defaults} chat={chat} hasApiKey={true} />);
+    const block = container.querySelector(".lc-sources-block");
+    expect(block).not.toBeNull();
+    expect(block?.querySelectorAll(".lc-sources-item")).toHaveLength(2);
+    expect(block?.querySelectorAll(".lc-cite-bill")).toHaveLength(1);
+  });
+
+  it("gracefully renders a broken Sources entry with fallback styling", () => {
+    const chat = makeChat({
+      turns: [
+        makeTurn({
+          assistantText:
+            "Per [sf-planning § 106] the rule applies.\n\n" +
+            "**Sources**\n" +
+            "- [sf-planning § 106] — Zoning Map\n" +
+            "- [garbage] — should fall back\n",
+        }),
+      ],
+    });
+    const { container } = render(<ChatPanel {...defaults} chat={chat} hasApiKey={true} />);
+    const broken = container.querySelectorAll(".lc-sources-item-broken");
+    expect(broken).toHaveLength(1);
+    expect(broken[0]?.textContent).toContain("[garbage]");
+  });
 });

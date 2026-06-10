@@ -286,3 +286,62 @@
   border-radius: 4px;
   margin: 24px 16px;
 }
+
+/* Sources block (F2, feat/agent-polish). Renders the trailing
+   **Sources** section as a labeled chip grid, distinct from the
+   inline-citation tokens that appear within prose. Reuses
+   .lc-cite-inline styling for the chip itself so a future chip
+   visual update propagates without a Sources-specific maintenance
+   tax. */
+
+.lc-sources-block {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.lc-sources-heading {
+  font-family: var(--font-mono);
+  font-size: var(--ui-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--overlay1);
+  margin-bottom: 6px;
+}
+
+.lc-sources-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lc-sources-item {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: var(--ui-sm);
+}
+
+.lc-sources-title {
+  color: var(--overlay1);
+}
+
+.lc-sources-empty {
+  color: var(--overlay1);
+  font-style: italic;
+  font-size: var(--ui-sm);
+}
+
+.lc-sources-chip-broken {
+  color: var(--overlay0);
+  text-decoration: line-through;
+  cursor: not-allowed;
+}
+
+.lc-sources-item-broken {
+  opacity: 0.7;
+}

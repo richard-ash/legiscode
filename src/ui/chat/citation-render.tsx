@@ -14,6 +14,7 @@
 import React, { type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import type { AiCorpusContextRef } from "@/ai/wire";
+import { parseSourcesBlock, splitProseAndSources } from "@/parser/citation-verify";
 
 interface ChatCitationProseProps {
   text: string;
@@ -37,6 +38,10 @@ export function ChatCitationProse({
   onBillClick,
 }: ChatCitationProseProps) {
   const ctx: CitationCtx = { anchorModule, onCitationClick, onBillClick };
+  // Per F2, the Sources block lives outside the body's flow so the
+  // renderer can give it a distinct chip-grid treatment. Split first; if
+  // there's no block, the body fills the whole space exactly as before.
+  const { body, block } = splitProseAndSources(text);
   return (
     <div className="lc-chat-prose">
       <ReactMarkdown
@@ -55,9 +60,99 @@ export function ChatCitationProse({
           // Code stays verbatim — citation syntax inside backticks is intentional content.
         }}
       >
-        {text}
+        {body}
       </ReactMarkdown>
+      {block ? <SourcesBlock block={block} ctx={ctx} /> : null}
     </div>
+  );
+}
+
+/**
+ * Render the trailing Sources block as a labeled chip grid. Empty,
+ * single-entry, multi-entry, and unknown-entry cases all render — the
+ * shared parser is the ground truth, so any non-broken case the
+ * verifier accepts also renders here. An entry whose ref is
+ * unparseable (e.g. the model wrote freeform text inside the brackets)
+ * falls back to a plain styled span so the visual contract still
+ * holds when the model goes off-script.
+ */
+function SourcesBlock({ block, ctx }: { block: string; ctx: CitationCtx }) {
+  const parsed = parseSourcesBlock(block);
+  if (!parsed.present) return null;
+  return (
+    <section className="lc-sources-block" aria-label="Sources">
+      <div className="lc-sources-heading">Sources</div>
+      {parsed.entries.length === 0 ? (
+        <div className="lc-sources-empty">(no citations listed)</div>
+      ) : (
+        <ul className="lc-sources-list">
+          {parsed.entries.map((e, i) => {
+            if (e.kind === "section" && e.module_id && e.section_id) {
+              const ref: AiCorpusContextRef = {
+                module_id: e.module_id,
+                section_id: e.section_id,
+              };
+              return (
+                <li
+                  // biome-ignore lint/suspicious/noArrayIndexKey: shared parser produces deterministic order for the same input.
+                  key={`src-${i}`}
+                  className="lc-sources-item"
+                >
+                  <button
+                    type="button"
+                    className="lc-cite-inline lc-sources-chip"
+                    onClick={(ev) => {
+                      ev.preventDefault();
+                      ctx.onCitationClick(ref);
+                    }}
+                    title={`${ref.module_id} § ${ref.section_id}`}
+                  >
+                    {e.display}
+                  </button>
+                  {e.title ? <span className="lc-sources-title"> — {e.title}</span> : null}
+                </li>
+              );
+            }
+            if (e.kind === "bill" && e.file_no) {
+              const fileNo = e.file_no;
+              return (
+                <li
+                  // biome-ignore lint/suspicious/noArrayIndexKey: shared parser produces deterministic order for the same input.
+                  key={`src-${i}`}
+                  className="lc-sources-item"
+                >
+                  <button
+                    type="button"
+                    className="lc-cite-inline lc-cite-bill lc-sources-chip"
+                    onClick={(ev) => {
+                      ev.preventDefault();
+                      ctx.onBillClick?.(fileNo);
+                    }}
+                    disabled={!ctx.onBillClick}
+                    title={`Bill #${fileNo}`}
+                  >
+                    {e.display}
+                  </button>
+                  {e.title ? <span className="lc-sources-title"> — {e.title}</span> : null}
+                </li>
+              );
+            }
+            return (
+              <li
+                // biome-ignore lint/suspicious/noArrayIndexKey: shared parser produces deterministic order for the same input.
+                key={`src-${i}`}
+                className="lc-sources-item lc-sources-item-broken"
+              >
+                <span className="lc-cite-inline lc-sources-chip lc-sources-chip-broken">
+                  {e.display}
+                </span>
+                {e.title ? <span className="lc-sources-title"> — {e.title}</span> : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 
