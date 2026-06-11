@@ -14,6 +14,7 @@
 // the final prose + tool trail.
 
 import {
+  type FetchedBill,
   formatSourcesBlockFailure,
   formatVerificationFailure,
   verifyCitations,
@@ -201,7 +202,7 @@ export async function runConversationTurn(
   // the session bills index, not the sections index. R19 enforces that
   // every bill cited in prose appears in the Sources block AND that
   // every block entry was fetched this turn.
-  const turnFetchedBills: { file_no: string }[] = [];
+  const turnFetchedBills: FetchedBill[] = [];
   const turnMessages: ProviderMessage[] = [
     { role: "user", content: [{ kind: "text", text: input.userPrompt }] },
   ];
@@ -428,9 +429,12 @@ export async function runConversationTurn(
           // Sources-block verifier (R19) can validate bill citations
           // symmetrically. Listings count: the model legitimately cites a
           // bill it discovered via `/bills` without per-bill drilling.
-          for (const fn of harvestFetchedBills(use.name, use.input, payload)) {
-            if (!turnFetchedBills.some((b) => b.file_no === fn)) {
-              turnFetchedBills.push({ file_no: fn });
+          for (const fb of harvestFetchedBills(use.name, use.input, payload)) {
+            const idx = turnFetchedBills.findIndex((b) => b.file_no === fb.file_no);
+            if (idx === -1) {
+              turnFetchedBills.push(fb);
+            } else {
+              turnFetchedBills[idx] = mergeFetchedBill(turnFetchedBills[idx] as FetchedBill, fb);
             }
           }
         } else {
@@ -506,9 +510,17 @@ function harvestFetchedBills(
   toolName: string,
   rawInput: unknown,
   payload: ToolResultBase,
-): readonly string[] {
+): readonly FetchedBill[] {
   if (toolName !== "read") return [];
-  const out = new Set<string>();
+  // Per-file_no accumulator so a single dispatch can union path-side and
+  // payload-side data into one record.
+  const out = new Map<string, { module_id?: string; affected_section_ids: Set<string> }>();
+  const upsert = (fileNo: string, moduleId?: string, affected?: readonly string[]): void => {
+    const existing = out.get(fileNo) ?? { affected_section_ids: new Set<string>() };
+    if (!existing.module_id && moduleId) existing.module_id = moduleId;
+    if (affected) for (const s of affected) existing.affected_section_ids.add(s);
+    out.set(fileNo, existing);
+  };
   // Path-side harvest.
   if (rawInput && typeof rawInput === "object" && "path" in rawInput) {
     const path = (rawInput as { path: unknown }).path;
@@ -521,7 +533,7 @@ function harvestFetchedBills(
         .filter((p) => p.length > 0);
       if (parts.length >= 2 && parts[0] === "bills") {
         const fileNo = parts[1];
-        if (typeof fileNo === "string" && /^\d{3,12}$/.test(fileNo)) out.add(fileNo);
+        if (typeof fileNo === "string" && /^\d{3,12}$/.test(fileNo)) upsert(fileNo);
       }
     }
   }
@@ -530,30 +542,69 @@ function harvestFetchedBills(
     const p = payload as unknown as {
       kind?: string;
       file_no?: string;
-      bill?: { file_no?: string };
-      bills?: readonly { file_no?: string }[];
+      module_id?: string;
+      bill?: { file_no?: string; module_id?: string; affected_section_ids?: readonly string[] };
+      bills?: readonly {
+        file_no?: string;
+        module_id?: string;
+        affected_section_ids?: readonly string[];
+      }[];
       body?: { file_no?: string };
       diff?: { file_no?: string };
+      changes?: readonly { section_id?: string }[];
     };
     switch (p.kind) {
       case "bill":
-        if (p.bill?.file_no) out.add(p.bill.file_no);
+        if (p.bill?.file_no) {
+          upsert(p.bill.file_no, p.bill.module_id, p.bill.affected_section_ids);
+        }
         break;
       case "bills-list":
-        for (const b of p.bills ?? []) if (b.file_no) out.add(b.file_no);
+        for (const b of p.bills ?? []) {
+          if (b.file_no) upsert(b.file_no, b.module_id, b.affected_section_ids);
+        }
         break;
       case "bill-proposed-text":
-        if (p.body?.file_no) out.add(p.body.file_no);
+        if (p.body?.file_no) upsert(p.body.file_no);
         break;
       case "bill-changes":
-        if (p.file_no) out.add(p.file_no);
+        if (p.file_no) {
+          const ids = (p.changes ?? [])
+            .map((c) => c.section_id)
+            .filter((s): s is string => typeof s === "string");
+          upsert(p.file_no, p.module_id, ids);
+        }
         break;
       case "bill-section-diff":
-        if (p.diff?.file_no) out.add(p.diff.file_no);
+        if (p.diff?.file_no) upsert(p.diff.file_no);
         break;
     }
   }
-  return Array.from(out);
+  return Array.from(out.entries()).map(([file_no, info]) => ({
+    file_no,
+    module_id: info.module_id,
+    affected_section_ids:
+      info.affected_section_ids.size > 0 ? Array.from(info.affected_section_ids) : undefined,
+  }));
+}
+
+/**
+ * Fold a freshly-harvested bill into the turn's accumulated set. Earlier
+ * dispatches may have captured only path-side data; later ones may bring
+ * payload-side `module_id` / `affected_section_ids`. Always keep the
+ * richer record so R23's completeness check has the full picture.
+ */
+function mergeFetchedBill(existing: FetchedBill, incoming: FetchedBill): FetchedBill {
+  const moduleId = existing.module_id ?? incoming.module_id;
+  const ids = new Set<string>([
+    ...(existing.affected_section_ids ?? []),
+    ...(incoming.affected_section_ids ?? []),
+  ]);
+  return {
+    file_no: existing.file_no,
+    module_id: moduleId,
+    affected_section_ids: ids.size > 0 ? Array.from(ids) : undefined,
+  };
 }
 
 /**

@@ -367,6 +367,126 @@ describe("runConversationTurn", () => {
     provider.assertExhausted();
   });
 
+  it("injects an R23 self-correct loop when a memo omits an affected section", async () => {
+    // Round 1: model reads /bills/990001 (bill metadata, kind="bill" with
+    // affected_section_ids ["1.1", "1.2"]) AND /modules/test-alpha/sections/1.1.
+    // Round 2: model writes a memo (R20) citing Bill plus § 1.1 only —
+    // § 1.2 is in affected_section_ids but unmentioned, so R23 fires.
+    // Round 3: model rewrites as free prose (no `## Memo:` heading), which
+    // exempts the answer from R23's completeness rule.
+    const customRouter = async (
+      name: string,
+      input: unknown,
+      toolUseId: string,
+    ): Promise<{
+      toolUseId: string;
+      payload: import("../../../electron/ai/tools/types").ToolResultBase;
+    }> => {
+      const path = (input as { path?: string }).path ?? "";
+      if (name === "read" && path === "/bills/990001") {
+        return {
+          toolUseId,
+          payload: {
+            ok: true,
+            kind: "bill",
+            fetched: [],
+            corpus_hash: "test",
+            turn_id: 1,
+            bill: {
+              file_no: "990001",
+              module_id: "test-alpha",
+              affected_section_ids: ["1.1", "1.2"],
+            },
+          } as unknown as import("../../../electron/ai/tools/types").ToolResultBase,
+        };
+      }
+      if (name === "read" && path === "/modules/test-alpha/sections/1.1") {
+        return {
+          toolUseId,
+          payload: {
+            ok: true,
+            kind: "section",
+            fetched: [{ module_id: "test-alpha", section_id: "1.1" }],
+            corpus_hash: "test",
+            turn_id: 1,
+            section: { id: "1.1", title: "Test", text: "..." },
+          } as unknown as import("../../../electron/ai/tools/types").ToolResultBase,
+        };
+      }
+      throw new Error(`unexpected router call: ${name} ${path}`);
+    };
+    const provider = new MockProvider([
+      {
+        content: [
+          {
+            kind: "tool_use",
+            toolUseId: "u1",
+            name: "read",
+            input: { path: "/bills/990001" },
+          },
+          {
+            kind: "tool_use",
+            toolUseId: "u2",
+            name: "read",
+            input: { path: "/modules/test-alpha/sections/1.1" },
+          },
+        ],
+        stopReason: "tool_use",
+      },
+      {
+        // Memo heading triggers R23; § 1.2 omitted → verifier fires.
+        content: [
+          {
+            kind: "text",
+            text:
+              "## Memo: [Bill #990001]\n" +
+              "**Re:** Test ordinance\n" +
+              "**Summary** — One section updated.\n" +
+              "**Affected Sections** — [test-alpha § 1.1].\n\n" +
+              "**Sources**\n" +
+              "- [Bill #990001] — Test\n" +
+              "- [test-alpha § 1.1] — Sec 1.1\n",
+          },
+        ],
+        stopReason: "end_turn",
+      },
+      {
+        // Free prose — no memo heading; R23 doesn't enforce.
+        content: [
+          {
+            kind: "text",
+            text:
+              "Bill #990001 amends [test-alpha § 1.1] with revised text.\n\n" +
+              "**Sources**\n" +
+              "- [Bill #990001] — Test\n" +
+              "- [test-alpha § 1.1] — Sec 1.1\n",
+          },
+        ],
+        stopReason: "end_turn",
+      },
+    ]);
+    const result = await runConversationTurn(
+      {
+        provider,
+        model: "mock-model-1",
+        anchorModule: "test-alpha",
+        router: customRouter,
+      },
+      {
+        turnId: 1,
+        history: [],
+        userPrompt: "memo on bill 990001",
+        signal: new AbortController().signal,
+        onEvent: () => {},
+      },
+    );
+    expect(result.stopReason).toBe("end_turn");
+    expect(result.verifierFailures).toBe(1);
+    expect(result.finalText).not.toMatch(/^## Memo:/);
+    expect(result.finalText).toContain("[test-alpha § 1.1]");
+    provider.assertExhausted();
+  });
+
   it("does not require a Sources block when the answer cites nothing", async () => {
     // R19 / D8 escape hatch: a no-citation answer (e.g. "the corpus
     // doesn't include sf-fire") legitimately omits the block. The

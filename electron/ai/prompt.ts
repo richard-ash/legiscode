@@ -133,7 +133,9 @@ When a question matches one of the three shapes below, structure the answer with
     2. [module § id] — Title — one-line "why this matters here."
     **Then:** secondary reads with one-line rationale each.
     \`\`\`
-    Followed by the standard Sources block (R19).`;
+    Followed by the standard Sources block (R19).
+
+23. Memo (R20) and bill-impact-table (R21) headings promise the reader a walk over every section the bill touches. Every section in the cited bill's \`affected_section_ids\` (returned by /bills, /bills/{file_no}, and /bills/{file_no}/changes) must appear in your prose or the Sources block. If the user's question is narrower than the whole bill ("what does Bill #N do to § X"), drop the R20/R21 heading and answer in free prose — that turns off the completeness check. Don't write a memo about a bill you haven't read enough of to enumerate its affected sections.`;
 
 /**
  * Stable hash of the system prompt body. Pinned by the prompt-hash

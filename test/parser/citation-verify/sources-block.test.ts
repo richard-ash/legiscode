@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  type FetchedBill,
   parseSourcesBlock,
   splitProseAndSources,
   verifySourcesBlock,
@@ -210,5 +211,132 @@ describe("verifySourcesBlock — citation-driven enforcement (D3/D8)", () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.kind).toBe("block_entry_unparseable");
+  });
+});
+
+describe("verifySourcesBlock — R23 affected-section completeness", () => {
+  // Bill 260545 (the doc's acceptance test) amends Health Code Secs.
+  // 407, 694, 695. R20 / R21 answers must cover all three.
+  const bill260545: FetchedBill = {
+    file_no: "260545",
+    module_id: "sf-health",
+    affected_section_ids: ["407", "694", "695"],
+  };
+
+  it("memo (R20) with all affected sections cited passes", () => {
+    const text =
+      "## Memo: [Bill #260545]\n" +
+      "**Re:** Health code cleanup\n" +
+      "**Summary** — Three sections updated.\n" +
+      "**Affected Sections** — [sf-health § 407], [sf-health § 694], [sf-health § 695].\n\n" +
+      "**Sources**\n" +
+      "- [Bill #260545] — Health code cleanup\n" +
+      "- [sf-health § 407] — Sec 407\n" +
+      "- [sf-health § 694] — Sec 694\n" +
+      "- [sf-health § 695] — Sec 695\n";
+    const result = verifySourcesBlock({
+      text,
+      fetchedSections: [
+        { module_id: "sf-health", section_id: "407" },
+        { module_id: "sf-health", section_id: "694" },
+        { module_id: "sf-health", section_id: "695" },
+      ],
+      fetchedBills: [bill260545],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("memo (R20) missing one affected section fails with the omitted set", () => {
+    // 695 is in the bill's affected_section_ids but absent from prose and block.
+    const text =
+      "## Memo: [Bill #260545]\n" +
+      "**Re:** Health code cleanup\n" +
+      "**Affected Sections** — [sf-health § 407] and [sf-health § 694].\n\n" +
+      "**Sources**\n" +
+      "- [Bill #260545] — Health code cleanup\n" +
+      "- [sf-health § 407] — Sec 407\n" +
+      "- [sf-health § 694] — Sec 694\n";
+    const result = verifySourcesBlock({
+      text,
+      fetchedSections: [
+        { module_id: "sf-health", section_id: "407" },
+        { module_id: "sf-health", section_id: "694" },
+      ],
+      fetchedBills: [bill260545],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.kind === "bill_affected_sections_omitted") {
+      expect(result.missing).toHaveLength(1);
+      expect(result.missing[0]?.file_no).toBe("260545");
+      expect(result.missing[0]?.sections.map((s) => s.section_id)).toEqual(["695"]);
+    }
+  });
+
+  it("bill-impact-table (R21) heading triggers the same completeness check", () => {
+    const text =
+      "## What [Bill #260545] does to [sf-health § 407]\n" +
+      "**Current law:** ...\n" +
+      "**Proposed change:** ...\n\n" +
+      "**Sources**\n" +
+      "- [Bill #260545] — Health cleanup\n" +
+      "- [sf-health § 407] — Sec 407\n";
+    const result = verifySourcesBlock({
+      text,
+      fetchedSections: [{ module_id: "sf-health", section_id: "407" }],
+      fetchedBills: [bill260545],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.kind === "bill_affected_sections_omitted") {
+      // 694 and 695 are missing.
+      expect(result.missing[0]?.sections.map((s) => s.section_id).sort()).toEqual(["694", "695"]);
+    }
+  });
+
+  it("free prose about a single section of a multi-section bill is exempt", () => {
+    // No memo/impact heading — narrow question, R23 doesn't enforce.
+    const text =
+      "Yes, [Bill #260545] changes [sf-health § 695] by adding a fine schedule.\n\n" +
+      "**Sources**\n" +
+      "- [Bill #260545] — Health cleanup\n" +
+      "- [sf-health § 695] — Sec 695\n";
+    const result = verifySourcesBlock({
+      text,
+      fetchedSections: [{ module_id: "sf-health", section_id: "695" }],
+      fetchedBills: [bill260545],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("memo about a bill whose affected_section_ids is unknown is exempt", () => {
+    // Path-only harvest: file_no known, but module_id and affected_section_ids
+    // are absent. R23 has no data to enforce against, so the answer passes.
+    const text =
+      "## Memo: [Bill #260545]\n" +
+      "Brief notes.\n\n" +
+      "**Sources**\n" +
+      "- [Bill #260545] — Health cleanup\n";
+    const result = verifySourcesBlock({
+      text,
+      fetchedSections: [],
+      fetchedBills: [{ file_no: "260545" }],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("reading-order (R22) heading is exempt — only memo/impact promise full coverage", () => {
+    const text =
+      "## Reading order from [sf-health § 407]\n" +
+      "**Read next:**\n" +
+      "1. [sf-health § 407] — Sec 407 — start here.\n\n" +
+      "[Bill #260545] amends this section.\n\n" +
+      "**Sources**\n" +
+      "- [sf-health § 407] — Sec 407\n" +
+      "- [Bill #260545] — Health cleanup\n";
+    const result = verifySourcesBlock({
+      text,
+      fetchedSections: [{ module_id: "sf-health", section_id: "407" }],
+      fetchedBills: [bill260545],
+    });
+    expect(result.ok).toBe(true);
   });
 });

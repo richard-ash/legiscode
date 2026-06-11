@@ -30,9 +30,17 @@ export interface FetchedRef {
 
 /** Bills the model touched (read /bills/X or read /bills/X/changes/...).
  *  Tracked separately from section refs because bills resolve against
- *  the session bills index, not the sections index. */
+ *  the session bills index, not the sections index.
+ *
+ *  `module_id` and `affected_section_ids` are populated when the harvester
+ *  saw payload kinds that expose them (`bill`, `bills-list`, `bill-changes`).
+ *  A path-only harvest (e.g. /bills/{file_no}/proposed-text) yields just
+ *  `file_no`; R23's affected-section completeness check skips bills whose
+ *  affected set is unknown rather than false-positive on incomplete data. */
 export interface FetchedBill {
   file_no: string;
+  module_id?: string;
+  affected_section_ids?: readonly string[];
 }
 
 export interface VerifyResult {
@@ -77,6 +85,17 @@ export type SourcesBlockOutcome =
       ok: false;
       kind: "block_entry_unparseable";
       missing: readonly { display: string }[];
+    }
+  | {
+      ok: false;
+      kind: "bill_affected_sections_omitted";
+      /** Affected sections present in the cited bill's `affected_section_ids`
+       *  but absent from both the prose AND the Sources block. Grouped by
+       *  bill so the feedback can name "Bill #N is missing X, Y, Z". */
+      missing: readonly {
+        file_no: string;
+        sections: readonly { display: string; module_id: string; section_id: string }[];
+      }[];
     };
 
 export interface VerifySourcesBlockInput {
@@ -316,7 +335,67 @@ export function verifySourcesBlock(input: VerifySourcesBlockInput): SourcesBlock
     return { ok: false, kind: "block_entry_not_fetched", missing: unfetched };
   }
 
+  // R23 — affected-section completeness. When the answer is a memo (R20)
+  // or bill-impact table (R21), every section in the cited bill's
+  // `affected_section_ids` must appear somewhere the user can act on it:
+  // either cited inline in prose, OR listed in the Sources block. Narrow
+  // free-prose answers about one section of a multi-section bill are
+  // exempt — they explicitly opt out by NOT using the R20/R21 heading.
+  const shape = detectArtifactShape(body);
+  if (shape !== null) {
+    const omitted: {
+      file_no: string;
+      sections: { display: string; module_id: string; section_id: string }[];
+    }[] = [];
+    const mentioned = new Set<string>([...citedSectionKeys, ...blockSectionKeys]);
+    for (const billKey of citedBillKeys) {
+      const fileNo = billKey.slice("bill:".length);
+      const bill = input.fetchedBills.find((b) => b.file_no === fileNo);
+      if (!bill?.module_id || !bill.affected_section_ids?.length) continue;
+      const missingForBill: { display: string; module_id: string; section_id: string }[] = [];
+      for (const sectionId of bill.affected_section_ids) {
+        const qkey = `sec:${bill.module_id}::${sectionId}`;
+        const bareKey = `sec-bare:${sectionId}`;
+        if (mentioned.has(qkey) || mentioned.has(bareKey)) continue;
+        missingForBill.push({
+          display: `[${bill.module_id} § ${sectionId}]`,
+          module_id: bill.module_id,
+          section_id: sectionId,
+        });
+      }
+      if (missingForBill.length > 0) {
+        omitted.push({ file_no: fileNo, sections: missingForBill });
+      }
+    }
+    if (omitted.length > 0) {
+      return { ok: false, kind: "bill_affected_sections_omitted", missing: omitted };
+    }
+  }
+
   return { ok: true, kind: "block_valid", entryCount: parsedBlock.entries.length };
+}
+
+/**
+ * Identify whether the answer body uses an artifact template that
+ * implies bill-scoped completeness. Memo (R20) and bill-impact-table
+ * (R21) both promise the reader a structured walk over the bill; their
+ * top-level `## ` heading is the contract signal. Reading-order (R22)
+ * and free-form prose don't make that promise and are exempt.
+ *
+ * Heading detection scans only the first few non-blank lines so that a
+ * later `## Memo:` inside quoted material can't accidentally trip the
+ * check. Real R20/R21 answers put the heading first.
+ */
+function detectArtifactShape(body: string): "memo" | "impact" | null {
+  const lines = body
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  for (const line of lines.slice(0, 3)) {
+    if (/^##\s+Memo:\s+/i.test(line)) return "memo";
+    if (/^##\s+What\s+\[Bill\s+#/i.test(line)) return "impact";
+  }
+  return null;
 }
 
 /**
@@ -359,6 +438,18 @@ export function formatSourcesBlockFailure(outcome: SourcesBlockOutcome): string 
       );
       for (const m of outcome.missing) lines.push(`  - ${m.display}`);
       lines.push("Rewrite each entry in the bracketed form.");
+      break;
+    case "bill_affected_sections_omitted":
+      lines.push(
+        "Your answer uses an R20 memo or R21 bill-impact-table heading, which promises a walk over every section the bill touches. These affected sections were omitted:",
+      );
+      for (const b of outcome.missing) {
+        lines.push(`  [Bill #${b.file_no}] is missing:`);
+        for (const s of b.sections) lines.push(`    - ${s.display}`);
+      }
+      lines.push(
+        "Either read each missing section and cite it (or add it to the Sources block), or drop the R20/R21 heading and rewrite as free prose if the question is narrower than the whole bill.",
+      );
       break;
   }
   lines.push("</verification_failure>");

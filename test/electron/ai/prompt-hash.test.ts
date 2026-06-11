@@ -32,6 +32,7 @@ describe("SYSTEM_PROMPT_V1 — feat/agent-polish rules", () => {
     ["R20 analyst-memo template", "## Memo:"],
     ["R21 bill-impact-table template", "Current law:"],
     ["R22 reading-order template", "## Reading order"],
+    ["R23 affected-section completeness", "affected_section_ids"],
   ])("contains %s", (_label, needle) => {
     expect(SYSTEM_PROMPT_V1).toContain(needle);
   });
