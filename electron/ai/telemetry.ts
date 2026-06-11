@@ -17,6 +17,8 @@ export interface TelemetryEvent {
     | "ai.turn.error"
     | "ai.turn.cancelled"
     | "ai.tool.call"
+    | "ai.tool.result"
+    | "ai.round.completed"
     | "ai.verification.outcome";
   ts: string;
   corpus_hash: string;

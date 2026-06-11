@@ -29,7 +29,7 @@
       "content": [
         {
           "kind": "text",
-          "text": "[test-alpha § 1.1] is the only section in the test corpus that cites it."
+          "text": "[test-alpha § 1.1] is the only section in the test corpus that cites it.\n\n**Sources**\n- [test-alpha § 1.1] — Test Section 1.1"
         }
       ],
       "stop_reason": "end_turn"

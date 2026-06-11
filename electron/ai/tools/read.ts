@@ -14,6 +14,8 @@ import { extractCitedRefs } from "../reverse-index";
 import { getReverseGraph } from "../reverse-index";
 import type {
   AmendmentRef,
+  ArticleSectionEntry,
+  ArticleSummary,
   BillChangeEntry,
   CiterRef,
   DefinitionHit,
@@ -281,6 +283,13 @@ function readModules(parts: readonly string[], ctx: ToolContext): ReadResult {
         );
       }
       return readSectionPath(moduleId, parts.slice(3), ctx);
+    case "articles":
+      if (parts.length === 3) return readModuleArticles(moduleId, ctx);
+      if (parts.length === 4) return readModuleArticle(moduleId, parts[3] as string, ctx);
+      return notFound(
+        `Path must be /modules/${moduleId}/articles or /modules/${moduleId}/articles/{article_id}.`,
+        ctx,
+      );
     case "definitions":
       if (parts.length < 4) {
         return notFound(`Path must be /modules/${moduleId}/definitions/{term}.`, ctx);
@@ -288,10 +297,67 @@ function readModules(parts: readonly string[], ctx: ToolContext): ReadResult {
       return readDefinitionsInModule(moduleId, parts.slice(3).join(" "), ctx);
     default:
       return notFound(
-        `Unknown subpath /${parts[2]} under /modules/${moduleId}. Try /sections/{section_id} or /definitions/{term}.`,
+        `Unknown subpath /${parts[2]} under /modules/${moduleId}. Try /sections/{section_id}, /articles/{article_id}, or /definitions/{term}.`,
         ctx,
       );
   }
+}
+
+function readModuleArticles(moduleId: string, ctx: ToolContext): ReadResult {
+  const mod = ctx.corpus.modules.find((m) => m.id === moduleId);
+  if (!mod) return notFound(`Module ${moduleId} is not installed.`, ctx);
+  const articles: ArticleSummary[] = mod.articles.map((a) => ({
+    module_id: moduleId,
+    article_id: a.id,
+    title: a.title,
+    parents: a.parents,
+    section_count: a.sections.length,
+    path: `/modules/${moduleId}/articles/${a.id}`,
+  }));
+  return {
+    ok: true,
+    kind: "articles-list",
+    module_id: moduleId,
+    articles,
+    fetched: [],
+    corpus_hash: ctx.corpus.corpusHash,
+    turn_id: ctx.turnId,
+  };
+}
+
+function readModuleArticle(moduleId: string, articleId: string, ctx: ToolContext): ReadResult {
+  const mod = ctx.corpus.modules.find((m) => m.id === moduleId);
+  if (!mod) return notFound(`Module ${moduleId} is not installed.`, ctx);
+  // Case-insensitive lookup so the model isn't forced to roman-numeral-case
+  // ("Article I" vs "Article i" vs "Article 1") — the article ids in the
+  // index preserve source case but match leniently here.
+  const wanted = articleId.toLowerCase();
+  const article = mod.articles.find((a) => a.id.toLowerCase() === wanted);
+  if (!article) {
+    return notFound(
+      `Module ${moduleId} has no article with id "${articleId}". Read /modules/${moduleId}/articles to list available articles.`,
+      ctx,
+    );
+  }
+  const sections: ArticleSectionEntry[] = article.sections.map((s) => ({
+    section_id: s.section_id,
+    display_label: s.display_label,
+    title: s.title,
+    editorial_status: s.editorial_status,
+    path: `/modules/${moduleId}/sections/${s.section_id}`,
+  }));
+  return {
+    ok: true,
+    kind: "article-sections",
+    module_id: moduleId,
+    article_id: article.id,
+    title: article.title,
+    parents: article.parents,
+    sections,
+    fetched: [],
+    corpus_hash: ctx.corpus.corpusHash,
+    turn_id: ctx.turnId,
+  };
 }
 
 function listModules(ctx: ToolContext): ReadResult {

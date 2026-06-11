@@ -20,3 +20,20 @@ describe("SYSTEM_PROMPT_HASH", () => {
     expect(recompute).toBe(SYSTEM_PROMPT_HASH);
   });
 });
+
+describe("SYSTEM_PROMPT_V1 — feat/agent-polish rules", () => {
+  // Smoke check that R17/R18/R19 + the three templates survived a
+  // refactor. The prompt body has no separate spec we can diff against;
+  // these substrings encode the load-bearing surface each rule promises.
+  it.each([
+    ["R17 self-talk guard", '"I haven\'t fetched X yet"'],
+    ["R18 article-range read", "/modules/{module_id}/articles/{article_id}"],
+    ["R19 Sources block format", "**Sources**"],
+    ["R20 analyst-memo template", "## Memo:"],
+    ["R21 bill-impact-table template", "Current law:"],
+    ["R22 reading-order template", "## Reading order"],
+    ["R23 affected-section completeness", "affected_section_ids"],
+  ])("contains %s", (_label, needle) => {
+    expect(SYSTEM_PROMPT_V1).toContain(needle);
+  });
+});

@@ -34,6 +34,7 @@ function makeHandle(): AiCorpusHandle {
               hierarchy: ["Planning"],
               editorial_status: "active",
               body: [],
+              article: null,
             },
           },
           {
@@ -48,6 +49,7 @@ function makeHandle(): AiCorpusHandle {
               hierarchy: ["Planning"],
               editorial_status: "active",
               body: [],
+              article: null,
             },
           },
           {
@@ -62,10 +64,12 @@ function makeHandle(): AiCorpusHandle {
               hierarchy: ["Planning"],
               editorial_status: "active",
               body: [],
+              article: null,
             },
           },
         ],
         definitions: [],
+        articles: [],
         sessionBills: [],
       },
     ],

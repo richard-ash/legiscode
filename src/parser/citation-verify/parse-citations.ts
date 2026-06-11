@@ -23,6 +23,10 @@ export interface ParsedAnswerCitation {
   /** Bare "§ X.Y" → section-id only. The verifier resolves against
    *  the chat's anchored module. */
   bareSectionId: string | null;
+  /** "[Bill #260543]" → file_no. Bill citations live in their own surface
+   *  because they resolve against the bills index, not the sections
+   *  index. Null on section-shaped citations. */
+  billFileNo: string | null;
   /** The verbatim string from the answer. */
   display: string;
 }
@@ -55,7 +59,28 @@ export function extractAnswerCitations(text: string): ParsedAnswerCitation[] {
     out.push({
       qualified: { module_id: moduleCandidate, section_id: sectionId },
       bareSectionId: null,
+      billFileNo: null,
       display,
+    });
+  }
+
+  // [Bill #file_no] form. Bill ids are numeric strings (SF Legistar
+  // 6-digit today; the regex permits 3-12 for future jurisdictions).
+  // The bracket form keeps bills from competing with section regexes —
+  // bills never appear as bare "§" cites in prose.
+  for (const m of text.matchAll(BILL_RE)) {
+    const fileNo = m[1] ?? "";
+    const idx = m.index ?? -1;
+    if (!fileNo || idx < 0) continue;
+    qualifiedRanges.push({ start: idx, end: idx + m[0].length });
+    const key = `bill:${fileNo}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      qualified: null,
+      bareSectionId: null,
+      billFileNo: fileNo,
+      display: m[0],
     });
   }
 
@@ -77,6 +102,7 @@ export function extractAnswerCitations(text: string): ParsedAnswerCitation[] {
     out.push({
       qualified: null,
       bareSectionId: sectionId,
+      billFileNo: null,
       display: match.citation.display_text,
     });
   }
@@ -84,6 +110,7 @@ export function extractAnswerCitations(text: string): ParsedAnswerCitation[] {
 }
 
 const QUALIFIED_RE = /\[([a-z][a-z0-9-]*)\s*§\s*([a-z0-9][a-z0-9._-]*)\]/gi;
+const BILL_RE = /\[Bill\s+#(\d{3,12})\]/gi;
 
 function makeSyntheticModule(): ModuleConfig {
   return {

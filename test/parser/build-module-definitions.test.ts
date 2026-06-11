@@ -29,6 +29,7 @@ function makeSection(overrides: Partial<SectionFile> = {}): SectionFile {
     hierarchy: ["Housing Code", "Preface", "Chapter 4 Definitions"],
     editorial_status: "active",
     body: [{ kind: "text", text: '"Apartment" means a dwelling unit.' }],
+    article: null,
     ...overrides,
   };
 }

@@ -18,7 +18,7 @@
       "content": [
         {
           "kind": "text",
-          "text": "[test-beta § 2.1] is in the test-beta module."
+          "text": "[test-beta § 2.1] is in the test-beta module.\n\n**Sources**\n- [test-beta § 2.1] — Test Section 2.1"
         }
       ],
       "stop_reason": "end_turn"

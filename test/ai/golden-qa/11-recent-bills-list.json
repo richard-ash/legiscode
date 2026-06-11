@@ -18,7 +18,7 @@
       "content": [
         {
           "kind": "text",
-          "text": "The session has one pending bill: [Bill #990001], Hermetic Test Ordinance, currently in committee."
+          "text": "The session has one pending bill: [Bill #990001], Hermetic Test Ordinance, currently in committee.\n\n**Sources**\n- [Bill #990001] — Hermetic Test Ordinance"
         }
       ],
       "stop_reason": "end_turn"

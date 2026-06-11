@@ -280,6 +280,38 @@ export function bodyToText(segments: readonly BodySegment[]): string {
   return out;
 }
 
+// SectionArticle carries the article (or chapter-with-article chain) the
+// section sits under. The AI agent's /modules/{m}/articles[/{a}] paths
+// read off this field to enumerate sibling sections under an article,
+// which range / "et seq." / "Article N" questions need.
+//
+// `parents` is the chain leading TO the article (outermost first). In SF
+// AmLegal today the deepest case is Chapter > Article, so a section under
+// "Chapter 9A > Article 13.1" surfaces here as
+// `{ id: "13.1", title: "...", parents: [{ kind: "chapter", id: "9A" }] }`.
+// Sections that sit under only a chapter (no article above the section)
+// get `article: null` — chapter-only enumeration isn't part of v1.
+//
+// `.nullable().default(null)` keeps backward compat with pre-feat/agent-
+// polish corpus bundles: an old --corpus-path JSON loads with article=null
+// and the article-listing paths return notFound for it.
+export const SectionArticleSchema = z
+  .object({
+    id: z.string().min(1),
+    title: z.string(),
+    parents: z.array(
+      z
+        .object({
+          kind: z.enum(["article", "chapter"]),
+          id: z.string().min(1),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
+export type SectionArticle = z.infer<typeof SectionArticleSchema>;
+
 // `kind` discriminates Section files from sibling CorpusEntry kinds
 // (Appendix, OrdinanceHistory, ResolutionHistory). Default makes the
 // reader lenient when the field is omitted: missing-with-default parses
@@ -309,6 +341,7 @@ export const SectionFileSchema = z
     editorial_status: SectionEditorialStatusSchema,
     redirect_to: SectionIdSchema.optional(),
     body: z.array(BodySegmentSchema).default([]),
+    article: SectionArticleSchema.nullable().default(null),
   })
   .strict()
   .refine((s) => s.redirect_to === undefined || s.editorial_status === "redesignated", {

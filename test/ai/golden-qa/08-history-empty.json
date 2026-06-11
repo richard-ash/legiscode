@@ -18,7 +18,7 @@
       "content": [
         {
           "kind": "text",
-          "text": "I searched the ordinance history for [test-alpha § 1.2] and found no recorded amendments."
+          "text": "I searched the ordinance history for [test-alpha § 1.2] and found no recorded amendments.\n\n**Sources**\n- [test-alpha § 1.2] — Test Section 1.2"
         }
       ],
       "stop_reason": "end_turn"

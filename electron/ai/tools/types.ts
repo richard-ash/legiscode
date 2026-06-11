@@ -309,6 +309,44 @@ export interface ModuleMetadata extends ToolResultBase {
   module: ModuleMetadataPayload;
 }
 
+/** One section under an article, as listed by /modules/{m}/articles/{a}. */
+export interface ArticleSectionEntry {
+  section_id: string;
+  display_label: string;
+  title: string;
+  editorial_status: "active" | "reserved" | "repealed" | "redesignated";
+  /** Path the model can read to fetch the section. */
+  path: string;
+}
+
+/** One article summary as listed by /modules/{m}/articles. */
+export interface ArticleSummary {
+  module_id: string;
+  article_id: string;
+  title: string;
+  parents: readonly { kind: "article" | "chapter"; id: string }[];
+  section_count: number;
+  /** Path the model can read to enumerate sections under this article. */
+  path: string;
+}
+
+export interface ArticleList extends ToolResultBase {
+  ok: true;
+  kind: "articles-list";
+  module_id: string;
+  articles: readonly ArticleSummary[];
+}
+
+export interface ArticleSections extends ToolResultBase {
+  ok: true;
+  kind: "article-sections";
+  module_id: string;
+  article_id: string;
+  title: string;
+  parents: readonly { kind: "article" | "chapter"; id: string }[];
+  sections: readonly ArticleSectionEntry[];
+}
+
 export interface DefinitionHit {
   module_id: string;
   section_id: string;
@@ -356,6 +394,8 @@ export type ReadOutput =
   | BillSectionDiff
   | SessionBillsList
   | ModuleMetadata
+  | ArticleList
+  | ArticleSections
   | DefinitionMatches
   | OrdinancesList;
 
