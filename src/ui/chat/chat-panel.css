@@ -233,6 +233,27 @@
   margin-top: 4px;
 }
 
+.lc-chat-copy {
+  margin-left: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: var(--ui-xs);
+  color: var(--overlay1);
+  cursor: pointer;
+}
+
+.lc-chat-copy:hover {
+  color: var(--text);
+}
+
+.lc-chat-copy:focus-visible {
+  outline: 2px solid var(--mauve, var(--accent));
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 .lc-chat-error {
   color: var(--red);
   font-style: italic;

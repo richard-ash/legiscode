@@ -4,9 +4,18 @@
 //   if no:  verify citations → if disjoint, inject synthetic tool_error
 //                              and continue; else end turn.
 //
-// Bounded by P4 (10 rounds per turn). Cancellation threads through the
-// AbortController per A3. Last-10-turn API window per A4 — the
-// caller-side history is pruned before each provider call.
+// Bounded by P4 (10 exploration rounds per turn). Exploration rounds
+// (the model called tools) and verifier fix-up rounds draw on separate
+// budgets so a citation-heavy answer can't starve research, and vice
+// versa. When exploration runs dry the loop forces ONE final round with
+// toolChoice "none" plus a synthetic "answer from what you have" notice
+// — the turn always ends in prose, never in a discarded transcript.
+// Cancellation threads through the AbortController per A3. The A4 API
+// window is enforced by ConversationManager.history() — turn-aligned,
+// with hysteresis so the message prefix stays byte-stable across turns
+// (prompt caching is a prefix match; a window that slides every round
+// would invalidate the cache on every provider call). Within a turn the
+// messages array is append-only for the same reason.
 //
 // Per N17/N18 the loop has ONE user-visible state: prose. Verification
 // failures stay in the agentic loop as synthetic tool_error blocks; the
@@ -31,11 +40,25 @@ import { ProviderError } from "./providers/types";
 import { dispatchTool, type RouterContext, serializeToolResult } from "./tool-router";
 import type { ToolName, ToolResultBase } from "./tools/types";
 
-// Per A4. Cap is on the LAST messages array sent to the provider; the
-// caller may hold a longer history but only the tail goes on the wire.
-const API_WINDOW_TURNS = 10;
-// Per P4.
+// Per A4: the wire window targets ~10 plain turns (2 messages each).
+// LOW is the post-cut size; the window is allowed to grow to HIGH
+// before the next cut so the prefix stays byte-identical across several
+// turns between cuts (each cut is one prompt-cache miss; everything in
+// between is a cache read). Cuts happen at turn boundaries only — a
+// fixed message slice could orphan a tool_result from its tool_use or
+// start the array with an assistant message, both API errors.
+const WINDOW_LOW_MESSAGES = 20;
+const WINDOW_HIGH_MESSAGES = 30;
+// Per P4 — exploration budget: rounds in which the model called tools.
 const MAX_ROUNDS_PER_TURN = 10;
+// Verifier self-correct allowance, separate from exploration. Each
+// citation / Sources-block failure costs one provider round; without a
+// separate budget a cite-heavy answer would eat the research budget.
+const MAX_FIXUP_ROUNDS = 3;
+// Hard cap on provider calls per turn: full exploration + every fix-up
+// + the forced-final answer round. The loop provably returns within
+// this bound; the trailing max_rounds exit is a defensive backstop.
+const MAX_TOTAL_ROUNDS = MAX_ROUNDS_PER_TURN + MAX_FIXUP_ROUNDS + 1;
 const MAX_TOKENS = 4096;
 // Concurrency cap on tool_use dispatch per round. The Anthropic
 // parallel-tool-use contract permits multiple tool_use blocks in one
@@ -115,7 +138,9 @@ export interface ConversationConfig {
 export interface RunTurnInput {
   /** Stable across rounds in a turn; counter from the manager. */
   turnId: number;
-  /** Prior assistant + user messages (already pruned by the caller). */
+  /** Prior assistant + user messages. Already windowed by
+   *  ConversationManager.history(); the loop sends them verbatim and
+   *  never re-prunes mid-turn (prefix stability = prompt-cache hits). */
   history: readonly ProviderMessage[];
   /** The new user prompt for this turn. */
   userPrompt: string;
@@ -144,7 +169,7 @@ export interface TurnResult {
   /** Reason the turn ended. */
   stopReason: "end_turn" | "max_rounds" | "cancelled" | "error";
   error?: { kind: ProviderError["kind"]; message: string };
-  /** Number of provider rounds the turn used (1-MAX_ROUNDS_PER_TURN). */
+  /** Number of provider rounds the turn used (1-MAX_TOTAL_ROUNDS). */
   roundCount: number;
   /** Provider-call wall-clock summed across rounds, in milliseconds. */
   providerLatencyMs: number;
@@ -207,18 +232,26 @@ export async function runConversationTurn(
     { role: "user", content: [{ kind: "text", text: input.userPrompt }] },
   ];
 
-  for (let round = 1; round <= MAX_ROUNDS_PER_TURN; round++) {
+  // Rounds in which the model called tools (capped at MAX_ROUNDS_PER_TURN).
+  let explorationRounds = 0;
+  // Verifier-failure retries (capped at MAX_FIXUP_ROUNDS).
+  let fixupRounds = 0;
+
+  for (let round = 1; round <= MAX_TOTAL_ROUNDS; round++) {
     if (input.signal.aborted) {
       acc.stopReason = "cancelled";
       acc.totalLatencyMs = acc.providerLatencyMs + acc.toolLatencyMs;
       return acc;
     }
+    // Exploration budget spent → every remaining call is an answer
+    // round: tools disabled at the API layer, and the tool-results
+    // message already carries the "answer from what you have" notice.
+    const forceFinal = explorationRounds >= MAX_ROUNDS_PER_TURN;
     let response: ProviderResponse;
     // Track whether the provider streamed text deltas this round. When
     // it did, the loop must NOT re-emit text from the returned content
     // blocks — that would double up the chat panel's accumulator.
     let streamedAnyText = false;
-    const prunedMessages = pruneToWindow(messages);
     const providerCallStart = Date.now();
     try {
       response = await config.provider.call({
@@ -226,8 +259,14 @@ export async function runConversationTurn(
         systemPrompt: SYSTEM_PROMPT_V1,
         systemCacheable: true,
         tools: TOOL_DEFINITIONS_V1 as unknown as Parameters<ModelProvider["call"]>[0]["tools"],
-        messages: prunedMessages,
+        // Append-only across rounds: each round extends the previous
+        // round's byte-exact prefix, so with cacheConversation the
+        // provider reads the whole transcript-so-far from cache and
+        // pays full price only for the new suffix.
+        messages: [...messages],
+        cacheConversation: true,
         maxTokens: MAX_TOKENS,
+        toolChoice: forceFinal ? "none" : "auto",
         signal: input.signal,
         onTextDelta: (delta) => {
           streamedAnyText = true;
@@ -265,7 +304,7 @@ export async function runConversationTurn(
         if (!streamedAnyText) {
           input.onEvent({ kind: "text", turnId: input.turnId, text: block.text });
         }
-      } else if (block.kind === "tool_use") {
+      } else if (block.kind === "tool_use" && !forceFinal) {
         toolUses.push({
           toolUseId: block.toolUseId,
           name: block.name,
@@ -294,18 +333,26 @@ export async function runConversationTurn(
       usage: response.usage,
       latencyMs: providerLatencyMs,
       thinkingBlockCount,
-      promptMessageCount: prunedMessages.length,
+      promptMessageCount: messages.length,
       toolCallCount: toolUses.length,
     });
 
     // Record the assistant message for the history (full content, not
     // just text — tool_use blocks must be paired with their results in
-    // the next user message).
-    const assistantMsg: ProviderMessage = { role: "assistant", content: response.content };
+    // the next user message). On a forced-final round any tool_use a
+    // misbehaving provider emitted anyway is stripped: it was never
+    // dispatched, and a dangling tool_use id would poison the next
+    // turn's API call.
+    const assistantMsg: ProviderMessage = {
+      role: "assistant",
+      content: forceFinal
+        ? response.content.filter((b) => b.kind !== "tool_use")
+        : response.content,
+    };
     messages.push(assistantMsg);
     turnMessages.push(assistantMsg);
 
-    if (response.stopReason !== "tool_use" || toolUses.length === 0) {
+    if (forceFinal || response.stopReason !== "tool_use" || toolUses.length === 0) {
       // Verifier runs on the final assistant text. If the model wrote
       // citations that aren't in the fetched set, inject a synthetic
       // user message with a <verification_failure> wrap and loop.
@@ -328,8 +375,9 @@ export async function runConversationTurn(
           section_id: m.section_id,
         })),
       });
-      if (!verify.ok && round < MAX_ROUNDS_PER_TURN) {
+      if (!verify.ok && fixupRounds < MAX_FIXUP_ROUNDS && round < MAX_TOTAL_ROUNDS) {
         acc.verifierFailures += 1;
+        fixupRounds += 1;
         const failure = formatVerificationFailure(verify);
         const fixUp: ProviderMessage = {
           role: "user",
@@ -354,8 +402,9 @@ export async function runConversationTurn(
         fetchedBills: turnFetchedBills,
         attemptedSections: turnAttempted,
       });
-      if (!sourcesOutcome.ok && round < MAX_ROUNDS_PER_TURN) {
+      if (!sourcesOutcome.ok && fixupRounds < MAX_FIXUP_ROUNDS && round < MAX_TOTAL_ROUNDS) {
         acc.verifierFailures += 1;
+        fixupRounds += 1;
         const failure = formatSourcesBlockFailure(sourcesOutcome);
         const fixUp: ProviderMessage = {
           role: "user",
@@ -472,22 +521,35 @@ export async function runConversationTurn(
     // unless the abort drained early, but defends against a sparse
     // toolResults array leaking past the abort check.
     const orderedResults = toolResults.filter((r): r is ProviderContentBlock => r !== undefined);
-    const userMsg: ProviderMessage = { role: "user", content: orderedResults };
+    explorationRounds += 1;
+    // Round-status stamp: prompt rule 15 names a 10-round budget but the
+    // model can't count rounds from the transcript alone. The stamp rides
+    // AFTER the tool_result blocks (Anthropic requires results first).
+    // On the last exploration round it becomes the forced-final notice.
+    const budgetNote =
+      explorationRounds >= MAX_ROUNDS_PER_TURN
+        ? `[tool budget: round ${explorationRounds} of ${MAX_ROUNDS_PER_TURN} — exhausted. ` +
+          "Write your final answer now from the sections you have already fetched; " +
+          "tool calls are disabled. Cite only fetched sections.]"
+        : `[tool budget: round ${explorationRounds} of ${MAX_ROUNDS_PER_TURN}]`;
+    const userMsg: ProviderMessage = {
+      role: "user",
+      content: [...orderedResults, { kind: "text", text: budgetNote }],
+    };
     messages.push(userMsg);
     turnMessages.push(userMsg);
   }
 
+  // Defensive backstop — the budget arithmetic above means the loop
+  // always returns before exhausting MAX_TOTAL_ROUNDS. If it ever falls
+  // through, surface stop_reason "max_rounds" with whatever text the
+  // turn streamed; the renderer shows the condition as a status, not as
+  // assistant prose.
   acc.stopReason = "max_rounds";
   acc.newMessages = turnMessages;
   acc.fetchedRefs = turnFetched;
-  acc.finalText = acc.finalText || "(round budget exhausted)";
   acc.totalLatencyMs = acc.providerLatencyMs + acc.toolLatencyMs;
   return acc;
-}
-
-function pruneToWindow(messages: readonly ProviderMessage[]): ProviderMessage[] {
-  if (messages.length <= API_WINDOW_TURNS * 2) return [...messages];
-  return messages.slice(-(API_WINDOW_TURNS * 2));
 }
 
 /**
@@ -646,16 +708,49 @@ function addUsage(acc: TurnResult["totalUsage"], delta: ProviderResponse["usage"
 }
 
 /**
+ * Compute the API window over whole turns. Replays the append history
+ * deterministically: a cut happens only when the running window exceeds
+ * WINDOW_HIGH_MESSAGES, and drops whole turns from the front until the
+ * window is back under WINDOW_LOW_MESSAGES. Replay makes the function
+ * pure — the same turn list always yields the same cut points — so the
+ * window's leading messages stay byte-identical call after call until
+ * the next cut. That stability is what lets Anthropic prompt caching
+ * hit on the conversation prefix across turns.
+ *
+ * The newest turn is always included whole, even when it alone exceeds
+ * the high-water mark (a 10-round research turn can) — turns are the
+ * atomic unit because splitting one would orphan tool_use/tool_result
+ * pairs.
+ */
+function windowTurns(turns: readonly (readonly ProviderMessage[])[]): ProviderMessage[] {
+  let start = 0;
+  let count = 0;
+  for (let i = 0; i < turns.length; i++) {
+    count += (turns[i] as readonly ProviderMessage[]).length;
+    if (count > WINDOW_HIGH_MESSAGES) {
+      while (start < i && count > WINDOW_LOW_MESSAGES) {
+        count -= (turns[start] as readonly ProviderMessage[]).length;
+        start += 1;
+      }
+    }
+  }
+  return turns.slice(start).flat() as ProviderMessage[];
+}
+
+/**
  * Conversation manager: per-chat history with API window pruning. Keyed
  * by `${module_id}/${section_id}` per the architecture lock; pinned
  * chats use a fresh chatId.
+ *
+ * History is stored as whole turns (one entry per appendTurn) so the
+ * window can cut at turn boundaries — see windowTurns above.
  */
 export class ConversationManager {
-  private readonly histories = new Map<string, ProviderMessage[]>();
+  private readonly histories = new Map<string, ProviderMessage[][]>();
   private readonly turnCounters = new Map<string, number>();
 
   history(chatId: string): readonly ProviderMessage[] {
-    return this.histories.get(chatId) ?? [];
+    return windowTurns(this.histories.get(chatId) ?? []);
   }
 
   nextTurnId(chatId: string): number {
@@ -665,8 +760,11 @@ export class ConversationManager {
   }
 
   appendTurn(chatId: string, messages: readonly ProviderMessage[]): void {
+    // Cancelled-before-first-round turns produce no messages; storing an
+    // empty turn would only add a no-op boundary to the window replay.
+    if (messages.length === 0) return;
     const existing = this.histories.get(chatId) ?? [];
-    this.histories.set(chatId, [...existing, ...messages]);
+    this.histories.set(chatId, [...existing, [...messages]]);
   }
 
   resetChat(chatId: string): void {

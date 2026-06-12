@@ -28,6 +28,48 @@ export interface SettingsPageProps {
   section: SettingsPane;
   /** ARIA tabpanel wiring from the tab dispatcher, mirroring SectionView. */
   tabPanel?: { id: string; labelledBy: string };
+  /** Switch to another settings pane — opens/focuses that pane's tab via
+   *  the settings::{pane} identity. Without it (some tests) the pane nav
+   *  is hidden; the dispatcher always provides it. */
+  onNavigatePane?: (pane: SettingsPane) => void;
+}
+
+const PANE_ORDER: readonly SettingsPane[] = ["shortcuts", "ai"];
+const PANE_LABELS: Record<SettingsPane, string> = {
+  shortcuts: "Keyboard Shortcuts",
+  ai: "AI",
+};
+
+/** Pane switcher shared by every settings pane. Before this nav existed
+ *  the AI pane was only reachable from the chat panel's no-api-key
+ *  state — with a key configured there was no path to it at all. */
+function PaneNav({
+  active,
+  onNavigatePane,
+}: {
+  active: SettingsPane;
+  onNavigatePane?: (pane: SettingsPane) => void;
+}): ReactNode {
+  if (!onNavigatePane) return null;
+  return (
+    <nav className="lc-settings-nav" aria-label="Settings sections">
+      {PANE_ORDER.map((pane) => (
+        <button
+          key={pane}
+          type="button"
+          className={
+            pane === active ? "lc-settings-nav-item lc-settings-nav-active" : "lc-settings-nav-item"
+          }
+          aria-current={pane === active ? "page" : undefined}
+          onClick={() => {
+            if (pane !== active) onNavigatePane(pane);
+          }}
+        >
+          {PANE_LABELS[pane]}
+        </button>
+      ))}
+    </nav>
+  );
 }
 
 const GROUP_ORDER: readonly ShortcutGroup[] = ["commands", "in-view"];
@@ -102,7 +144,7 @@ function buildGroups(needle: string): GroupBlock[] {
   return out;
 }
 
-export function SettingsPage({ section, tabPanel }: SettingsPageProps): ReactNode {
+export function SettingsPage({ section, tabPanel, onNavigatePane }: SettingsPageProps): ReactNode {
   const [query, setQuery] = useState("");
   // Defer the filter pass off the keystroke, same pattern as the palette.
   const deferredQuery = useDeferredValue(query);
@@ -119,6 +161,7 @@ export function SettingsPage({ section, tabPanel }: SettingsPageProps): ReactNod
   if (section === "ai") {
     return (
       <div {...tabPanelAttrsForSwitch} className="lc-settings-page">
+        <PaneNav active="ai" onNavigatePane={onNavigatePane} />
         <AiSettingsPane />
       </div>
     );
@@ -135,6 +178,7 @@ export function SettingsPage({ section, tabPanel }: SettingsPageProps): ReactNod
 
   return (
     <div {...tabPanelAttrs} className="lc-settings-page">
+      <PaneNav active="shortcuts" onNavigatePane={onNavigatePane} />
       <div className="lc-settings-head">
         <h1 className="lc-settings-title">Keyboard Shortcuts</h1>
         <input

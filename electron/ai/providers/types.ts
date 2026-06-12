@@ -52,7 +52,17 @@ export interface ProviderRequest {
   systemCacheable: boolean;
   tools: ProviderToolDefinition[];
   messages: ProviderMessage[];
+  /** Adapter hint: mark the tail of the conversation window for
+   *  provider-side prompt caching (Anthropic cache_control on the last
+   *  two user messages — read point + write point). Adapters without
+   *  prompt caching ignore it. */
+  cacheConversation?: boolean;
   maxTokens: number;
+  /** "none" disables tool use for this round — the conversation loop
+   *  sets it on the forced-final round so the model must answer in
+   *  prose from what it has already fetched. Omitted/"auto" otherwise.
+   *  (Compatible with extended thinking; forced tool_choice is not.) */
+  toolChoice?: "auto" | "none";
   /** Stop the in-flight HTTP request when this signal aborts. */
   signal: AbortSignal;
   /** Invoked per text delta as the response streams in. Adapters

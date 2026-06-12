@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SettingsPage } from "@/ui/settings/settings-page";
 import { SHORTCUTS } from "@/ui/shortcuts/registry";
 
@@ -67,5 +67,36 @@ describe("SettingsPage — keyboard shortcuts", () => {
     const nonJump = SHORTCUTS.filter((s) => !/^tabs\.jump-to-\d$/.test(s.id)).length;
     const rows = container.querySelectorAll(".lc-settings-entry");
     expect(rows).toHaveLength(nonJump + 1);
+  });
+});
+
+describe("SettingsPage — pane nav", () => {
+  // The AI pane is otherwise only reachable from the chat panel's
+  // no-api-key state; the nav must exist on every pane so a user with a
+  // key configured can still reach the telemetry/model settings.
+
+  it("hides the pane nav when no onNavigatePane is wired", () => {
+    render(<SettingsPage section="shortcuts" />);
+    expect(screen.queryByRole("navigation", { name: "Settings sections" })).not.toBeInTheDocument();
+  });
+
+  it("renders both pane entries with the active one marked aria-current", () => {
+    render(<SettingsPage section="shortcuts" onNavigatePane={() => {}} />);
+    const nav = screen.getByRole("navigation", { name: "Settings sections" });
+    const active = within(nav).getByRole("button", { name: "Keyboard Shortcuts" });
+    const other = within(nav).getByRole("button", { name: "AI" });
+    expect(active.getAttribute("aria-current")).toBe("page");
+    expect(other.getAttribute("aria-current")).toBeNull();
+  });
+
+  it("navigates to the AI pane on click and no-ops on the active pane", () => {
+    const onNavigatePane = vi.fn();
+    render(<SettingsPage section="shortcuts" onNavigatePane={onNavigatePane} />);
+    const nav = screen.getByRole("navigation", { name: "Settings sections" });
+    fireEvent.click(within(nav).getByRole("button", { name: "Keyboard Shortcuts" }));
+    expect(onNavigatePane).not.toHaveBeenCalled();
+    fireEvent.click(within(nav).getByRole("button", { name: "AI" }));
+    expect(onNavigatePane).toHaveBeenCalledWith("ai");
+    expect(onNavigatePane).toHaveBeenCalledTimes(1);
   });
 });
