@@ -215,9 +215,10 @@ describe("read /bills", () => {
       truncated: boolean;
     };
     expect(payload.kind).toBe("bills-list");
-    // The hermetic corpus-min fixture has one bill under test-alpha.
-    expect(payload.total).toBe(1);
-    expect(payload.bills[0]?.file_no).toBe("990001");
+    // The hermetic corpus-min fixture has three bills under test-alpha,
+    // listed newest-introduced first.
+    expect(payload.total).toBe(3);
+    expect(payload.bills.map((b) => b.file_no)).toEqual(["990003", "990002", "990001"]);
     expect(payload.bills[0]?.module_id).toBe("test-alpha");
     expect(payload.truncated).toBe(false);
     // Bills are session-state, not law — `fetched` stays empty.
@@ -235,12 +236,16 @@ describe("read /bills/{file_no}", () => {
     expect(result.payload.ok).toBe(true);
     const payload = result.payload as unknown as {
       kind: string;
-      bill: { file_no: string; subpaths: { proposed_text: string; changes: string } };
+      bill: {
+        file_no: string;
+        subpaths: { proposed_text: string; changes: string; impact: string };
+      };
     };
     expect(payload.kind).toBe("bill");
     expect(payload.bill.file_no).toBe("990001");
     expect(payload.bill.subpaths.proposed_text).toBe("/bills/990001/proposed-text");
     expect(payload.bill.subpaths.changes).toBe("/bills/990001/changes");
+    expect(payload.bill.subpaths.impact).toBe("/bills/990001/impact");
   });
 
   it("returns not_found for an unknown file_no", async () => {

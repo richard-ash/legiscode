@@ -8,6 +8,7 @@
 //                                                       amendments + closing)
 //   /bills/{file_no}/changes                           → per-section diff index
 //   /bills/{file_no}/changes/{module_id}/{section_id}  → before/after diff
+//   /bills/{file_no}/impact                            → composed impact report
 //   /modules                                           → installed modules
 //   /modules/{module_id}                               → module metadata
 //   /modules/{module_id}/sections/{section_id}         → section text
@@ -194,6 +195,7 @@ export interface BillMetadataPayload {
   subpaths: {
     proposed_text: string;
     changes: string;
+    impact: string;
   };
 }
 
@@ -268,6 +270,72 @@ export interface BillSectionDiff extends ToolResultBase {
   ok: true;
   kind: "bill-section-diff";
   diff: BillSectionDiffPayload;
+}
+
+// ─── Read payloads — bill impact ────────────────────────────────────────────
+
+/**
+ * Reviewer-facing grouping of SectionOutcomeStatus. There is no
+ * "deleted" kind: the outcome schema has no repeal status — repeals
+ * surface as `revised` rows whose diff_stats are delete-heavy.
+ */
+export type BillImpactChangeKind = "revised" | "added" | "referenced_no_change" | "unclear";
+
+export interface BillImpactSectionEntry {
+  module_id: string;
+  section_id: string;
+  /** SectionOutcomeStatus value, verbatim. */
+  status: string;
+  change_kind: BillImpactChangeKind;
+  detail: string | null;
+  /** Word counts folded from the bill's diff chunks for this section.
+   *  Null when the bill carries no chunks for it. */
+  diff_stats: { inserted_words: number; deleted_words: number } | null;
+  /** Path to the word-level diff for this section. */
+  diff_path: string;
+  /** Path to the current section text; null when no baseline exists. */
+  section_path: string | null;
+}
+
+/**
+ * Composed impact report reachable at /bills/{file_no}/impact. The
+ * `sections` array is the authoritative row set for R20 memo
+ * affected-section lists and R21 impact tables. Stats only — reading
+ * this path fetches no section refs; the model still reads diffs or
+ * sections before citing them.
+ */
+export interface BillImpactPayload {
+  file_no: string;
+  /** Primary module slice; other slices appear in cross_module_touches. */
+  module_id: string;
+  short_title: string;
+  long_title: string;
+  bill_status: string;
+  legistar_status: string;
+  sponsor: string | null;
+  introduced_at: string | null;
+  legistar_url: string;
+  parse_status: string;
+  structural_change_scope: string | null;
+  /** Union of touched section ids across every module slice. */
+  affected_section_ids: readonly string[];
+  /** One row per (module, section) outcome, ordered revised → added →
+   *  referenced_no_change → unclear. */
+  sections: readonly BillImpactSectionEntry[];
+  /** SectionOutcomeStatus → count across every slice. */
+  outcome_counts: Readonly<Record<string, number>>;
+  /** Derived from parse_status + outcome statuses. */
+  risk_flags: readonly { flag: string; detail: string }[];
+  /** Other module ids carrying a slice of this bill. */
+  cross_module_touches: readonly string[];
+  /** True when `sections` was capped. */
+  truncated: boolean;
+}
+
+export interface BillImpact extends ToolResultBase {
+  ok: true;
+  kind: "bill-impact";
+  impact: BillImpactPayload;
 }
 
 // ─── Read payloads — bills/modules/ordinances listings ──────────────────────
@@ -392,6 +460,7 @@ export type ReadOutput =
   | BillProposedText
   | BillChangesList
   | BillSectionDiff
+  | BillImpact
   | SessionBillsList
   | ModuleMetadata
   | ArticleList

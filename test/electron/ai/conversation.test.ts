@@ -494,6 +494,85 @@ describe("runConversationTurn", () => {
     provider.assertExhausted();
   });
 
+  it("harvests affected sections from a bill-impact read so R23 still fires", async () => {
+    // Same R23 omission shape as the test above, but the model researches
+    // via /bills/{f}/impact instead of /bills/{f}. The impact payload must
+    // feed harvestFetchedBills — path-side harvest alone carries no
+    // affected_section_ids and R23 would silently skip the bill.
+    // Fixture bill 990003 touches 1.2 / 9.9 / 8.8; the memo cites only
+    // § 1.2, so the fix-up names the other two.
+    const corpus = await loadFixtureCorpus();
+    const provider = new MockProvider([
+      {
+        content: [
+          {
+            kind: "tool_use",
+            toolUseId: "u1",
+            name: "read",
+            input: { path: "/bills/990003/impact" },
+          },
+          {
+            kind: "tool_use",
+            toolUseId: "u2",
+            name: "read",
+            input: { path: "/modules/test-alpha/sections/1.2" },
+          },
+        ],
+        stopReason: "tool_use",
+      },
+      {
+        // Memo heading triggers R23; §§ 9.9 / 8.8 omitted → verifier fires.
+        content: [
+          {
+            kind: "text",
+            text:
+              "## Memo: [Bill #990003]\n" +
+              "**Re:** Mixed-outcome ordinance\n" +
+              "**Summary** — One section updated.\n" +
+              "**Affected Sections** — [test-alpha § 1.2].\n\n" +
+              "**Sources**\n" +
+              "- [Bill #990003] — Mixed-outcome ordinance\n" +
+              "- [test-alpha § 1.2] — Sec 1.2\n",
+          },
+        ],
+        stopReason: "end_turn",
+      },
+      {
+        // Free prose — no memo heading; R23 doesn't enforce.
+        content: [
+          {
+            kind: "text",
+            text:
+              "Bill #990003 amends [test-alpha § 1.2] with revised text.\n\n" +
+              "**Sources**\n" +
+              "- [Bill #990003] — Mixed-outcome ordinance\n" +
+              "- [test-alpha § 1.2] — Sec 1.2\n",
+          },
+        ],
+        stopReason: "end_turn",
+      },
+    ]);
+    const result = await runConversationTurn(
+      {
+        provider,
+        model: "mock-model-1",
+        anchorModule: "test-alpha",
+        router: makeRouterFn({ corpus, turnId: 1 }),
+      },
+      {
+        turnId: 1,
+        history: [],
+        userPrompt: "memo on bill 990003",
+        signal: new AbortController().signal,
+        onEvent: () => {},
+      },
+    );
+    expect(result.stopReason).toBe("end_turn");
+    expect(result.verifierFailures).toBe(1);
+    expect(result.finalText).not.toMatch(/^## Memo:/);
+    provider.assertExhausted();
+  });
+
   it("does not require a Sources block when the answer cites nothing", async () => {
     // R19 / D8 escape hatch: a no-citation answer (e.g. "the corpus
     // doesn't include sf-fire") legitimately omits the block. The

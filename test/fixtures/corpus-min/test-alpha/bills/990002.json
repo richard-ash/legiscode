@@ -1,0 +1,21 @@
+{
+  "section_outcomes": [],
+  "bill_status": "filed",
+  "file_no": "990002",
+  "introduced_at": "2026-05-26",
+  "legistar_status": "Pending Committee Assignment",
+  "legistar_url": "https://example.test/legislation?id=990002",
+  "long_title": "Hermetic fixture ordinance whose body binds to no section header.",
+  "module_id": "test-alpha",
+  "parse_status": "body_only",
+  "body": {
+    "preamble": "Hermetic fixture preamble for a body-only ordinance. Be it ordained that the Test Alpha Code is amended without identifiable section targets.",
+    "amendments": [],
+    "closing": "Section 2. Effective Date. This ordinance takes effect per fixture rules."
+  },
+  "short_title": "Hermetic Body-Only Ordinance",
+  "sponsor": "Test Sponsor",
+  "structural_change_scope": null,
+  "diff_chunks": [],
+  "new_bodies": []
+}

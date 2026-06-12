@@ -10,8 +10,8 @@ import { bodyToText } from "@/types";
 import type { AiCorpusHandle } from "../../corpus-loader";
 import { getBillsIndex } from "../bills-index";
 import { getOrdinanceIndex } from "../ordinance-index";
-import { extractCitedRefs } from "../reverse-index";
-import { getReverseGraph } from "../reverse-index";
+import { extractCitedRefs, getReverseGraph } from "../reverse-index";
+import { buildBillImpact } from "./bill-impact";
 import type {
   AmendmentRef,
   ArticleSectionEntry,
@@ -105,9 +105,14 @@ function readBills(parts: readonly string[], ctx: ToolContext): ReadResult {
         `Path under /bills/${fileNo}/changes must be /bills/${fileNo}/changes or /bills/${fileNo}/changes/{module_id}/{section_id}.`,
         ctx,
       );
+    case "impact":
+      if (parts.length !== 3) {
+        return notFound(`Trailing segments after /bills/${fileNo}/impact.`, ctx);
+      }
+      return buildBillImpact(fileNo, ctx);
     default:
       return notFound(
-        `Unknown subpath /${parts[2]} under /bills/${fileNo}. Try /bills/${fileNo}/proposed-text or /bills/${fileNo}/changes.`,
+        `Unknown subpath /${parts[2]} under /bills/${fileNo}. Try /bills/${fileNo}/impact, /bills/${fileNo}/proposed-text, or /bills/${fileNo}/changes.`,
         ctx,
       );
   }
@@ -164,6 +169,7 @@ function readBillMetadata(bill: Bill, ctx: ToolContext): ReadResult {
       subpaths: {
         proposed_text: `/bills/${bill.file_no}/proposed-text`,
         changes: `/bills/${bill.file_no}/changes`,
+        impact: `/bills/${bill.file_no}/impact`,
       },
     },
     fetched: [],
