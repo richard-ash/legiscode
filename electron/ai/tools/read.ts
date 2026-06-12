@@ -11,7 +11,7 @@ import type { AiCorpusHandle } from "../../corpus-loader";
 import { getBillsIndex } from "../bills-index";
 import { getOrdinanceIndex } from "../ordinance-index";
 import { extractCitedRefs, getReverseGraph } from "../reverse-index";
-import { buildBillImpact } from "./bill-impact";
+import { buildBillImpact, countOutcomes } from "./bill-impact";
 import { buildSectionDependencies } from "./section-dependencies";
 import type {
   AmendmentRef,
@@ -123,6 +123,7 @@ function listSessionBills(ctx: ToolContext): ReadResult {
   const all: SessionBillSummary[] = [];
   for (const mod of ctx.corpus.modules) {
     for (const bill of mod.sessionBills) {
+      const affectedIds = uniqueSectionIds(bill.section_outcomes);
       all.push({
         file_no: bill.file_no,
         module_id: mod.id,
@@ -133,7 +134,11 @@ function listSessionBills(ctx: ToolContext): ReadResult {
         sponsor: bill.sponsor,
         introduced_at: bill.introduced_at,
         legistar_url: bill.legistar_url,
-        affected_section_ids: uniqueSectionIds(bill.section_outcomes),
+        affected_section_ids: affectedIds,
+        parse_status: bill.parse_status,
+        affected_section_count: affectedIds.length,
+        outcome_counts: countOutcomes(bill.section_outcomes),
+        impact_path: `/bills/${bill.file_no}/impact`,
       });
     }
   }

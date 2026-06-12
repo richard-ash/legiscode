@@ -27,6 +27,17 @@ const CHANGE_KIND_ORDER: Record<BillImpactChangeKind, number> = {
   unclear: 3,
 };
 
+/** SectionOutcomeStatus → count. Shared with the /bills listing rows. */
+export function countOutcomes(
+  outcomes: readonly { status: string }[],
+): Readonly<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  for (const outcome of outcomes) {
+    counts[outcome.status] = (counts[outcome.status] ?? 0) + 1;
+  }
+  return counts;
+}
+
 export function buildBillImpact(fileNo: string, ctx: ToolContext): ReadResult {
   const slices: { moduleId: string; bill: Bill }[] = [];
   for (const mod of ctx.corpus.modules) {
@@ -41,12 +52,11 @@ export function buildBillImpact(fileNo: string, ctx: ToolContext): ReadResult {
   const primary = (slices[0] as { moduleId: string; bill: Bill }).bill;
 
   const rows: BillImpactSectionEntry[] = [];
-  const outcomeCounts: Record<string, number> = {};
+  const outcomeCounts = countOutcomes(slices.flatMap((s) => s.bill.section_outcomes));
   const affectedIds: string[] = [];
   const seenAffected = new Set<string>();
   for (const { bill } of slices) {
     for (const outcome of bill.section_outcomes) {
-      outcomeCounts[outcome.status] = (outcomeCounts[outcome.status] ?? 0) + 1;
       const affectedKey = outcome.section_id;
       if (!seenAffected.has(affectedKey)) {
         seenAffected.add(affectedKey);

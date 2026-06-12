@@ -211,7 +211,15 @@ describe("read /bills", () => {
     const payload = result.payload as unknown as {
       kind: string;
       total: number;
-      bills: readonly { file_no: string; module_id: string; bill_status: string }[];
+      bills: readonly {
+        file_no: string;
+        module_id: string;
+        bill_status: string;
+        parse_status: string;
+        affected_section_count: number;
+        outcome_counts: Record<string, number>;
+        impact_path: string;
+      }[];
       truncated: boolean;
     };
     expect(payload.kind).toBe("bills-list");
@@ -221,6 +229,17 @@ describe("read /bills", () => {
     expect(payload.bills.map((b) => b.file_no)).toEqual(["990003", "990002", "990001"]);
     expect(payload.bills[0]?.module_id).toBe("test-alpha");
     expect(payload.truncated).toBe(false);
+    // Each row carries triage stats so a packet sweep can rank bills
+    // without a per-bill metadata read.
+    const mixed = payload.bills.find((b) => b.file_no === "990003");
+    expect(mixed?.parse_status).toBe("partial");
+    expect(mixed?.affected_section_count).toBe(3);
+    expect(mixed?.outcome_counts).toEqual({ anchored: 1, no_baseline: 1, unresolved: 1 });
+    expect(mixed?.impact_path).toBe("/bills/990003/impact");
+    const bodyOnly = payload.bills.find((b) => b.file_no === "990002");
+    expect(bodyOnly?.parse_status).toBe("body_only");
+    expect(bodyOnly?.affected_section_count).toBe(0);
+    expect(bodyOnly?.outcome_counts).toEqual({});
     // Bills are session-state, not law — `fetched` stays empty.
     expect(result.payload.fetched).toEqual([]);
   });

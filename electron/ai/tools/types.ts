@@ -406,6 +406,15 @@ export interface SessionBillSummary {
   introduced_at: string | null;
   legistar_url: string;
   affected_section_ids: readonly string[];
+  /** Triage stats so a packet sweep can rank bills from one listing
+   *  read. Per-slice (this module's Bill record), like the rest of
+   *  the row. */
+  parse_status: string;
+  affected_section_count: number;
+  /** SectionOutcomeStatus → count for this slice. */
+  outcome_counts: Readonly<Record<string, number>>;
+  /** Read-next path for the composed impact report. */
+  impact_path: string;
 }
 
 export interface SessionBillsList extends ToolResultBase {
