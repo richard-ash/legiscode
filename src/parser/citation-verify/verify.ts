@@ -20,6 +20,7 @@
 // ("Chapter 10") because those don't pin section text. Only section-
 // level citations (internal/cross_module/section-ref) count.
 
+import { type BillClaimSurface, extractBillClaims } from "./bill-claims";
 import { extractAnswerCitations } from "./parse-citations";
 import { parseSourcesBlock, splitProseAndSources } from "./sources-block";
 
@@ -95,6 +96,22 @@ export type SourcesBlockOutcome =
       missing: readonly {
         file_no: string;
         sections: readonly { display: string; module_id: string; section_id: string }[];
+      }[];
+    }
+  | {
+      ok: false;
+      kind: "bill_claim_unsupported";
+      /** Sections the answer attributes to a bill that are NOT in that
+       *  bill's `affected_section_ids` — the fabrication dual of the
+       *  omission check above. Grouped by bill. */
+      unsupported: readonly {
+        file_no: string;
+        sections: readonly {
+          display: string;
+          module_id: string;
+          section_id: string;
+          surface: BillClaimSurface;
+        }[];
       }[];
     };
 
@@ -370,6 +387,44 @@ export function verifySourcesBlock(input: VerifySourcesBlockInput): SourcesBlock
     if (omitted.length > 0) {
       return { ok: false, kind: "bill_affected_sections_omitted", missing: omitted };
     }
+
+    // R25 — bill-claim discipline, the fabrication dual of R23.
+    // Completeness first (above), then over-claiming: every section the
+    // artifact attributes to a bill must be in that bill's
+    // affected_section_ids. Quoted/blockquoted material and guarded
+    // debunking sentences never produce claims (see bill-claims.ts);
+    // bills with unknown affected sets are exempt, mirroring R23.
+    const unsupported: {
+      file_no: string;
+      sections: {
+        display: string;
+        module_id: string;
+        section_id: string;
+        surface: BillClaimSurface;
+      }[];
+    }[] = [];
+    for (const claim of extractBillClaims(body)) {
+      const bill = input.fetchedBills.find((b) => b.file_no === claim.file_no);
+      if (!bill?.module_id || !bill.affected_section_ids?.length) continue;
+      // Qualified cites into a different module than the harvested
+      // slice aren't verifiable against this bill record — skip rather
+      // than guess (multi-module bills carry one slice per module).
+      if (claim.module_id !== null && claim.module_id !== bill.module_id) continue;
+      if (bill.affected_section_ids.includes(claim.section_id)) continue;
+      const moduleId = claim.module_id ?? bill.module_id;
+      const entry = {
+        display: claim.display,
+        module_id: moduleId,
+        section_id: claim.section_id,
+        surface: claim.surface,
+      };
+      const bucket = unsupported.find((u) => u.file_no === claim.file_no);
+      if (bucket) bucket.sections.push(entry);
+      else unsupported.push({ file_no: claim.file_no, sections: [entry] });
+    }
+    if (unsupported.length > 0) {
+      return { ok: false, kind: "bill_claim_unsupported", unsupported };
+    }
   }
 
   return { ok: true, kind: "block_valid", entryCount: parsedBlock.entries.length };
@@ -449,6 +504,18 @@ export function formatSourcesBlockFailure(outcome: SourcesBlockOutcome): string 
       }
       lines.push(
         "Either read each missing section and cite it (or add it to the Sources block), or drop the R20/R21 heading and rewrite as free prose if the question is narrower than the whole bill.",
+      );
+      break;
+    case "bill_claim_unsupported":
+      lines.push(
+        "Your answer asserts these sections are changed by a bill, but they are not in that bill's affected_section_ids:",
+      );
+      for (const b of outcome.unsupported) {
+        lines.push(`  [Bill #${b.file_no}] does not touch:`);
+        for (const s of b.sections) lines.push(`    - [${s.module_id} § ${s.section_id}]`);
+      }
+      lines.push(
+        'Remove or correct each claim. If you are quoting an erroneous draft in order to correct it, put the quoted claims in Markdown blockquotes (lines starting with ">") and state the correction in your own voice.',
       );
       break;
   }

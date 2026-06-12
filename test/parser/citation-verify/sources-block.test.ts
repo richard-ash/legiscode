@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type FetchedBill,
+  formatSourcesBlockFailure,
   parseSourcesBlock,
   splitProseAndSources,
   verifySourcesBlock,
@@ -338,5 +339,281 @@ describe("verifySourcesBlock — R23 affected-section completeness", () => {
       fetchedBills: [bill260545],
     });
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("verifySourcesBlock — R25 unsupported bill claims", () => {
+  // Same acceptance bill as the R23 suite: 260545 touches Health Code
+  // Secs. 407, 694, 695 and nothing else.
+  const bill260545: FetchedBill = {
+    file_no: "260545",
+    module_id: "sf-health",
+    affected_section_ids: ["407", "694", "695"],
+  };
+  const allFetched = [
+    { module_id: "sf-health", section_id: "407" },
+    { module_id: "sf-health", section_id: "694" },
+    { module_id: "sf-health", section_id: "695" },
+    { module_id: "sf-health", section_id: "19.1" },
+  ];
+  // A complete memo (all three affected sections present) that ALSO
+  // claims § 19.1 — completeness passes, fabrication must fail.
+  const completeMemoPlus191 =
+    "## Memo: [Bill #260545]\n" +
+    "**Re:** Health code cleanup\n" +
+    "**Affected Sections** — [sf-health § 407], [sf-health § 694], [sf-health § 695], and [sf-health § 19.1].\n\n" +
+    "**Sources**\n" +
+    "- [Bill #260545] — Health code cleanup\n" +
+    "- [sf-health § 407] — Sec 407\n" +
+    "- [sf-health § 694] — Sec 694\n" +
+    "- [sf-health § 695] — Sec 695\n" +
+    "- [sf-health § 19.1] — Sec 19.1\n";
+
+  it("memo listing a section the bill never touches fails with that ref", () => {
+    const result = verifySourcesBlock({
+      text: completeMemoPlus191,
+      fetchedSections: allFetched,
+      fetchedBills: [bill260545],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.kind === "bill_claim_unsupported") {
+      expect(result.unsupported).toHaveLength(1);
+      expect(result.unsupported[0]?.file_no).toBe("260545");
+      expect(result.unsupported[0]?.sections).toEqual([
+        {
+          display: "[sf-health § 19.1]",
+          module_id: "sf-health",
+          section_id: "19.1",
+          surface: "affected_listing",
+        },
+      ]);
+    } else {
+      expect.fail(`expected bill_claim_unsupported, got ${JSON.stringify(result)}`);
+    }
+  });
+
+  it("impact-table (R21) row citing a non-affected section fails with impact_table surface", () => {
+    const text =
+      "## What [Bill #260545] does to the Health Code\n" +
+      "| Section | Change |\n" +
+      "| --- | --- |\n" +
+      "| [sf-health § 407] | Revised |\n" +
+      "| [sf-health § 694] | Revised |\n" +
+      "| [sf-health § 695] | Repealed |\n" +
+      "| [sf-health § 19.1] | Revised |\n\n" +
+      "**Sources**\n" +
+      "- [Bill #260545] — Health code cleanup\n" +
+      "- [sf-health § 407] — Sec 407\n" +
+      "- [sf-health § 694] — Sec 694\n" +
+      "- [sf-health § 695] — Sec 695\n" +
+      "- [sf-health § 19.1] — Sec 19.1\n";
+    const result = verifySourcesBlock({
+      text,
+      fetchedSections: allFetched,
+      fetchedBills: [bill260545],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.kind === "bill_claim_unsupported") {
+      expect(result.unsupported[0]?.sections[0]).toMatchObject({
+        section_id: "19.1",
+        surface: "impact_table",
+      });
+    } else {
+      expect.fail(`expected bill_claim_unsupported, got ${JSON.stringify(result)}`);
+    }
+  });
+
+  it("explicit attribution sentence with a bare cite resolves against the bill's module", () => {
+    const text =
+      "## Memo: [Bill #260545]\n" +
+      "**Affected Sections** — [sf-health § 407], [sf-health § 694], [sf-health § 695].\n" +
+      "Separately, [Bill #260545] amends § 19.1 of the Health Code.\n\n" +
+      "**Sources**\n" +
+      "- [Bill #260545] — Health code cleanup\n" +
+      "- [sf-health § 407] — Sec 407\n" +
+      "- [sf-health § 694] — Sec 694\n" +
+      "- [sf-health § 695] — Sec 695\n" +
+      "- [sf-health § 19.1] — Sec 19.1\n";
+    const result = verifySourcesBlock({
+      text,
+      fetchedSections: allFetched,
+      fetchedBills: [bill260545],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.kind === "bill_claim_unsupported") {
+      expect(result.unsupported[0]?.sections[0]).toMatchObject({
+        module_id: "sf-health",
+        section_id: "19.1",
+        surface: "attribution_sentence",
+      });
+    } else {
+      expect.fail(`expected bill_claim_unsupported, got ${JSON.stringify(result)}`);
+    }
+  });
+
+  it("T6 quoting: blockquoted draft claims pass when corrected in the model's voice", () => {
+    const text =
+      "## Memo: [Bill #260545]\n" +
+      "**Re:** Validation of a flawed draft\n" +
+      "> The draft claims [Bill #260545] amends [sf-health § 19.1] only.\n" +
+      "That claim is wrong: the bill touches three sections.\n" +
+      "**Affected Sections** — [sf-health § 407], [sf-health § 694], [sf-health § 695].\n\n" +
+      "**Sources**\n" +
+      "- [Bill #260545] — Health code cleanup\n" +
+      "- [sf-health § 407] — Sec 407\n" +
+      "- [sf-health § 694] — Sec 694\n" +
+      "- [sf-health § 695] — Sec 695\n" +
+      "- [sf-health § 19.1] — Sec 19.1\n";
+    const result = verifySourcesBlock({
+      text,
+      fetchedSections: allFetched,
+      fetchedBills: [bill260545],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("guarded debunking outside blockquotes passes via the negation guard", () => {
+    const text =
+      "## Memo: [Bill #260545]\n" +
+      "The draft is incorrect: [Bill #260545] does not amend [sf-health § 19.1].\n" +
+      "**Affected Sections** — [sf-health § 407], [sf-health § 694], [sf-health § 695].\n\n" +
+      "**Sources**\n" +
+      "- [Bill #260545] — Health code cleanup\n" +
+      "- [sf-health § 407] — Sec 407\n" +
+      "- [sf-health § 694] — Sec 694\n" +
+      "- [sf-health § 695] — Sec 695\n" +
+      "- [sf-health § 19.1] — Sec 19.1\n";
+    const result = verifySourcesBlock({
+      text,
+      fetchedSections: allFetched,
+      fetchedBills: [bill260545],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("bill with unknown affected_section_ids is exempt, mirroring R23", () => {
+    const text =
+      "## Memo: [Bill #260999]\n" +
+      "**Affected Sections** — [sf-health § 19.1].\n\n" +
+      "**Sources**\n" +
+      "- [Bill #260999] — Mystery bill\n" +
+      "- [sf-health § 19.1] — Sec 19.1\n";
+    const result = verifySourcesBlock({
+      text,
+      fetchedSections: [{ module_id: "sf-health", section_id: "19.1" }],
+      fetchedBills: [{ file_no: "260999" }],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("cross-module qualified claims are skipped, not guessed", () => {
+    // The harvested slice is sf-health; a claim into sf-police can't be
+    // verified against it (multi-module bills carry one slice per module).
+    const text =
+      "## Memo: [Bill #260545]\n" +
+      "**Affected Sections** — [sf-health § 407], [sf-health § 694], [sf-health § 695], [sf-police § 12].\n\n" +
+      "**Sources**\n" +
+      "- [Bill #260545] — Health code cleanup\n" +
+      "- [sf-health § 407] — Sec 407\n" +
+      "- [sf-health § 694] — Sec 694\n" +
+      "- [sf-health § 695] — Sec 695\n" +
+      "- [sf-police § 12] — Sec 12\n";
+    const result = verifySourcesBlock({
+      text,
+      fetchedSections: [...allFetched, { module_id: "sf-police", section_id: "12" }],
+      fetchedBills: [bill260545],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("free prose with a wrong claim is exempt — R25 scopes to R20/R21 artifacts", () => {
+    const text =
+      "[Bill #260545] amends [sf-health § 19.1] among other things.\n\n" +
+      "**Sources**\n" +
+      "- [Bill #260545] — Health code cleanup\n" +
+      "- [sf-health § 19.1] — Sec 19.1\n";
+    const result = verifySourcesBlock({
+      text,
+      fetchedSections: [{ module_id: "sf-health", section_id: "19.1" }],
+      fetchedBills: [bill260545],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("memo claiming exactly the affected set stays block_valid", () => {
+    const text =
+      "## Memo: [Bill #260545]\n" +
+      "**Affected Sections** — [sf-health § 407], [sf-health § 694], [sf-health § 695].\n\n" +
+      "**Sources**\n" +
+      "- [Bill #260545] — Health code cleanup\n" +
+      "- [sf-health § 407] — Sec 407\n" +
+      "- [sf-health § 694] — Sec 694\n" +
+      "- [sf-health § 695] — Sec 695\n";
+    const result = verifySourcesBlock({
+      text,
+      fetchedSections: allFetched.slice(0, 3),
+      fetchedBills: [bill260545],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.kind).toBe("block_valid");
+  });
+
+  it("groups multiple unsupported sections under one bill bucket", () => {
+    const text =
+      "## Memo: [Bill #260545]\n" +
+      "**Affected Sections** — [sf-health § 407], [sf-health § 694], [sf-health § 695], [sf-health § 19.1], [sf-health § 20.2].\n\n" +
+      "**Sources**\n" +
+      "- [Bill #260545] — Health code cleanup\n" +
+      "- [sf-health § 407] — Sec 407\n" +
+      "- [sf-health § 694] — Sec 694\n" +
+      "- [sf-health § 695] — Sec 695\n" +
+      "- [sf-health § 19.1] — Sec 19.1\n" +
+      "- [sf-health § 20.2] — Sec 20.2\n";
+    const result = verifySourcesBlock({
+      text,
+      fetchedSections: [...allFetched, { module_id: "sf-health", section_id: "20.2" }],
+      fetchedBills: [bill260545],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.kind === "bill_claim_unsupported") {
+      expect(result.unsupported).toHaveLength(1);
+      expect(result.unsupported[0]?.file_no).toBe("260545");
+      expect(result.unsupported[0]?.sections.map((s) => s.section_id)).toEqual(["19.1", "20.2"]);
+    } else {
+      expect.fail(`expected bill_claim_unsupported, got ${JSON.stringify(result)}`);
+    }
+  });
+
+  it("formats bill_claim_unsupported with each bad ref and the blockquote remedy", () => {
+    const message = formatSourcesBlockFailure({
+      ok: false,
+      kind: "bill_claim_unsupported",
+      unsupported: [
+        {
+          file_no: "260545",
+          sections: [
+            {
+              display: "[sf-health § 19.1]",
+              module_id: "sf-health",
+              section_id: "19.1",
+              surface: "affected_listing",
+            },
+            {
+              display: "[sf-health § 20.2]",
+              module_id: "sf-health",
+              section_id: "20.2",
+              surface: "attribution_sentence",
+            },
+          ],
+        },
+      ],
+    });
+    expect(message.startsWith("<verification_failure>")).toBe(true);
+    expect(message.endsWith("</verification_failure>")).toBe(true);
+    expect(message).toContain("not in that bill's affected_section_ids");
+    expect(message).toContain("[Bill #260545] does not touch:");
+    expect(message).toContain("- [sf-health § 19.1]");
+    expect(message).toContain("- [sf-health § 20.2]");
+    expect(message).toContain('blockquotes (lines starting with ">")');
   });
 });
