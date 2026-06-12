@@ -5,7 +5,7 @@
 //   empty (with + without anchor) / no-api-key / busy / tool-trail /
 //   answer (markdown + citations) / error.
 
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ChatTurn, UseChatReturn } from "@/app/ai/use-chat";
 import { ChatPanel } from "@/ui/chat/chat-panel";
@@ -309,6 +309,90 @@ describe("ChatPanel render states", () => {
     expect(block).not.toBeNull();
     expect(block?.querySelectorAll(".lc-sources-item")).toHaveLength(2);
     expect(block?.querySelectorAll(".lc-cite-bill")).toHaveLength(1);
+  });
+
+  // Copy affordance — per feedback_ui_state_coverage: present on a
+  // finished answer, absent while busy, absent when the turn errored
+  // with no prose, and the click path (payload + label feedback) is
+  // asserted explicitly.
+
+  function stubClipboard() {
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    return writeText;
+  }
+
+  it("renders a copy button on a finished answer", () => {
+    const chat = makeChat({
+      turns: [makeTurn({ assistantText: "Final answer.", durationMs: 4200 })],
+    });
+    render(<ChatPanel {...defaults} chat={chat} hasApiKey={true} />);
+    expect(screen.getByRole("button", { name: "Copy answer" })).toBeInTheDocument();
+  });
+
+  it("does not render a copy button while the turn is busy", () => {
+    const chat = makeChat({
+      busy: true,
+      turns: [makeTurn({ busy: true, assistantText: "Streaming…" })],
+    });
+    render(<ChatPanel {...defaults} chat={chat} hasApiKey={true} />);
+    expect(screen.queryByRole("button", { name: "Copy answer" })).toBeNull();
+  });
+
+  it("does not render a copy button when the turn errored with no prose", () => {
+    const chat = makeChat({
+      turns: [makeTurn({ assistantText: "", error: "Connection failed." })],
+    });
+    render(<ChatPanel {...defaults} chat={chat} hasApiKey={true} />);
+    expect(screen.queryByRole("button", { name: "Copy answer" })).toBeNull();
+  });
+
+  it("copies the prose plus tool count, citation count and duration", () => {
+    const writeText = stubClipboard();
+    const chat = makeChat({
+      turns: [
+        makeTurn({
+          assistantText: "Per [test-alpha § 1.1], the rule applies.",
+          toolCalls: [
+            {
+              toolUseId: "u1",
+              name: "read",
+              input: { path: "/modules/test-alpha/sections/1.1" },
+              result: null,
+            },
+          ],
+          durationMs: 4200,
+        }),
+      ],
+    });
+    render(<ChatPanel {...defaults} chat={chat} hasApiKey={true} />);
+    fireEvent.click(screen.getByRole("button", { name: "Copy answer" }));
+    expect(writeText).toHaveBeenCalledWith(
+      "Per [test-alpha § 1.1], the rule applies.\n\n---\n1 tool · 1 citation · 4.2s",
+    );
+  });
+
+  it("flips the copy label to Copied and reverts after the timeout", () => {
+    vi.useFakeTimers();
+    try {
+      stubClipboard();
+      const chat = makeChat({
+        turns: [makeTurn({ assistantText: "Final answer.", durationMs: 1000 })],
+      });
+      render(<ChatPanel {...defaults} chat={chat} hasApiKey={true} />);
+      const button = screen.getByRole("button", { name: "Copy answer" });
+      fireEvent.click(button);
+      expect(button).toHaveTextContent("Copied");
+      act(() => {
+        vi.advanceTimersByTime(1700);
+      });
+      expect(button).toHaveTextContent("Copy");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("gracefully renders a broken Sources entry with fallback styling", () => {

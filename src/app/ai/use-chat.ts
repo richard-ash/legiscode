@@ -67,7 +67,7 @@ export function useChat(): UseChatReturn {
     try {
       bindChatEventStream(
         (cb) => api().ai.onEvent(cb),
-        (event) => handleEvent(event),
+        (event) => handleChatEvent(event),
       );
     } catch {
       // window.api may not be wired (jsdom tests during remount). No-op;
@@ -117,9 +117,11 @@ export function useChat(): UseChatReturn {
                   usage: result.usage,
                   durationMs: Date.now() - t.startedAt,
                   error:
-                    result.ok || result.stop_reason === "cancelled"
-                      ? t.error
-                      : (result.error?.message ?? "Unknown error."),
+                    result.stop_reason === "max_rounds"
+                      ? "Ran out of tool rounds before finishing. Try a narrower question."
+                      : result.ok || result.stop_reason === "cancelled"
+                        ? t.error
+                        : (result.error?.message ?? "Unknown error."),
                 }
               : t,
           ),
@@ -153,7 +155,8 @@ export function useChat(): UseChatReturn {
   return useMemo(() => ({ turns, busy, send, cancel, reset }), [turns, busy, send, cancel, reset]);
 }
 
-function handleEvent(event: AiEvent): void {
+/** Exported for tests — the store-mutation logic per ai:event. */
+export function handleChatEvent(event: AiEvent): void {
   switch (event.kind) {
     case "turn_started":
       updateChatTurns((prev) => {
@@ -221,6 +224,12 @@ function handleEvent(event: AiEvent): void {
                 assistantText: event.text || t.assistantText,
                 usage: event.usage,
                 durationMs: Date.now() - t.startedAt,
+                // max_rounds is a budget condition, not prose — show it
+                // in the error slot and keep any streamed partial text.
+                error:
+                  event.stop_reason === "max_rounds"
+                    ? "Ran out of tool rounds before finishing. Try a narrower question."
+                    : t.error,
               }
             : t,
         ),

@@ -144,8 +144,36 @@ function ChatTurnView({ turn, anchorModule, onCitationClick, onBillClick }: Chat
       ) : null}
       {turn.busy ? <ThinkingStatus /> : null}
       {turn.error ? <div className="lc-chat-error">{turn.error}</div> : null}
-      {footer ? <div className="lc-chat-footer">{footer}</div> : null}
+      {footer ? (
+        <div className="lc-chat-footer">
+          <span>{footer}</span>
+          {turn.assistantText ? <CopyTurnButton text={turn.assistantText} stats={footer} /> : null}
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * Copies the turn's prose plus the footer stats (tool count, citation
+ * count, duration) as plain text. The stats ride below a `---` rule so
+ * a paste into notes/email keeps the answer separable from the metadata.
+ */
+function CopyTurnButton({ text, stats }: { text: string; stats: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const id = window.setTimeout(() => setCopied(false), 1600);
+    return () => window.clearTimeout(id);
+  }, [copied]);
+  const onCopy = (): void => {
+    void navigator.clipboard?.writeText(`${text}\n\n---\n${stats}`).catch(() => {});
+    setCopied(true);
+  };
+  return (
+    <button type="button" className="lc-chat-copy" onClick={onCopy} aria-label="Copy answer">
+      {copied ? "Copied" : "Copy"}
+    </button>
   );
 }
 

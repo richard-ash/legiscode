@@ -1047,6 +1047,33 @@ input {
   font-family: var(--font-sans);
   color: var(--text);
 }
+.lc-settings-nav {
+  display: flex;
+  gap: 4px;
+  max-width: 720px;
+  margin: 0 auto 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.lc-settings-nav-item {
+  padding: 5px 12px;
+  font-family: var(--font-sans);
+  font-size: var(--ui-sm);
+  color: var(--overlay1);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.lc-settings-nav-item:hover {
+  color: var(--text);
+  background: var(--bg-mantle);
+}
+.lc-settings-nav-active {
+  color: var(--text);
+  background: var(--bg-mantle);
+  border-color: var(--border);
+}
 .lc-settings-head {
   display: flex;
   align-items: baseline;

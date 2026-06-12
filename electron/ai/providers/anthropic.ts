@@ -28,8 +28,27 @@ export const ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-5";
  * (e.g. bill metadata → changes → per-section diff) without leaking
  * the plan into prose. Bumped by trial-and-error; revisit if turn
  * latency or accuracy moves.
+ *
+ * Only applies to models still on manual extended thinking. On
+ * adaptive-only models it's reused as max_tokens headroom so the
+ * caller's maxTokens stays available for visible output.
  */
 const THINKING_BUDGET_TOKENS = 4000;
+
+/**
+ * Opus 4.7 removed manual extended thinking: `{type: "enabled",
+ * budget_tokens}` returns a 400 and `{type: "adaptive"}` is the only
+ * on-mode. Sonnet 4.5 and Haiku 4.5 don't support adaptive, so the
+ * request shape is per-model. New Opus-tier or Claude 5 models added
+ * to the dropdown belong in this set.
+ */
+const ADAPTIVE_ONLY_THINKING_MODELS: ReadonlySet<string> = new Set(["claude-opus-4-7"]);
+
+function thinkingConfig(model: string): Anthropic.ThinkingConfigParam {
+  return ADAPTIVE_ONLY_THINKING_MODELS.has(model)
+    ? { type: "adaptive" }
+    : { type: "enabled", budget_tokens: THINKING_BUDGET_TOKENS };
+}
 
 /**
  * Models we expose in the settings dropdown. Sonnet default; Haiku for
@@ -68,13 +87,13 @@ export class AnthropicAdapter implements ModelProvider {
       //
       // max_tokens MUST exceed budget_tokens per the API contract; the
       // caller's maxTokens already covers both because we add the
-      // budget on top.
-      const thinkingBudget = THINKING_BUDGET_TOKENS;
+      // budget on top. On adaptive models thinking draws from the same
+      // max_tokens pool, so the headroom serves the same purpose.
       const stream = this.client.messages.stream(
         {
           model: req.model,
-          max_tokens: req.maxTokens + thinkingBudget,
-          thinking: { type: "enabled", budget_tokens: thinkingBudget },
+          max_tokens: req.maxTokens + THINKING_BUDGET_TOKENS,
+          thinking: thinkingConfig(req.model),
           system: req.systemCacheable
             ? [
                 {
@@ -85,7 +104,8 @@ export class AnthropicAdapter implements ModelProvider {
               ]
             : req.systemPrompt,
           tools: toAnthropicTools(req.tools),
-          messages: toAnthropicMessages(req.messages),
+          ...(req.toolChoice === "none" ? { tool_choice: { type: "none" as const } } : {}),
+          messages: toAnthropicMessages(req.messages, req.cacheConversation === true),
         },
         { signal: req.signal },
       );
@@ -127,17 +147,40 @@ function toAnthropicTools(tools: readonly ProviderToolDefinition[]): Anthropic.T
   });
 }
 
-function toAnthropicMessages(messages: readonly ProviderMessage[]): Anthropic.MessageParam[] {
-  return messages.map((m) => ({
+function toAnthropicMessages(
+  messages: readonly ProviderMessage[],
+  cacheConversation: boolean,
+): Anthropic.MessageParam[] {
+  // Conversation-window breakpoints. Caching is a prefix match, so a
+  // breakpoint on the LAST message makes the next round read everything
+  // before it. The SECOND breakpoint on the previous user message is the
+  // read point: it sits exactly where the prior request's entry was
+  // written, so the lookup still hits even when one round appends more
+  // than the 20-block lookback window (a high-fanout parallel-tool round
+  // can). Two message breakpoints + tools + system = 4, the API max.
+  //
+  // Only user messages are marked: the loop's requests always end with a
+  // user message, and user blocks (text / tool_result) accept
+  // cache_control — thinking blocks in assistant messages don't.
+  const marked = new Set<number>();
+  if (cacheConversation) {
+    for (let i = messages.length - 1; i >= 0 && marked.size < 2; i--) {
+      if ((messages[i] as ProviderMessage).role === "user") marked.add(i);
+    }
+  }
+  return messages.map((m, i) => ({
     role: m.role,
-    content: m.content.map(toAnthropicBlock),
+    content: m.content.map((b, j) =>
+      toAnthropicBlock(b, marked.has(i) && j === m.content.length - 1),
+    ),
   }));
 }
 
-function toAnthropicBlock(block: ProviderContentBlock): Anthropic.ContentBlockParam {
+function toAnthropicBlock(block: ProviderContentBlock, cache = false): Anthropic.ContentBlockParam {
+  const cacheControl = cache ? { cache_control: { type: "ephemeral" as const } } : {};
   switch (block.kind) {
     case "text":
-      return { type: "text", text: block.text };
+      return { type: "text", text: block.text, ...cacheControl };
     case "tool_use":
       return {
         type: "tool_use",
@@ -151,6 +194,7 @@ function toAnthropicBlock(block: ProviderContentBlock): Anthropic.ContentBlockPa
         tool_use_id: block.toolUseId,
         content: block.content,
         is_error: block.isError ?? false,
+        ...cacheControl,
       };
     case "thinking":
       return { type: "thinking", thinking: block.text, signature: block.signature };

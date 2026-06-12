@@ -112,6 +112,7 @@ export function TabContent({
         <SettingsPage
           section={item.section}
           tabPanel={{ id: `tabpanel-${identity}`, labelledBy: `tab-${identity}` }}
+          onNavigatePane={(pane) => navigate({ kind: "settings", section: pane }, "primary")}
         />
       );
     }
