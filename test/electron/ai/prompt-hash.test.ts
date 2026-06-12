@@ -33,6 +33,10 @@ describe("SYSTEM_PROMPT_V1 — feat/agent-polish rules", () => {
     ["R21 bill-impact-table template", "Current law:"],
     ["R22 reading-order template", "## Reading order"],
     ["R23 affected-section completeness", "affected_section_ids"],
+    ["R24 packet-triage template", "## Packet triage"],
+    ["R25 bill-claim discipline", "blockquotes"],
+    ["bill impact path", "/bills/{file_no}/impact"],
+    ["section dependencies path", "/modules/{module_id}/sections/{section_id}/dependencies"],
   ])("contains %s", (_label, needle) => {
     expect(SYSTEM_PROMPT_V1).toContain(needle);
   });
