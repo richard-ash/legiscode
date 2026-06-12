@@ -15,6 +15,7 @@
 //   /modules/{module_id}/sections/{section_id}/cited-by      → inverse citers
 //   /modules/{module_id}/sections/{section_id}/history       → ordinance history
 //   /modules/{module_id}/sections/{section_id}/amendments    → pending bills
+//   /modules/{module_id}/sections/{section_id}/dependencies  → full dependency picture
 //   /modules/{module_id}/definitions/{term}            → defs in module
 //   /definitions/{term}                                → defs across modules
 //   /ordinances                                        → recent ordinances
@@ -272,6 +273,60 @@ export interface BillSectionDiff extends ToolResultBase {
   diff: BillSectionDiffPayload;
 }
 
+// ─── Read payloads — section dependencies ───────────────────────────────────
+
+/** One outbound citation from the target section. */
+export interface DependencyCitation {
+  module_id: string;
+  section_id: string;
+  /** False when the cited module isn't loaded (e.g. a state-code cite).
+   *  Uninstalled targets keep their ref but carry no path to read. */
+  installed: boolean;
+  path: string | null;
+  display_label: string | null;
+  title: string | null;
+}
+
+/** A term the target section uses, with everywhere it's defined. */
+export interface DependencyDefinedTerm {
+  term: string;
+  /** Empty when no installed module defines the term. */
+  defined_in: readonly { module_id: string; section_id: string; path: string }[];
+}
+
+/**
+ * Composed dependency picture reachable at
+ * /modules/{m}/sections/{s}/dependencies — one read replacing separate
+ * cited-by, amendments, article, and definition lookups. Citers and
+ * siblings are listings, not fetches: the model still reads any
+ * section it wants to cite.
+ */
+export interface SectionDependenciesPayload {
+  module_id: string;
+  section_id: string;
+  display_label: string;
+  title: string;
+  editorial_status: "active" | "reserved" | "repealed" | "redesignated";
+  outbound_citations: readonly DependencyCitation[];
+  inbound_citers: readonly (CiterRef & { path: string })[];
+  defined_terms_used: readonly DependencyDefinedTerm[];
+  /** Null when the section carries no article metadata. */
+  article: {
+    article_id: string;
+    title: string;
+    parents: readonly { kind: "article" | "chapter"; id: string }[];
+    /** Sections under the same article, excluding the target. */
+    siblings: readonly ArticleSectionEntry[];
+  } | null;
+  pending_bills: readonly AmendmentRef[];
+}
+
+export interface SectionDependencies extends ToolResultBase {
+  ok: true;
+  kind: "section-dependencies";
+  dependencies: SectionDependenciesPayload;
+}
+
 // ─── Read payloads — bill impact ────────────────────────────────────────────
 
 /**
@@ -456,6 +511,7 @@ export type ReadOutput =
   | SectionCiters
   | SectionHistory
   | SectionAmendments
+  | SectionDependencies
   | BillMetadata
   | BillProposedText
   | BillChangesList

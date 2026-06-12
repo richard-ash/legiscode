@@ -12,6 +12,7 @@ import { getBillsIndex } from "../bills-index";
 import { getOrdinanceIndex } from "../ordinance-index";
 import { extractCitedRefs, getReverseGraph } from "../reverse-index";
 import { buildBillImpact } from "./bill-impact";
+import { buildSectionDependencies } from "./section-dependencies";
 import type {
   AmendmentRef,
   ArticleSectionEntry,
@@ -424,9 +425,12 @@ function readSectionPath(moduleId: string, rest: readonly string[], ctx: ToolCon
     case "amendments":
       if (rest.length !== 2) return notFound(`Trailing segments after .../amendments.`, ctx);
       return readSectionAmendments(moduleId, sectionId, ctx);
+    case "dependencies":
+      if (rest.length !== 2) return notFound(`Trailing segments after .../dependencies.`, ctx);
+      return buildSectionDependencies(moduleId, sectionId, ctx);
     default:
       return notFound(
-        `Unknown sub-resource /${rest[1]} on ${sectionId}. Try /cited-by, /history, or /amendments.`,
+        `Unknown sub-resource /${rest[1]} on ${sectionId}. Try /cited-by, /history, /amendments, or /dependencies.`,
         ctx,
       );
   }
@@ -666,7 +670,7 @@ function byIntroducedDesc(
   return a.file_no.localeCompare(b.file_no);
 }
 
-function normalizeTerm(term: string): string {
+export function normalizeTerm(term: string): string {
   return term.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
