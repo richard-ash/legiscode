@@ -1,0 +1,77 @@
+{
+  "section_outcomes": [
+    {
+      "section_id": "1.2",
+      "status": "anchored",
+      "detail": null
+    },
+    {
+      "section_id": "9.9",
+      "status": "no_baseline",
+      "detail": "Section 9.9 is not present in the test-alpha section index."
+    },
+    {
+      "section_id": "8.8",
+      "status": "unresolved",
+      "detail": "Raw section id 8.8 did not resolve against any installed module."
+    }
+  ],
+  "bill_status": "committee",
+  "file_no": "990003",
+  "introduced_at": "2026-06-02",
+  "legistar_status": "Pending — Test Committee",
+  "legistar_url": "https://example.test/legislation?id=990003",
+  "long_title": "Hermetic fixture ordinance with mixed per-section outcomes.",
+  "module_id": "test-alpha",
+  "parse_status": "partial",
+  "body": {
+    "preamble": "Hermetic fixture preamble for a mixed-outcome ordinance.",
+    "amendments": [
+      {
+        "action": "Section 1. Article 1 of the Test Alpha Code is hereby amended by revising Section 1.2, to read as follows:",
+        "target": {
+          "module_id": "test-alpha",
+          "raw_section_id": "1.2"
+        },
+        "body": [
+          {
+            "kind": "code_section_header",
+            "number": "1.2",
+            "title": "HERMETIC TEST SECTION TWO."
+          },
+          {
+            "kind": "paragraph",
+            "text": "PROPOSED TEXT — hermetic fixture body for §1.2 amendment."
+          }
+        ]
+      }
+    ],
+    "closing": ""
+  },
+  "short_title": "Hermetic Mixed-Outcome Ordinance",
+  "sponsor": null,
+  "structural_change_scope": null,
+  "diff_chunks": [
+    {
+      "op": "equal",
+      "text": "Hermetic fixture content for section 1.2.",
+      "section_id": "1.2"
+    },
+    {
+      "op": "insert",
+      "text": " All fixture events require a permit.",
+      "section_id": "1.2"
+    }
+  ],
+  "new_bodies": [
+    {
+      "section_id": "1.2",
+      "body": [
+        {
+          "kind": "text",
+          "text": "Hermetic fixture content for section 1.2. All fixture events require a permit."
+        }
+      ]
+    }
+  ]
+}

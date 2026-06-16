@@ -614,11 +614,25 @@ function harvestFetchedBills(
       body?: { file_no?: string };
       diff?: { file_no?: string };
       changes?: readonly { section_id?: string }[];
+      impact?: {
+        file_no?: string;
+        module_id?: string;
+        affected_section_ids?: readonly string[];
+      };
     };
     switch (p.kind) {
       case "bill":
         if (p.bill?.file_no) {
           upsert(p.bill.file_no, p.bill.module_id, p.bill.affected_section_ids);
+        }
+        break;
+      case "bill-impact":
+        // The impact report carries the same identity triple as the
+        // metadata payload; without this case an impact-only research
+        // turn would leave affected_section_ids unknown and R23 would
+        // silently skip the bill.
+        if (p.impact?.file_no) {
+          upsert(p.impact.file_no, p.impact.module_id, p.impact.affected_section_ids);
         }
         break;
       case "bills-list":

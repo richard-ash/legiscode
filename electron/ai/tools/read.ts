@@ -10,8 +10,9 @@ import { bodyToText } from "@/types";
 import type { AiCorpusHandle } from "../../corpus-loader";
 import { getBillsIndex } from "../bills-index";
 import { getOrdinanceIndex } from "../ordinance-index";
-import { extractCitedRefs } from "../reverse-index";
-import { getReverseGraph } from "../reverse-index";
+import { extractCitedRefs, getReverseGraph } from "../reverse-index";
+import { buildBillImpact, countOutcomes } from "./bill-impact";
+import { buildSectionDependencies } from "./section-dependencies";
 import type {
   AmendmentRef,
   ArticleSectionEntry,
@@ -105,9 +106,14 @@ function readBills(parts: readonly string[], ctx: ToolContext): ReadResult {
         `Path under /bills/${fileNo}/changes must be /bills/${fileNo}/changes or /bills/${fileNo}/changes/{module_id}/{section_id}.`,
         ctx,
       );
+    case "impact":
+      if (parts.length !== 3) {
+        return notFound(`Trailing segments after /bills/${fileNo}/impact.`, ctx);
+      }
+      return buildBillImpact(fileNo, ctx);
     default:
       return notFound(
-        `Unknown subpath /${parts[2]} under /bills/${fileNo}. Try /bills/${fileNo}/proposed-text or /bills/${fileNo}/changes.`,
+        `Unknown subpath /${parts[2]} under /bills/${fileNo}. Try /bills/${fileNo}/impact, /bills/${fileNo}/proposed-text, or /bills/${fileNo}/changes.`,
         ctx,
       );
   }
@@ -117,6 +123,7 @@ function listSessionBills(ctx: ToolContext): ReadResult {
   const all: SessionBillSummary[] = [];
   for (const mod of ctx.corpus.modules) {
     for (const bill of mod.sessionBills) {
+      const affectedIds = uniqueSectionIds(bill.section_outcomes);
       all.push({
         file_no: bill.file_no,
         module_id: mod.id,
@@ -127,7 +134,11 @@ function listSessionBills(ctx: ToolContext): ReadResult {
         sponsor: bill.sponsor,
         introduced_at: bill.introduced_at,
         legistar_url: bill.legistar_url,
-        affected_section_ids: uniqueSectionIds(bill.section_outcomes),
+        affected_section_ids: affectedIds,
+        parse_status: bill.parse_status,
+        affected_section_count: affectedIds.length,
+        outcome_counts: countOutcomes(bill.section_outcomes),
+        impact_path: `/bills/${bill.file_no}/impact`,
       });
     }
   }
@@ -164,6 +175,7 @@ function readBillMetadata(bill: Bill, ctx: ToolContext): ReadResult {
       subpaths: {
         proposed_text: `/bills/${bill.file_no}/proposed-text`,
         changes: `/bills/${bill.file_no}/changes`,
+        impact: `/bills/${bill.file_no}/impact`,
       },
     },
     fetched: [],
@@ -418,9 +430,12 @@ function readSectionPath(moduleId: string, rest: readonly string[], ctx: ToolCon
     case "amendments":
       if (rest.length !== 2) return notFound(`Trailing segments after .../amendments.`, ctx);
       return readSectionAmendments(moduleId, sectionId, ctx);
+    case "dependencies":
+      if (rest.length !== 2) return notFound(`Trailing segments after .../dependencies.`, ctx);
+      return buildSectionDependencies(moduleId, sectionId, ctx);
     default:
       return notFound(
-        `Unknown sub-resource /${rest[1]} on ${sectionId}. Try /cited-by, /history, or /amendments.`,
+        `Unknown sub-resource /${rest[1]} on ${sectionId}. Try /cited-by, /history, /amendments, or /dependencies.`,
         ctx,
       );
   }
@@ -660,7 +675,7 @@ function byIntroducedDesc(
   return a.file_no.localeCompare(b.file_no);
 }
 
-function normalizeTerm(term: string): string {
+export function normalizeTerm(term: string): string {
   return term.trim().toLowerCase().replace(/\s+/g, " ");
 }
 

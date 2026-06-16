@@ -211,15 +211,35 @@ describe("read /bills", () => {
     const payload = result.payload as unknown as {
       kind: string;
       total: number;
-      bills: readonly { file_no: string; module_id: string; bill_status: string }[];
+      bills: readonly {
+        file_no: string;
+        module_id: string;
+        bill_status: string;
+        parse_status: string;
+        affected_section_count: number;
+        outcome_counts: Record<string, number>;
+        impact_path: string;
+      }[];
       truncated: boolean;
     };
     expect(payload.kind).toBe("bills-list");
-    // The hermetic corpus-min fixture has one bill under test-alpha.
-    expect(payload.total).toBe(1);
-    expect(payload.bills[0]?.file_no).toBe("990001");
+    // The hermetic corpus-min fixture has three bills under test-alpha,
+    // listed newest-introduced first.
+    expect(payload.total).toBe(3);
+    expect(payload.bills.map((b) => b.file_no)).toEqual(["990003", "990002", "990001"]);
     expect(payload.bills[0]?.module_id).toBe("test-alpha");
     expect(payload.truncated).toBe(false);
+    // Each row carries triage stats so a packet sweep can rank bills
+    // without a per-bill metadata read.
+    const mixed = payload.bills.find((b) => b.file_no === "990003");
+    expect(mixed?.parse_status).toBe("partial");
+    expect(mixed?.affected_section_count).toBe(3);
+    expect(mixed?.outcome_counts).toEqual({ anchored: 1, no_baseline: 1, unresolved: 1 });
+    expect(mixed?.impact_path).toBe("/bills/990003/impact");
+    const bodyOnly = payload.bills.find((b) => b.file_no === "990002");
+    expect(bodyOnly?.parse_status).toBe("body_only");
+    expect(bodyOnly?.affected_section_count).toBe(0);
+    expect(bodyOnly?.outcome_counts).toEqual({});
     // Bills are session-state, not law — `fetched` stays empty.
     expect(result.payload.fetched).toEqual([]);
   });
@@ -235,12 +255,16 @@ describe("read /bills/{file_no}", () => {
     expect(result.payload.ok).toBe(true);
     const payload = result.payload as unknown as {
       kind: string;
-      bill: { file_no: string; subpaths: { proposed_text: string; changes: string } };
+      bill: {
+        file_no: string;
+        subpaths: { proposed_text: string; changes: string; impact: string };
+      };
     };
     expect(payload.kind).toBe("bill");
     expect(payload.bill.file_no).toBe("990001");
     expect(payload.bill.subpaths.proposed_text).toBe("/bills/990001/proposed-text");
     expect(payload.bill.subpaths.changes).toBe("/bills/990001/changes");
+    expect(payload.bill.subpaths.impact).toBe("/bills/990001/impact");
   });
 
   it("returns not_found for an unknown file_no", async () => {
