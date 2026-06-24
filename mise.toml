@@ -10,6 +10,10 @@ run = "git config core.hooksPath .githooks && echo 'core.hooksPath -> .githooks 
 description = "Build a jurisdiction module from manifest input. Usage: mise run corpus:build -- --module sf-transportation --source manifests/sf-transportation/manifest.json --output build/modules/sf-transportation/"
 run = "pnpm exec tsx scripts/sync-corpus.ts"
 
+[tasks."modules:pack"]
+description = "Pack built modules into downloadable archives and emit versioned catalog. Reads build/modules/, writes archives + index.json + catalog-<jd>.json to build/dist/."
+run = "pnpm exec tsx scripts/pack-modules.ts"
+
 [tasks."bills:fetch"]
 description = "Lane-1 operator-driven scraper. Walks SF Legistar pending-legislation search, downloads latest Leg Ver{N} attachments, writes build/downloads/bills/bills-index.json. Non-hermetic; never runs in CI."
 run = "pnpm exec tsx scripts/fetch-bills.ts --manifest manifests/sf/jurisdiction.json"
