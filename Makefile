@@ -1,5 +1,18 @@
 .DEFAULT_GOAL := help
-.PHONY: help install dev build-app typecheck lint format format-check test test-e2e build ci clean corpus-rebuild bills-fetch bills-sync docker-build docker-quality docker-dist docker-clean
+.PHONY: help install dev build-app typecheck lint format format-check test test-e2e build ci clean corpus-rebuild bills-fetch bills-sync epic decompose agent-tick docker-build docker-quality docker-dist docker-clean
+
+# Permission mode for the headless `claude` tick. `auto` runs the auto-mode
+# classifier, which approves routine gh/git/pnpm commands without a prompt
+# (headless can't answer prompts) while still blocking dangerous ones — the
+# right default for an unattended tick. acceptEdits only covers file edits and
+# would stall; bypassPermissions approves everything. Override per-run with
+# CLAUDE_FLAGS=... (e.g. bypassPermissions on a throwaway/VM). See docs/AGENTS.md.
+CLAUDE_FLAGS ?= --permission-mode auto
+
+# Model for the implementation tick. Sonnet handles a pre-scoped ~500-LOC
+# sub-issue cheaply; bump a tricky one back to Opus per-run: make agent-tick MODEL=opus.
+# (decompose stays on your default model — planning wants the stronger reasoning.)
+MODEL ?= sonnet
 
 help: ## Show this help
 	@awk 'BEGIN { FS = ":.*##"; printf "Usage: make <target>\n\nTargets:\n" } /^[a-zA-Z][a-zA-Z0-9_-]*:.*##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -49,6 +62,15 @@ bills-fetch: ## Scrape SF Legistar for pending bills into build/downloads/bills/
 
 bills-sync: ## Parse fetched bills into per-module pending-bill bundles (reads build/downloads/bills/bills-index.json)
 	@mise run bills:sync
+
+epic: ## Create an epic issue to kick off the agent loop (make epic title="...")
+	@gh issue create --label epic $(if $(title),--title "$(title)")
+
+decompose: ## Plan an epic into agent-ready sub-issues; you approve (make decompose issue=52)
+	@claude "/decompose $(issue)"
+
+agent-tick: ## Implement the next ready sub-issue into a PR (headless, Sonnet; takes minutes — no timeout)
+	@claude -p "/agent-tick" --model $(MODEL) $(CLAUDE_FLAGS)
 
 docker-build: ## Build the CI container image (source target)
 	@docker buildx build --target source -t legiscode-ci:latest -f .development/Dockerfile --load .
