@@ -46,11 +46,7 @@ async function buildFixtureModule(modulesDir: string, moduleId: string): Promise
     JSON.stringify(makeCorpusMeta(moduleId)),
     "utf8",
   );
-  await writeFile(
-    join(moduleDir, "manifest.json"),
-    JSON.stringify(makeManifest(moduleId)),
-    "utf8",
-  );
+  await writeFile(join(moduleDir, "manifest.json"), JSON.stringify(makeManifest(moduleId)), "utf8");
   // At least one file in sections so the tar is non-trivial
   await writeFile(
     join(moduleDir, "sections", "1.json"),
@@ -129,10 +125,7 @@ describe("packModules", () => {
     try {
       execFileSync("tar", ["-xzf", join(outputDir, archiveEntry.archive), "-C", extractDir]);
 
-      const originalMeta = await readFile(
-        join(modulesDir, "sf-alpha", "corpus-meta.json"),
-        "utf8",
-      );
+      const originalMeta = await readFile(join(modulesDir, "sf-alpha", "corpus-meta.json"), "utf8");
       const extractedMeta = await readFile(
         join(extractDir, "sf-alpha", "corpus-meta.json"),
         "utf8",

@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { CorpusMetaSchema } from "@/types/corpus-meta";
+import { CorpusMetaSchema, KNOWN_SCHEMA_VERSION } from "@/types/corpus-meta";
 import { DistributedModuleManifestSchema } from "@/types/manifest";
 import {
   CatalogIndexSchema,
@@ -42,8 +42,15 @@ export async function packModules(opts: PackOptions): Promise<void> {
     const meta = CorpusMetaSchema.parse(JSON.parse(rawMeta));
     const manifest = DistributedModuleManifestSchema.parse(JSON.parse(rawManifest));
 
-    // Derive jurisdiction id from module id prefix (before first hyphen)
-    const jdId = moduleId.split("-")[0] ?? moduleId;
+    // Module IDs must follow {jurisdiction}-{name} (e.g. "sf-administrative").
+    // A bare name with no hyphen would silently derive jdId === moduleId and
+    // file the catalog under the wrong key.
+    if (!moduleId.includes("-")) {
+      throw new Error(
+        `module directory "${moduleId}" must follow {jurisdiction}-{name} convention (e.g. "sf-administrative")`,
+      );
+    }
+    const jdId = moduleId.split("-")[0] as string;
     const jdName = manifest.jurisdiction;
 
     const archiveName = `${moduleId}@${meta.module_version}.tar.gz`;
@@ -75,7 +82,7 @@ export async function packModules(opts: PackOptions): Promise<void> {
   }
 
   const generatedAt = new Date().toISOString();
-  const schemaVersion = 5;
+  const schemaVersion = KNOWN_SCHEMA_VERSION;
 
   // Write per-jurisdiction catalogs
   for (const [jdId, { name, modules }] of byJd) {
@@ -114,9 +121,13 @@ async function main(argv: string[]): Promise<number> {
 
   for (let i = 0; i < args.length; i++) {
     const next = args[i + 1];
-    if (args[i] === "--modules-dir" && next) { modulesDir = next; i++; }
-    else if (args[i] === "--output" && next) { outputDir = next; i++; }
-    else if (args[i] === "--help") {
+    if (args[i] === "--modules-dir" && next) {
+      modulesDir = next;
+      i++;
+    } else if (args[i] === "--output" && next) {
+      outputDir = next;
+      i++;
+    } else if (args[i] === "--help") {
       console.log("Usage: pack-modules [--modules-dir DIR] [--output DIR]");
       return 0;
     }
@@ -133,5 +144,7 @@ async function main(argv: string[]): Promise<number> {
 }
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
-  main(process.argv).then(process.exit);
+  main(process.argv)
+    .then(process.exit)
+    .catch(() => process.exit(1));
 }
