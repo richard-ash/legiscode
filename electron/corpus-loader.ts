@@ -20,7 +20,7 @@
 // against the boot once-per-app-launch.
 
 import { createHash } from "node:crypto";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { cp, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import {
   type Bill,
@@ -165,12 +165,21 @@ type LoaderState = LoadedCorpus | { kind: "error"; error: CorpusError };
 
 let state: LoaderState | null = null;
 
+/** Returns true when the caller has set an explicit corpus override via argv or env. */
+export function hasExplicitCorpusPath(
+  argv: readonly string[] = process.argv,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return argv.some((a) => a.startsWith("--corpus-path=")) || !!env.LEGISCODE_CORPUS_PATH?.length;
+}
+
 /**
  * Resolve the corpus root directory. Precedence:
  *   1. `--corpus-path=<path>` from argv (absolute or cwd-relative)
  *   2. `LEGISCODE_CORPUS_PATH` env var
- *   3. dev:  `<projectRoot>/build/modules/`
- *      prod: `<process.resourcesPath>/corpus/`
+ *   3. prod + userDataPath: `<userDataPath>/modules` overlay
+ *   4. dev:  `<projectRoot>/build/modules/`
+ *      prod: `<process.resourcesPath>/corpus/` (bundled fallback)
  */
 export function resolveCorpusPath(opts: {
   argv?: readonly string[];
@@ -178,6 +187,11 @@ export function resolveCorpusPath(opts: {
   isPackaged: boolean;
   resourcesPath: string;
   projectRoot: string;
+  /** Electron userData dir. When provided in prod mode, the writable
+   *  overlay (`<userDataPath>/modules`) takes precedence over the
+   *  bundled corpus. Caller must have already seeded the overlay via
+   *  `seedUserDataModules` before calling this. */
+  userDataPath?: string;
 }): string {
   const argv = opts.argv ?? process.argv;
   const env = opts.env ?? process.env;
@@ -190,9 +204,41 @@ export function resolveCorpusPath(opts: {
   if (envPath && envPath.length > 0) {
     return isAbsolute(envPath) ? envPath : resolve(process.cwd(), envPath);
   }
+  if (opts.isPackaged && opts.userDataPath) {
+    return join(opts.userDataPath, "modules");
+  }
   return opts.isPackaged
     ? join(opts.resourcesPath, "corpus")
     : join(opts.projectRoot, "build", "modules");
+}
+
+/**
+ * Seed `<userDataPath>/modules` from the bundled `<resourcesPath>/corpus`
+ * if the overlay is absent or empty. Atomic: copies to a temp sibling then
+ * renames. No-op when the overlay already contains module directories.
+ * Throws on copy/rename failure — caller decides the fallback strategy.
+ */
+export async function seedUserDataModules(opts: {
+  userDataPath: string;
+  resourcesPath: string;
+}): Promise<void> {
+  const overlayDir = join(opts.userDataPath, "modules");
+  const s = await stat(overlayDir).catch(() => null);
+  if (s?.isDirectory()) {
+    const entries = await readdir(overlayDir);
+    if (entries.length > 0) return;
+    // Empty dir: remove so the rename below lands cleanly on all platforms.
+    await rm(overlayDir, { recursive: true, force: true });
+  }
+  const bundled = join(opts.resourcesPath, "corpus");
+  const tmp = `${overlayDir}.tmp`;
+  try {
+    await cp(bundled, tmp, { recursive: true });
+    await rename(tmp, overlayDir);
+  } catch (err) {
+    await rm(tmp, { recursive: true, force: true }).catch(() => {});
+    throw err;
+  }
 }
 
 /**

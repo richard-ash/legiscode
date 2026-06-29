@@ -1,14 +1,16 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   __resetCorpusForTests,
+  hasExplicitCorpusPath,
   listCorpus,
   loadCorpus,
   readSection,
   resolveCorpusPath,
+  seedUserDataModules,
 } from "../../electron/corpus-loader";
 
 interface FixtureSection {
@@ -137,6 +139,20 @@ async function buildFixtureCorpus(
   }
 }
 
+describe("hasExplicitCorpusPath", () => {
+  it("returns true when --corpus-path flag is present", () => {
+    expect(hasExplicitCorpusPath(["node", "main.js", "--corpus-path=/abs"], {})).toBe(true);
+  });
+
+  it("returns true when LEGISCODE_CORPUS_PATH env var is set", () => {
+    expect(hasExplicitCorpusPath([], { LEGISCODE_CORPUS_PATH: "/env/path" })).toBe(true);
+  });
+
+  it("returns false when neither flag nor env var is present", () => {
+    expect(hasExplicitCorpusPath(["node", "main.js"], {})).toBe(false);
+  });
+});
+
 describe("resolveCorpusPath", () => {
   it("uses --corpus-path argv flag when provided (absolute)", () => {
     const path = resolveCorpusPath({
@@ -171,7 +187,7 @@ describe("resolveCorpusPath", () => {
     expect(path).toBe("/repo/build/modules");
   });
 
-  it("uses process.resourcesPath/corpus in prod", () => {
+  it("uses process.resourcesPath/corpus in prod (no userDataPath)", () => {
     const path = resolveCorpusPath({
       argv: ["node", "main.js"],
       env: {},
@@ -180,6 +196,54 @@ describe("resolveCorpusPath", () => {
       projectRoot: "/repo",
     });
     expect(path).toBe("/Resources/corpus");
+  });
+
+  it("uses userData/modules overlay in prod when userDataPath is provided", () => {
+    const path = resolveCorpusPath({
+      argv: ["node", "main.js"],
+      env: {},
+      isPackaged: true,
+      resourcesPath: "/Resources",
+      projectRoot: "/repo",
+      userDataPath: "/Users/foo/userData",
+    });
+    expect(path).toBe("/Users/foo/userData/modules");
+  });
+
+  it("CLI flag beats userData overlay in prod", () => {
+    const path = resolveCorpusPath({
+      argv: ["node", "main.js", "--corpus-path=/custom/corpus"],
+      env: {},
+      isPackaged: true,
+      resourcesPath: "/Resources",
+      projectRoot: "/repo",
+      userDataPath: "/Users/foo/userData",
+    });
+    expect(path).toBe("/custom/corpus");
+  });
+
+  it("env var beats userData overlay in prod", () => {
+    const path = resolveCorpusPath({
+      argv: ["node", "main.js"],
+      env: { LEGISCODE_CORPUS_PATH: "/env/corpus" },
+      isPackaged: true,
+      resourcesPath: "/Resources",
+      projectRoot: "/repo",
+      userDataPath: "/Users/foo/userData",
+    });
+    expect(path).toBe("/env/corpus");
+  });
+
+  it("ignores userDataPath in dev mode — build/modules wins", () => {
+    const path = resolveCorpusPath({
+      argv: ["node", "main.js"],
+      env: {},
+      isPackaged: false,
+      resourcesPath: "/Resources",
+      projectRoot: "/repo",
+      userDataPath: "/Users/foo/userData",
+    });
+    expect(path).toBe("/repo/build/modules");
   });
 });
 
@@ -1024,5 +1088,78 @@ describe("loadCorpus + listCorpus + readSection", () => {
     expect(missingSection.ok).toBe(false);
     if (missingSection.ok) return;
     expect(missingSection.error.kind).toBe("not_found");
+  });
+});
+
+describe("seedUserDataModules", () => {
+  let tmpBase: string;
+
+  beforeEach(async () => {
+    tmpBase = await mkdtemp(join(tmpdir(), "legiscode-seed-"));
+  });
+
+  afterEach(async () => {
+    await rm(tmpBase, { recursive: true, force: true });
+  });
+
+  async function makeBundledCorpus(
+    base: string,
+  ): Promise<{ resourcesPath: string; userDataPath: string }> {
+    const resourcesPath = join(base, "resources");
+    const userDataPath = join(base, "userData");
+    await mkdir(join(resourcesPath, "corpus", "sf-port"), { recursive: true });
+    await writeFile(join(resourcesPath, "corpus", "sf-port", "manifest.json"), "{}");
+    await mkdir(userDataPath, { recursive: true });
+    return { resourcesPath, userDataPath };
+  }
+
+  it("copies bundled corpus into userData/modules on first run", async () => {
+    const { resourcesPath, userDataPath } = await makeBundledCorpus(tmpBase);
+
+    await seedUserDataModules({ userDataPath, resourcesPath });
+
+    const entries = await readdir(join(userDataPath, "modules"));
+    expect(entries).toContain("sf-port");
+    // Verify the file was actually copied.
+    const copied = await stat(join(userDataPath, "modules", "sf-port", "manifest.json"));
+    expect(copied.isFile()).toBe(true);
+  });
+
+  it("is a no-op when overlay already has content", async () => {
+    const { resourcesPath, userDataPath } = await makeBundledCorpus(tmpBase);
+    // Pre-populate the overlay with a different module.
+    await mkdir(join(userDataPath, "modules", "sf-fire"), { recursive: true });
+    await writeFile(join(userDataPath, "modules", "sf-fire", "manifest.json"), "{}");
+
+    await seedUserDataModules({ userDataPath, resourcesPath });
+
+    // The overlay should still have only the pre-existing module.
+    const entries = await readdir(join(userDataPath, "modules"));
+    expect(entries).toContain("sf-fire");
+    expect(entries).not.toContain("sf-port");
+  });
+
+  it("seeds into an existing empty overlay dir", async () => {
+    const { resourcesPath, userDataPath } = await makeBundledCorpus(tmpBase);
+    // Create the overlay dir but leave it empty.
+    await mkdir(join(userDataPath, "modules"), { recursive: true });
+
+    await seedUserDataModules({ userDataPath, resourcesPath });
+
+    const entries = await readdir(join(userDataPath, "modules"));
+    expect(entries).toContain("sf-port");
+  });
+
+  it("throws when the bundled corpus is missing and cleans up the tmp dir", async () => {
+    const resourcesPath = join(tmpBase, "resources");
+    const userDataPath = join(tmpBase, "userData");
+    // No corpus dir — bundled source is absent.
+    await mkdir(resourcesPath, { recursive: true });
+    await mkdir(userDataPath, { recursive: true });
+
+    await expect(seedUserDataModules({ userDataPath, resourcesPath })).rejects.toThrow();
+    // Cleanup: tmp dir must not be left behind.
+    const tmp = await stat(join(userDataPath, "modules.tmp")).catch(() => null);
+    expect(tmp).toBeNull();
   });
 });

@@ -13,11 +13,13 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, screen, session, shell } from "electron";
 import { buildAiHandlers } from "./ai/index";
 import {
+  hasExplicitCorpusPath,
   listCorpus,
   loadCorpus,
   readSection,
   rememberCorpusRoot,
   resolveCorpusPath,
+  seedUserDataModules,
 } from "./corpus-loader";
 import { buildDevCsp, buildProdCsp } from "./csp";
 import { assertAllChannelsRegistered, type Handlers, registerHandlers } from "./ipc/main-handlers";
@@ -46,16 +48,49 @@ app.whenReady().then(async () => {
   // Kick the corpus load before the window so disk I/O overlaps with
   // BrowserWindow construction. The window stays show:false until
   // both webContents.did-finish-load and this promise resolve.
-  const corpusRoot = resolveCorpusPath({
-    isPackaged: app.isPackaged,
-    resourcesPath: process.resourcesPath,
-    projectRoot,
-  });
-  // The AI tool module reads the corpus root path for lazy
-  // ordinance-history loads. Stashing it here means the AI module never
-  // re-parses argv or env to find it.
-  rememberCorpusRoot(corpusRoot);
-  corpusReady = loadCorpus(corpusRoot);
+
+  if (app.isPackaged && !hasExplicitCorpusPath()) {
+    // Kick the seed without awaiting — disk I/O runs concurrently with
+    // BrowserWindow construction. The seed resolves the overlay path on
+    // success, or falls back to the bundled corpus on failure.
+    // corpusReady chains on the seed so the window show gate waits for both.
+    corpusReady = seedUserDataModules({
+      userDataPath: app.getPath("userData"),
+      resourcesPath: process.resourcesPath,
+    })
+      .then(
+        () =>
+          resolveCorpusPath({
+            isPackaged: true,
+            resourcesPath: process.resourcesPath,
+            projectRoot,
+            userDataPath: app.getPath("userData"),
+          }),
+        (err: unknown) => {
+          console.error("corpus overlay seed failed, falling back to bundled corpus:", err);
+          return resolveCorpusPath({
+            isPackaged: true,
+            resourcesPath: process.resourcesPath,
+            projectRoot,
+          });
+        },
+      )
+      .then((root) => {
+        // The AI tool module reads the corpus root path for lazy
+        // ordinance-history loads. Stashing it here means the AI module
+        // never re-parses argv or env to find it.
+        rememberCorpusRoot(root);
+        return loadCorpus(root);
+      });
+  } else {
+    const corpusRoot = resolveCorpusPath({
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      projectRoot,
+    });
+    rememberCorpusRoot(corpusRoot);
+    corpusReady = loadCorpus(corpusRoot);
+  }
 
   installCspGuard();
   registerIpcHandlers();
