@@ -91,6 +91,7 @@ function buildApi(overrides: Partial<Api["corpus"]> = {}): Api {
     app: { ping: vi.fn().mockResolvedValue({ pong: 1 }) },
     shell: { openExternal: vi.fn().mockResolvedValue({ ok: true, value: undefined }) },
     ai: aiStub(),
+    modules: { list: vi.fn().mockResolvedValue({ ok: true, value: [] }) },
   };
 }
 
@@ -233,6 +234,7 @@ function buildPopulatedApi(): Api {
     app: { ping: vi.fn().mockResolvedValue({ pong: 1 }) },
     shell: { openExternal: vi.fn().mockResolvedValue({ ok: true, value: undefined }) },
     ai: aiStub(),
+    modules: { list: vi.fn().mockResolvedValue({ ok: true, value: [] }) },
   };
 }
 
@@ -688,6 +690,7 @@ function buildPopulatedApiWithCitations(
     app: { ping: vi.fn().mockResolvedValue({ pong: 1 }) },
     shell: { openExternal: vi.fn().mockResolvedValue({ ok: true, value: undefined }) },
     ai: aiStub(),
+    modules: { list: vi.fn().mockResolvedValue({ ok: true, value: [] }) },
   };
 }
 

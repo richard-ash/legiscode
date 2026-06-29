@@ -80,13 +80,15 @@ describe("SettingsPage — pane nav", () => {
     expect(screen.queryByRole("navigation", { name: "Settings sections" })).not.toBeInTheDocument();
   });
 
-  it("renders both pane entries with the active one marked aria-current", () => {
+  it("renders all three pane entries with the active one marked aria-current", () => {
     render(<SettingsPage section="shortcuts" onNavigatePane={() => {}} />);
     const nav = screen.getByRole("navigation", { name: "Settings sections" });
     const active = within(nav).getByRole("button", { name: "Keyboard Shortcuts" });
-    const other = within(nav).getByRole("button", { name: "AI" });
+    const aiBtn = within(nav).getByRole("button", { name: "AI" });
+    const modulesBtn = within(nav).getByRole("button", { name: "Law Packages" });
     expect(active.getAttribute("aria-current")).toBe("page");
-    expect(other.getAttribute("aria-current")).toBeNull();
+    expect(aiBtn.getAttribute("aria-current")).toBeNull();
+    expect(modulesBtn.getAttribute("aria-current")).toBeNull();
   });
 
   it("navigates to the AI pane on click and no-ops on the active pane", () => {
@@ -97,6 +99,15 @@ describe("SettingsPage — pane nav", () => {
     expect(onNavigatePane).not.toHaveBeenCalled();
     fireEvent.click(within(nav).getByRole("button", { name: "AI" }));
     expect(onNavigatePane).toHaveBeenCalledWith("ai");
+    expect(onNavigatePane).toHaveBeenCalledTimes(1);
+  });
+
+  it("navigates to the modules pane on click", () => {
+    const onNavigatePane = vi.fn();
+    render(<SettingsPage section="shortcuts" onNavigatePane={onNavigatePane} />);
+    const nav = screen.getByRole("navigation", { name: "Settings sections" });
+    fireEvent.click(within(nav).getByRole("button", { name: "Law Packages" }));
+    expect(onNavigatePane).toHaveBeenCalledWith("modules");
     expect(onNavigatePane).toHaveBeenCalledTimes(1);
   });
 });

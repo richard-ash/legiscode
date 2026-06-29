@@ -481,6 +481,17 @@ describe("persistence interop", () => {
     expect(round.items[1]).toEqual({ kind: "settings", section: "shortcuts" });
     expect(round.activeIndex).toBe(1);
   });
+
+  it("persists and rehydrates a modules settings tab", () => {
+    const items: OpenItem[] = [
+      { kind: "section", ref: refA },
+      { kind: "settings", section: "modules" },
+    ];
+    const round = fromPersisted(toPersisted({ items, activeIndex: 1 }));
+    expect(round.items).toHaveLength(2);
+    expect(round.items[1]).toEqual({ kind: "settings", section: "modules" });
+    expect(round.activeIndex).toBe(1);
+  });
 });
 
 describe("itemIdentity / findItemIndex", () => {

@@ -188,6 +188,21 @@ export type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
 export type CorpusListResult = Result<CorpusModuleSummary, CorpusError>;
 export type CorpusReadResult = Result<CorpusSectionView, CorpusError>;
 
+// ─── modules:list ───────────────────────────────────────────────────────────
+
+/** Per-module metadata returned by `modules:list`. */
+export interface ModuleInfo {
+  id: string;
+  name: string;
+  jurisdiction: string;
+  module_version: string;
+  schema_version?: number;
+  section_count: number;
+  snapshot_at?: string;
+}
+
+export type ModulesListResult = Result<ModuleInfo[], CorpusError>;
+
 export interface AppPingResult {
   /** Monotonic ms timestamp from the main process. */
   pong: number;

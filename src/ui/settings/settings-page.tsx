@@ -23,6 +23,7 @@ import {
 } from "@/ui/shortcuts/registry";
 import type { SettingsPane } from "@/workbench/open-items";
 import { AiSettingsPane } from "./ai-pane";
+import { ModulesPane } from "./modules-pane";
 
 export interface SettingsPageProps {
   section: SettingsPane;
@@ -34,10 +35,11 @@ export interface SettingsPageProps {
   onNavigatePane?: (pane: SettingsPane) => void;
 }
 
-const PANE_ORDER: readonly SettingsPane[] = ["shortcuts", "ai"];
+const PANE_ORDER: readonly SettingsPane[] = ["shortcuts", "ai", "modules"];
 const PANE_LABELS: Record<SettingsPane, string> = {
   shortcuts: "Keyboard Shortcuts",
   ai: "AI",
+  modules: "Law Packages",
 };
 
 /** Pane switcher shared by every settings pane. Before this nav existed
@@ -163,6 +165,14 @@ export function SettingsPage({ section, tabPanel, onNavigatePane }: SettingsPage
       <div {...tabPanelAttrsForSwitch} className="lc-settings-page">
         <PaneNav active="ai" onNavigatePane={onNavigatePane} />
         <AiSettingsPane />
+      </div>
+    );
+  }
+  if (section === "modules") {
+    return (
+      <div {...tabPanelAttrsForSwitch} className="lc-settings-page">
+        <PaneNav active="modules" onNavigatePane={onNavigatePane} />
+        <ModulesPane />
       </div>
     );
   }

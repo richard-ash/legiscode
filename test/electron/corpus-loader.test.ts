@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   __resetCorpusForTests,
   listCorpus,
+  listModules,
   loadCorpus,
   readSection,
   resolveCorpusPath,
@@ -1024,5 +1025,63 @@ describe("loadCorpus + listCorpus + readSection", () => {
     expect(missingSection.ok).toBe(false);
     if (missingSection.ok) return;
     expect(missingSection.error.kind).toBe("not_found");
+  });
+});
+
+describe("listModules", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "lc-test-modules-"));
+    __resetCorpusForTests();
+  });
+
+  afterEach(async () => {
+    __resetCorpusForTests();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("returns not_loaded when corpus has not been loaded", () => {
+    const result = listModules();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("not_loaded");
+  });
+
+  it("returns one entry per module with correct fields", async () => {
+    await buildFixtureCorpus(dir, [
+      {
+        id: "sf-port",
+        name: "San Francisco Port Code",
+        codeTitle: "Port Code",
+        moduleVersion: "2026.04.01",
+        jurisdiction: "City and County of San Francisco",
+        sections: [
+          { id: "1.1", title: "A" },
+          { id: "1.2", title: "B" },
+        ],
+        schemaVersion: 5,
+      },
+    ]);
+    await loadCorpus(dir);
+    const result = listModules();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toHaveLength(1);
+    const m = result.value[0];
+    expect(m?.id).toBe("sf-port");
+    expect(m?.name).toBe("San Francisco Port Code");
+    expect(m?.jurisdiction).toBe("City and County of San Francisco");
+    expect(m?.module_version).toBe("2026.04.01");
+    expect(m?.schema_version).toBe(5);
+    expect(m?.section_count).toBe(2);
+  });
+
+  it("returns empty array when corpus has no modules (error case returns error)", async () => {
+    // Loading a non-existent dir → error state
+    const result = await loadCorpus(join(dir, "nonexistent"));
+    expect(result.kind).toBe("error");
+    const listed = listModules();
+    expect(listed.ok).toBe(false);
   });
 });

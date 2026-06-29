@@ -28,6 +28,7 @@ import {
   BillSchema,
   BillsIndexSchema,
   type BodySegment,
+  CorpusMetaSchema,
   type Definition,
   type DefinitionId,
   MIN_SUPPORTED_SCHEMA_VERSION,
@@ -47,6 +48,7 @@ import type {
   CorpusReadRequest,
   CorpusReadResult,
   CorpusTreeNode,
+  ModulesListResult,
 } from "./ipc/contract";
 
 // Per-section wire shape returned for the popover lookup. Mirrors
@@ -110,6 +112,10 @@ interface LoadedModule {
   codeTitle: string;
   /** YYYY.MM.DD per CorpusMetaSchema.module_version. */
   moduleVersion: string;
+  /** corpus-meta.json schema_version, if present. */
+  schemaVersion?: number;
+  /** corpus-meta.json snapshot_at ISO timestamp, if present. */
+  snapshotAt?: string;
   jurisdiction: string;
   /** Sections sorted by SectionId ascending (numeric-aware). */
   sections: LoadedSection[];
@@ -272,6 +278,26 @@ export function listCorpus(): CorpusListResult {
   return { ok: true, value: state.summary };
 }
 
+/** Return per-module metadata for the Settings → Modules pane. */
+export function listModules(): ModulesListResult {
+  if (state === null) {
+    return { ok: false, error: { kind: "not_loaded", detail: "Corpus has not been loaded." } };
+  }
+  if (state.kind === "error") return { ok: false, error: state.error };
+  return {
+    ok: true,
+    value: state.modules.map((m) => ({
+      id: m.id,
+      name: m.name,
+      jurisdiction: m.jurisdiction,
+      module_version: m.moduleVersion,
+      schema_version: m.schemaVersion,
+      section_count: m.sections.length,
+      snapshot_at: m.snapshotAt,
+    })),
+  };
+}
+
 /** Resolve a single section. Returns a domain error if the ref is unknown. */
 export function readSection(req: CorpusReadRequest): CorpusReadResult {
   if (state === null) {
@@ -397,9 +423,15 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
     jurisdiction: string;
     module_version: string;
   };
-  const meta = JSON.parse(await readFile(join(moduleDir, "corpus-meta.json"), "utf8")) as {
+  const metaRaw = JSON.parse(await readFile(join(moduleDir, "corpus-meta.json"), "utf8")) as {
     module_version: string;
     schema_version?: number;
+  };
+  const metaValidated = CorpusMetaSchema.safeParse(metaRaw);
+  const meta = {
+    module_version: metaRaw.module_version,
+    schema_version: metaRaw.schema_version,
+    snapshot_at: metaValidated.success ? metaValidated.data.snapshot_at : undefined,
   };
 
   // Schema-version gate. The --corpus-path flag lets power users point
@@ -472,6 +504,8 @@ async function loadModule(moduleDir: string): Promise<LoadedModule> {
     name: manifest.name,
     codeTitle: manifest.code_title,
     moduleVersion: meta.module_version ?? manifest.module_version,
+    schemaVersion: meta.schema_version,
+    snapshotAt: meta.snapshot_at,
     jurisdiction: manifest.jurisdiction,
     sections,
     definitions,
