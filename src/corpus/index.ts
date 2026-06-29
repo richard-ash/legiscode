@@ -14,6 +14,13 @@
 
 export { type ExitCode, ExitCodes } from "@/storage";
 export { buildCorpus } from "./build-corpus";
+export type {
+  CatalogIndex,
+  CatalogModule,
+  JurisdictionCatalog,
+  JurisdictionEntry,
+} from "./catalog";
+export { CatalogIndexSchema, CatalogModuleSchema, JurisdictionCatalogSchema } from "./catalog";
 export { errorsToExitCode } from "./errors";
 export type {
   BuildCorpusOptions,
