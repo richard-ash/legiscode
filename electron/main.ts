@@ -14,6 +14,7 @@ import { app, BrowserWindow, screen, session, shell } from "electron";
 import { buildAiHandlers } from "./ai/index";
 import {
   listCorpus,
+  listModules,
   loadCorpus,
   readSection,
   rememberCorpusRoot,
@@ -224,6 +225,7 @@ function registerIpcHandlers(): void {
     "ai:hasApiKey": (req) => ai["ai:hasApiKey"](req),
     "ai:setApiKey": (req) => ai["ai:setApiKey"](req),
     "ai:clearApiKey": (req) => ai["ai:clearApiKey"](req),
+    "modules:list": () => listModules(),
   };
   registerHandlers(handlers);
 }

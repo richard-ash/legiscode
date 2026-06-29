@@ -97,6 +97,9 @@ const stubApi: Api = {
     clearApiKey: vi.fn().mockResolvedValue({ ok: true }),
     onEvent: vi.fn().mockReturnValue(() => {}),
   },
+  modules: {
+    list: vi.fn().mockResolvedValue({ ok: true, value: [] }),
+  },
 };
 
 beforeEach(() => {

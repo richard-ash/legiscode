@@ -50,6 +50,8 @@ export type {
   CorpusReadResult,
   CorpusSectionView,
   CorpusTreeNode,
+  ModuleInfo,
+  ModulesListResult,
   Result,
   ShellOpenExternalError,
   ShellOpenExternalErrorKind,
@@ -62,6 +64,7 @@ import type {
   CorpusListResult,
   CorpusReadRequest,
   CorpusReadResult,
+  ModulesListResult,
   ShellOpenExternalRequest,
   ShellOpenExternalResult,
 } from "@/corpus/wire";
@@ -125,6 +128,7 @@ export interface ChannelMap {
   "ai:hasApiKey": { request: AiHasApiKeyRequest; response: AiHasApiKeyResult };
   "ai:setApiKey": { request: AiSetApiKeyRequest; response: AiSetApiKeyResult };
   "ai:clearApiKey": { request: AiClearApiKeyRequest; response: AiClearApiKeyResult };
+  "modules:list": { request: undefined; response: ModulesListResult };
 }
 
 export type Channel = keyof ChannelMap;
@@ -149,6 +153,7 @@ export const CHANNELS = [
   "ai:hasApiKey",
   "ai:setApiKey",
   "ai:clearApiKey",
+  "modules:list",
 ] as const;
 
 /**
@@ -217,6 +222,9 @@ export interface Api {
      *  subscription is held by the preload bridge; the renderer never
      *  touches ipcRenderer directly. */
     onEvent: (callback: (event: AiEvent) => void) => () => void;
+  };
+  modules: {
+    list: () => Promise<ModulesListResult>;
   };
 }
 
