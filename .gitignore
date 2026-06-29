@@ -36,7 +36,10 @@ Temporary Items
 
 # End of https://www.toptal.com/developers/gitignore/api/macos
 
-.claude
+.claude/*
+# Track shared project skills (decompose, agent-tick — see docs/AGENTS.md);
+# keep local settings, caches, and session state out.
+!.claude/skills/
 
 ### Project ###
 node_modules/

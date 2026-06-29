@@ -106,9 +106,17 @@ A live watcher will land alongside the scheduled corpus-refresh pipeline
 (see TODOS.md "Scheduled corpus refresh workflow") — until then, app
 restart is the contract.
 
+## Autonomous agent loop
+
+Optional local workflow for delegating implementation: write an epic GitHub
+issue, `/decompose` it into ~500-LOC vertical sub-issues, then `/loop 15m
+/agent-tick` to have agents open small PRs you review and merge. Runs on your
+machine via gstack `/loop`. Full runbook: [`AGENTS.md`](./AGENTS.md).
+
 ## Documentation
 
 - [`DESIGN.md`](../DESIGN.md) — visual design system
 - [`README.md`](../README.md) — quick start
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) — module map and runtime topology
+- [`AGENTS.md`](./AGENTS.md) — autonomous agent loop (delegated implementation)
 - `~/.gstack/projects/legiscode/` — feature plans, ADRs, branch decomposition (out of tree)
